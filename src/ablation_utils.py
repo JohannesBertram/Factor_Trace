@@ -15,7 +15,7 @@ def assign_factors_to_classes(root_node, all_targets, n_classes):
 
     Parameters
     ----------
-    root_node   : tree_trace root (has 'children' list)
+    root_node   : bft root (has 'children' list)
     all_targets : (n_samples,) int array of class labels
     n_classes   : number of classes
 
