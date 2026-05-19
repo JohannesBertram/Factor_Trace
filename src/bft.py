@@ -26,9 +26,12 @@ Public entry point
         2. Layer-dict mode (model-agnostic, works with CNNs, transformers, etc.):
                bft(layer_dicts, ...)
            layer_dicts is a list of dicts, one per layer in forward order:
-               {'type': 'fc' | 'conv',
-                'weight': ndarray,       # fc: (n_out,n_in); conv: (C_out,C_in,kH,kW)
-                'input_fmap': ndarray}   # fc: (N,n_in); conv: (N,C_in,H,W)
+               {'type': 'fc' | 'conv' | 'attn',
+                'weight': ndarray,          # fc: (n_out,n_in); conv: (C_out,C_in,kH,kW);
+                                            # attn: (d_v,d_model) value-projection W_V
+                'input_fmap': ndarray,      # fc: (N,n_in); conv: (N,C_in,H,W);
+                                            # attn: (N,T,d_model) all token activations
+                'attn_weights': ndarray}    # attn only: (N,T) CLS-row scores (head-avg'd)
 
 Model protocol (mode 1)
 -----------------------
@@ -424,33 +427,97 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
     return joint
 
 
+def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=None,
+                               eps=1e-8, stimulus_threshold=0.0, neuron_weights=None):
+    """Compute the normalised, stimulus-weighted joint arbor matrix for an attention layer.
+
+    Attention mixes token representations using data-dependent weights (the softmax scores),
+    making it impossible to form a single fixed weight matrix as in FC or conv layers.  The
+    solution used here is to collapse the token sequence into a single *attention-weighted
+    effective input* per sample:
+
+        x_eff[n] = sum_j  attn_weights_cls[n, j] * x_tokens[n, j]   # (N, d_model)
+
+    Because attn_weights_cls are non-negative (softmax output), x_eff is a convex combination
+    of the token activations.  We then form the joint arbor exactly as for an FC layer with
+    W_V as the weight matrix and x_eff as the input.  This means each column of the joint
+    arbor represents the attention-reweighted synaptic contribution of each input dimension
+    to one output dimension of the value projection.
+
+    The approximation discards per-token spatial resolution (all tokens are blended into one
+    effective vector).  Use the ``attn_weights_cls`` stored in the returned BFT node to
+    recover per-token attribution in downstream analysis.
+
+    Parameters
+    ----------
+    W_V               : (d_v, d_model) — value-projection weight matrix.
+                        For multi-head attention, pass the full concatenated W_V
+                        (H * d_head_v, d_model).
+    x_tokens          : (N, T, d_model) — all T token activations entering the attention
+                        sublayer (after layer-norm), for each of the N samples.
+    attn_weights_cls  : (N, T) — attention scores from the CLS token to every token,
+                        already softmax-normalised (non-negative, sum≈1 per row).
+                        For multi-head, pass the head-averaged CLS row.
+    stimulus_weights  : (N,) per-sample importance propagated from the layer above; None
+                        means all samples are equally weighted.
+    eps               : stabiliser for L2 norm division (internal only)
+    stimulus_threshold : fraction in [0, 1) — zeros the lowest-weight stimuli after
+                        applying stimulus_weights (matches behaviour of FC/conv variants).
+    neuron_weights    : (d_v,) per-output-dimension importance from the layer above
+                        (e.g., from W_O tracing); None = all dimensions equally weighted.
+
+    Returns
+    -------
+    joint_arbor : (N, d_v * d_model), signed — caller clips as needed.
+                  Same layout as compute_joint_arbors_normalized: each block of d_model
+                  columns corresponds to one output dimension of W_V.
+    """
+    # Collapse the token sequence into a single attention-weighted effective input.
+    # attn_weights_cls has shape (N, T); x_tokens has shape (N, T, d_model).
+    # The einsum computes, for each sample n: sum_j attn[n,j] * x_tokens[n,j,:]
+    x_eff = np.einsum('nt,ntd->nd', attn_weights_cls, x_tokens)  # (N, d_model)
+
+    # Delegate to the FC arbor function: x_eff acts as a 2-D activation matrix.
+    # All stimulus weighting, normalisation, and threshold logic is handled there.
+    return compute_joint_arbors_normalized(W_V, x_eff, stimulus_weights,
+                                           eps=eps,
+                                           stimulus_threshold=stimulus_threshold,
+                                           neuron_weights=neuron_weights)
+
+
 def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         method='cumvar', threshold=0.95, min_k=1, min_cumvar=None,
                         stimulus_threshold=0.0, neuron_weights=None,
                         random_state=0, max_iter=20000, init=None, l1_ratio=0,
-                        layer_type='fc', conv_pool_method='avg', k_fixed=None):
+                        layer_type='fc', conv_pool_method='avg', k_fixed=None,
+                        attn_weights=None):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
     Parameters
     ----------
-    W                   : (n_out, n_in) for 'fc'; (C_out, C_in, kH, kW) for 'conv'
-    act_input           : (n_samples, n_in) for 'fc'; (N, C_in, H, W) for 'conv'
+    W                   : (n_out, n_in) for 'fc'; (C_out, C_in, kH, kW) for 'conv';
+                          (d_v, d_model) for 'attn' (the value-projection W_V)
+    act_input           : (n_samples, n_in) for 'fc'; (N, C_in, H, W) for 'conv';
+                          (N, T, d_model) for 'attn' (all token activations, post-LN)
     stimulus_weights    : (n_samples,) per-sample importance from the layer above
     k_max               : upper bound on NMF rank; None uses auto default.
                           Ignored when k_fixed is set.
     method, threshold, min_k, min_cumvar : rank-selection criteria for auto_nmf_pipeline
     stimulus_threshold  : passed through to the arbor-computation function
-    neuron_weights      : per-neuron (FC) or per-channel (conv) importance; passed through
+    neuron_weights      : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
     random_state, max_iter, init, l1_ratio : passed through to run_nmf
-    layer_type          : 'fc' (default) or 'conv' — selects the arbor function
+    layer_type          : 'fc' (default), 'conv', or 'attn' — selects the arbor function
     conv_pool_method    : spatial pooling for conv arbors: 'avg', 'max', 'center'
     k_fixed             : int or None — when set, use exactly this many components
                           (calls full_nmf_pipeline directly at k_fixed, bypasses auto)
+    attn_weights        : (N, T) or None — required when layer_type=='attn'.
+                          CLS-row attention scores (head-averaged, softmax-normalised).
 
     Returns
     -------
     img_factors        : (n_samples, K*)
-    neural_factors     : (n_out * n_in, K*) — for conv: (C_out * C_in * kH * kW, K*)
+    neural_factors     : (n_out * n_in, K*) — for conv: (C_out * C_in * kH * kW, K*);
+                         for attn: (d_v * d_model, K*)
     lambdas            : (K*,) descending
     joint_arbor        : positive joint matrix (pre-NMF)
     neg_img_factors    : (n_samples, K*) or None
@@ -463,6 +530,18 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                                               stimulus_threshold=stimulus_threshold,
                                               neuron_weights=neuron_weights,
                                               pool_method=conv_pool_method)
+    elif layer_type == 'attn':
+        # Attention layers require the full token tensor and the CLS attention scores.
+        # attn_weights must be provided as a (N, T) array when layer_type=='attn'.
+        if attn_weights is None:
+            raise ValueError(
+                "layer_type='attn' requires attn_weights (N, T) CLS-row scores. "
+                "Add 'attn_weights' to the layer dict."
+            )
+        raw_joint = compute_attn_joint_arbors(W, act_input, attn_weights,
+                                              stimulus_weights=stimulus_weights,
+                                              stimulus_threshold=stimulus_threshold,
+                                              neuron_weights=neuron_weights)
     else:
         raw_joint = compute_joint_arbors_normalized(W, act_input, stimulus_weights,
                                                     stimulus_threshold=stimulus_threshold,
@@ -522,7 +601,7 @@ _WEIGHTING_OPTIONS = ('img_factor', 'factor_project_raw', 'factor_project_correc
 
 
 def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
-                               layer_type='fc'):
+                               layer_type='fc', attn_weights=None):
     """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
 
     Called at the layer-L → layer-(L-1) transition.  Returns importance signals
@@ -533,32 +612,56 @@ def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
     modes produce a valid (N,) stimulus weight vector.  'img_factor' is the
     recommended default for conv-heavy models as it needs no projection.
 
+    For attention layers (layer_type='attn'), the token tensor is collapsed to a
+    single attention-weighted effective input before projections, mirroring the
+    arbor-computation step.  All weighting modes then operate on this effective
+    2-D matrix exactly as for FC layers.
+
     Parameters
     ----------
     weighting        : str — one of the _WEIGHTING_OPTIONS
     img_f            : (n_samples, K) NMF img_factors from layer L
     neu_f            : (n_out*n_in, K) NMF neural_factors from layer L
                        for conv: (C_out * C_in * kH * kW, K)
-    W                : weight matrix of layer L (FC: (n_out,n_in); conv: (C_out,C_in,kH,kW))
+                       for attn: (d_v * d_model, K)
+    W                : weight matrix of layer L
+                       FC: (n_out, n_in); conv: (C_out, C_in, kH, kW);
+                       attn: (d_v, d_model) value projection W_V
     act_into_current : activations flowing from layer L-1 into layer L
-                       FC: (n_samples, n_in); conv: (n_samples, C_in, H, W)
+                       FC:   (n_samples, n_in)
+                       conv: (n_samples, C_in, H, W)
+                       attn: (n_samples, T, d_model) — all token activations
     fi               : int — factor index to trace
-    layer_type       : 'fc' (default) or 'conv'
+    layer_type       : 'fc' (default), 'conv', or 'attn'
+    attn_weights     : (N, T) or None — required when layer_type=='attn'.
+                       CLS-row attention scores (same array used in arbor construction).
 
     Returns
     -------
     sw : (n_samples,) stimulus weights for layer L-1's NMF
     nw : neuron weights for layer L-1's NMF, or None
-         FC: shape (n_in,); conv: shape (C_in,) representing per-channel importance
+         FC: shape (n_in,); conv: shape (C_in,) representing per-channel importance;
+         attn: shape (d_model,) representing per-input-dimension importance
     """
-    # For conv layers, spatially average-pool the input feature map to (N, C_in)
-    # so it can be used in dot-product projections the same way as an FC input.
+    # Reduce any 3-D or 4-D input to a 2-D (N, features) matrix so that all
+    # weighting modes below can apply uniform dot-product logic.
     if layer_type == 'conv':
         C_out, C_in, kH, kW = W.shape
         n_out_flat = C_out
         n_in_flat  = C_in * kH * kW
         # Global average pool: (N, C_in, H, W) → (N, C_in)
         act_2d = act_into_current.mean(axis=(2, 3))
+    elif layer_type == 'attn':
+        # Collapse the token sequence to the attention-weighted effective input.
+        # This mirrors compute_attn_joint_arbors exactly: x_eff[n] = sum_j A[n,j]*x[n,j]
+        # The result is (N, d_model), matching the FC input layout for W_V.
+        if attn_weights is None:
+            raise ValueError(
+                "_compute_trace_transition: attn_weights required for layer_type='attn'."
+            )
+        # attn_weights: (N, T), act_into_current: (N, T, d_model) → x_eff: (N, d_model)
+        act_2d = np.einsum('nt,ntd->nd', attn_weights, act_into_current)
+        n_out_flat, n_in_flat = W.shape   # (d_v, d_model)
     else:
         n_out_flat, n_in_flat = W.shape
         act_2d = act_into_current
@@ -702,19 +805,24 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
     # ── Resolve inputs from the two calling conventions ───────────────────────
     if isinstance(model, list):
         # Layer-dict mode: extract weights, activations, and types from the dicts.
-        layer_dicts = model
-        weights     = [d['weight']     for d in layer_dicts]
-        inputs      = [d['input_fmap'] for d in layer_dicts]
-        types       = [d.get('type', 'fc') for d in layer_dicts]
-        names       = [d.get('name', str(i)) for i, d in enumerate(layer_dicts)]
-        linear_idxs = [None] * len(layer_dicts)
+        layer_dicts   = model
+        weights       = [d['weight']     for d in layer_dicts]
+        inputs        = [d['input_fmap'] for d in layer_dicts]
+        types         = [d.get('type', 'fc') for d in layer_dicts]
+        names         = [d.get('name', str(i)) for i, d in enumerate(layer_dicts)]
+        linear_idxs   = [None] * len(layer_dicts)
+        # attn_weights_list holds the (N, T) CLS attention scores for each layer that
+        # has type=='attn'; None for all other layer types.  Kept as a parallel list so
+        # _trace_node can look up the scores by layer index without touching layer_dicts.
+        attn_weights_list = [d.get('attn_weights') for d in layer_dicts]
     else:
-        # Model-protocol mode: all layers assumed FC.
-        linear_idxs = model.linear_layer_indices()
-        weights     = [model.layers[li].weight.detach().numpy() for li in linear_idxs]
-        inputs      = layer_inputs_list
-        types       = ['fc'] * len(linear_idxs)
-        names       = [str(i) for i in range(len(linear_idxs))]
+        # Model-protocol mode: all layers assumed FC; no attention layers.
+        linear_idxs       = model.linear_layer_indices()
+        weights           = [model.layers[li].weight.detach().numpy() for li in linear_idxs]
+        inputs            = layer_inputs_list
+        types             = ['fc'] * len(linear_idxs)
+        names             = [str(i) for i in range(len(linear_idxs))]
+        attn_weights_list = [None] * len(linear_idxs)
 
     n_layers = len(weights)
     k_list  = list(k_max)      if isinstance(k_max,      (list, tuple)) else [k_max]      * n_layers
@@ -735,6 +843,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         act_input = inputs[l_idx]
         ltype     = types[l_idx]
         li        = linear_idxs[l_idx]
+        # Retrieve the CLS-row attention scores for this layer (None for non-attn layers).
+        attn_w    = attn_weights_list[l_idx]
 
         # Load from cache if this leaf path was previously computed.
         # Cache is keyed by the full factor-index path from root to this node.
@@ -746,6 +856,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
 
         # Run one BFT step: build the joint arbor matrix for this layer and
         # decompose it with NMF using the importance weights from the layer above.
+        # For 'attn' layers, attn_w is forwarded so compute_attn_joint_arbors is used.
         img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
@@ -754,6 +865,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
             stimulus_threshold=stimulus_threshold, neuron_weights=neuron_weights,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
+            attn_weights=attn_w,
         )
         # active_samples: how many stimuli have non-negligible weight.
         # When weights are uniform (std ≈ 0) every sample is active.
@@ -775,6 +887,10 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
             'neuron_weights_in': neuron_weights.copy() if neuron_weights is not None else None,
             'path': path, 'children': [],
         }
+        # For attention layers, store the CLS attention scores in the node so downstream
+        # analysis can recover per-token attribution (e.g., spatial grounding on patches).
+        if ltype == 'attn' and attn_w is not None:
+            node['attn_weights'] = attn_w
         if li is not None:
             node['linear_idx'] = li
 
@@ -785,9 +901,11 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
             for fi in range(min(nb_list[l_idx], len(lams))):
                 # Compute the importance signal to pass to the preceding layer
                 # based on factor fi's loadings and the chosen weighting mode.
+                # For 'attn' layers, attn_w is passed so the effective input can be
+                # reconstructed when computing projections in the transition.
                 sw_fi, nw_fi = _compute_trace_transition(
                     weighting, img_f, neu_f, W, act_input, fi=fi,
-                    layer_type=ltype)
+                    layer_type=ltype, attn_weights=attn_w)
                 node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
 
         # Persist completed leaf-path nodes to disk so reruns can skip NMF.
