@@ -111,6 +111,42 @@ def sort_by_lambda(W, H, lambdas):
     return W[:, idx], H[:, idx], lambdas[idx], idx
 
 
+def _partial_recon_errors(X, W, H):
+    """Relative Frobenius reconstruction error for K=1..kmax using a k_max NMF fit.
+
+    W : (N, kmax)        — sqrt(lambda)-scaled img_factors, sorted descending
+    H : (features, kmax) — sqrt(lambda)-scaled neural_factors, sorted descending
+    Returns recon_errors : (kmax,) where recon_errors[k] = ||X - X_{k+1}||_F / ||X||_F
+    """
+    X_norm_sq = float(np.dot(X.ravel(), X.ravel()))
+    if X_norm_sq == 0:
+        return np.zeros(W.shape[1])
+    kmax = W.shape[1]
+    # a[k] = W[:,k]^T @ X @ H[:,k] — cross term for component k
+    WtX = W.T @ X                           # (kmax, features)
+    a   = np.einsum('kf,fk->k', WtX, H)    # (kmax,)
+    # Gram matrices for ||X_K||^2 = sum_{j,l<K} GW[j,l] * GH[j,l]
+    G   = (W.T @ W) * (H.T @ H)            # element-wise Gram product, (kmax, kmax)
+    recon_errors = np.empty(kmax)
+    for k in range(kmax):
+        K = k + 1
+        err_sq = X_norm_sq - 2.0 * a[:K].sum() + G[:K, :K].sum()
+        recon_errors[k] = np.sqrt(max(0.0, err_sq) / X_norm_sq)
+    return recon_errors
+
+
+def _select_k_from_recon(recon_errors, threshold, min_k=1):
+    """Smallest K where relative reconstruction error <= threshold.
+
+    recon_errors : (kmax,) array from _partial_recon_errors (index k → rank K=k+1)
+    threshold    : maximum acceptable relative Frobenius error (e.g. 0.2 = 20%)
+    """
+    passing = np.where(recon_errors <= threshold)[0]
+    if len(passing) == 0:
+        return len(recon_errors)    # even kmax doesn't meet threshold — use all
+    return max(min_k, int(passing[0]) + 1)
+
+
 def _select_k_single(lambdas, method, threshold, min_k):
     """Single-method K selection. lambdas must be a numpy array, sorted descending."""
     if method == 'cumvar':
@@ -141,7 +177,8 @@ def _select_k_single(lambdas, method, threshold, min_k):
         return len(lambdas) - 1
     else:
         raise ValueError(
-            f"Unknown method '{method}'. Choose 'cumvar', 'marginal', 'elbow', or 'fraction'."
+            f"Unknown method '{method}'. Choose 'cumvar', 'marginal', 'elbow', or 'fraction'. "
+            f"'structural' and 'structural_recon' are resolved before calling this function."
         )
 
 
@@ -153,14 +190,17 @@ def select_k_from_lambdas(lambdas, method='cumvar', threshold=0.95, min_k=1,
     ----------
     lambdas    : (K,) array — factor importances, assumed sorted descending
     method     : str or list[str]
-                   'cumvar'     smallest K where Σλ[:K]/Σλ >= threshold
-                   'marginal'   largest K where λ[k]/λ[0] >= threshold (drop-ratio)
-                   'elbow'      K at the maximum second-difference of the λ curve
-                   'fraction'   K at the first consecutive-ratio drop >= 1.5
-                   'structural' alias for ['fraction', 'cumvar'] — fraction as primary
-                                signal, cumvar floor at threshold (recommended default)
-                   list         ['<structural>', 'cumvar'] — K* = max(k_structural,
-                                k_cumvar), where both use the same threshold
+                   'cumvar'          smallest K where Σλ[:K]/Σλ >= threshold
+                   'marginal'        largest K where λ[k]/λ[0] >= threshold (drop-ratio)
+                   'elbow'           K at the maximum second-difference of the λ curve
+                   'fraction'        K at the first consecutive-ratio drop >= 1.5
+                   'structural'      alias for ['fraction', 'cumvar'] — fraction as primary
+                                     signal, cumvar floor at threshold
+                   'structural_recon' fraction as primary signal, actual reconstruction
+                                     error floor at recon_threshold (requires auto_nmf_pipeline
+                                     to have access to X; not resolved here)
+                   list              ['<structural>', 'cumvar'] — K* = max(k_structural,
+                                     k_cumvar), where both use the same threshold
     threshold  : float — cumvar fraction or drop-ratio threshold; meaning is
                  method-specific (see above)
     min_k      : int — hard lower bound on returned K
@@ -221,7 +261,7 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
 
 def auto_nmf_pipeline(X, k_max=None, method='cumvar', threshold=0.95,
                       min_k=1, min_cumvar=None, random_state=0, max_iter=20000,
-                      init=None, l1_ratio=0):
+                      init=None, l1_ratio=0, recon_threshold=None):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
     A single NMF fit is performed at k_max; components are pruned to K*
@@ -232,13 +272,21 @@ def auto_nmf_pipeline(X, k_max=None, method='cumvar', threshold=0.95,
 
     Parameters
     ----------
-    X          : (n_samples, n_features) non-negative matrix
-    k_max      : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
-    method     : str or list — passed to select_k_from_lambdas; 'structural'
-                 recommended (fraction as primary, cumvar floor at threshold)
-    threshold  : float — passed to select_k_from_lambdas
-    min_k      : int — minimum number of components to return
-    min_cumvar : float or None — explicit cumvar floor; passed to select_k_from_lambdas
+    X               : (n_samples, n_features) non-negative matrix
+    k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
+    method          : str or list — passed to select_k_from_lambdas; 'structural'
+                      recommended (fraction as primary, cumvar floor at threshold).
+                      Use 'structural_recon' to replace the cumvar floor with an
+                      actual reconstruction-error floor (requires recon_threshold).
+    threshold       : float — passed to select_k_from_lambdas
+    min_k           : int — minimum number of components to return
+    min_cumvar      : float or None — explicit cumvar floor; passed to select_k_from_lambdas
+    recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
+                      error (0 = perfect, 1 = no reconstruction). When set, K* is at least
+                      large enough that ||X - X_K||_F / ||X||_F <= recon_threshold.
+                      Required when method='structural_recon'; also acts as a standalone
+                      floor for any other method when provided.
+                      Default None = disabled. Recommended value: 0.2 (20% error).
     random_state, max_iter, init, l1_ratio : passed to run_nmf
 
     Returns
@@ -255,8 +303,30 @@ def auto_nmf_pipeline(X, k_max=None, method='cumvar', threshold=0.95,
     img_f, neu_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
                                             max_iter=max_iter, init=init,
                                             l1_ratio=l1_ratio)
-    k_star = select_k_from_lambdas(lams, method=method, threshold=threshold,
-                                   min_k=min_k, min_cumvar=min_cumvar)
+
+    # 'structural_recon': fraction drop as primary + actual reconstruction error as floor.
+    # Handled here (not in select_k_from_lambdas) because X is required to compute recon errors.
+    if method == 'structural_recon':
+        rt = recon_threshold if recon_threshold is not None else 0.2
+        recon_errs = _partial_recon_errors(X, img_f, neu_f)
+        k_frac  = _select_k_single(lams, 'fraction', threshold, min_k)
+        k_recon = _select_k_from_recon(recon_errs, rt, min_k)
+        k_star  = max(k_frac, k_recon)
+    else:
+        k_star = select_k_from_lambdas(lams, method=method, threshold=threshold,
+                                       min_k=min_k, min_cumvar=min_cumvar)
+        # Optional standalone reconstruction error floor on top of any other method.
+        if recon_threshold is not None:
+            recon_errs = _partial_recon_errors(X, img_f, neu_f)
+            k_recon    = _select_k_from_recon(recon_errs, recon_threshold, min_k)
+            k_star     = max(k_star, k_recon)
+
+    # Apply min_cumvar floor when 'structural_recon' is used (bypass select_k_from_lambdas path).
+    if method == 'structural_recon' and min_cumvar is not None:
+        k_floor = _select_k_single(lams, 'cumvar', min_cumvar, min_k)
+        k_star  = max(k_star, k_floor)
+
+    k_star = max(min_k, min(k_star, len(lams)))
     return img_f[:, :k_star], neu_f[:, :k_star], lams[:k_star], k_star
 
 
@@ -491,7 +561,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         stimulus_threshold=0.0, neuron_weights=None,
                         random_state=0, max_iter=20000, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
-                        attn_weights=None, verbose=0, _layer_tag=''):
+                        attn_weights=None, recon_threshold=None,
+                        verbose=0, _layer_tag=''):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
     Parameters
@@ -577,6 +648,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             pos_joint, k_max=k_max, method=method, threshold=threshold,
             min_k=min_k, min_cumvar=min_cumvar,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
+            recon_threshold=recon_threshold,
         )
     if verbose >= 2:
         print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
@@ -597,6 +669,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                 neg_joint, k_max=k_max, method=method, threshold=threshold,
                 min_k=min_k, min_cumvar=min_cumvar,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
+                recon_threshold=recon_threshold,
             )
         if verbose >= 2:
             print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
@@ -852,7 +925,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         weighting='img_factor', random_state=0, min_k=1, max_iter=20000,
         init=None, l1_ratio=0, k_fixed=None, cache_dir=None,
         conv_pool_method='avg', factor_quantile=0.0, cosine_mix=0.5,
-        verbose=0):
+        recon_threshold=None, verbose=0):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -924,6 +997,12 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           avoid redundant NMF computation (useful for large models).
                           None disables caching.
     conv_pool_method    : str — spatial pooling for conv layers: 'avg', 'max', 'center'
+    recon_threshold     : float or None — maximum acceptable relative Frobenius
+                          reconstruction error for the K*-component truncation of the
+                          k_max NMF fit. Used as the floor in method='structural_recon',
+                          or as a standalone floor on any other method when provided.
+                          0 = perfect reconstruction (forces K=kmax), 1 = no constraint.
+                          Default None = disabled. Recommended with 'structural_recon': 0.2.
     verbose             : int — verbosity level (default 0 = silent).
                           1 — print one line per layer/branch showing layer index,
                               name, type, and current branch path.
@@ -1019,7 +1098,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
             stimulus_threshold=stimulus_threshold, neuron_weights=neuron_weights,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
-            attn_weights=attn_w,
+            attn_weights=attn_w, recon_threshold=recon_threshold,
             verbose=verbose, _layer_tag=layer_tag,
         )
         if verbose >= 2:

@@ -72,24 +72,20 @@ def extract_tree_nodes(root_node):
 
 # ── 2. Node activations ───────────────────────────────────────────────────────
 
-def compute_node_activations(tree_nodes, stimulus_indices, mode='stimulus_weights'):
+def compute_node_activations(tree_nodes, stimulus_indices):
     """Compute a scalar per-node activation for a set of stimuli.
+
+    Root node:      mean img_factors[stimulus_indices, 0].
+    Non-root nodes: mean stimulus_weights_in[stimulus_indices].
+
+    stimulus_weights_in captures the importance propagated from the parent branch —
+    the direct measure of "how relevant is this branch to these stimuli?"  For the
+    root the weights are uniform (1.0), so the top-factor loading is used instead.
 
     Parameters
     ----------
     tree_nodes       : list[dict]  from extract_tree_nodes()
     stimulus_indices : array-like of int — indices into the N-sample axis
-    mode             : str
-        'stimulus_weights'  (default)
-            Root node:      mean img_factors[stimulus_indices, 0].
-            Non-root nodes: mean stimulus_weights_in[stimulus_indices].
-            Rationale: stimulus_weights_in captures the importance propagated from
-            the parent branch — the direct measure of "how relevant is this branch
-            to these stimuli?"  For the root the weights are uniform (1.0), so the
-            top-factor loading is used instead.
-        'img_factor_0'
-            All nodes:      mean img_factors[stimulus_indices, 0].
-            Useful for comparing branches where stimulus propagation differs.
 
     Returns
     -------
@@ -99,15 +95,10 @@ def compute_node_activations(tree_nodes, stimulus_indices, mode='stimulus_weight
     activations = {}
     for e in tree_nodes:
         nid = e['node_id']
-        if mode == 'stimulus_weights':
-            if e['parent_id'] is None:
-                vals = e['img_factors'][s_idx, 0]
-            else:
-                vals = e['stimulus_weights_in'][s_idx]
-        elif mode == 'img_factor_0':
+        if e['parent_id'] is None:
             vals = e['img_factors'][s_idx, 0]
         else:
-            raise ValueError(f"Unknown mode {mode!r}. Use 'stimulus_weights' or 'img_factor_0'.")
+            vals = e['stimulus_weights_in'][s_idx]
         activations[nid] = float(np.mean(vals))
     return activations
 
@@ -120,6 +111,7 @@ def _hierarchical_layout(tree_nodes):
     Root is at the top (highest y = layer_idx of root).
     Leaves are at the bottom (y = 0).
     Leaf x positions are assigned sequentially; parent x is the mean of children.
+    Supports multiple roots (e.g. factor-level trees).
 
     Returns
     -------
@@ -146,8 +138,9 @@ def _hierarchical_layout(tree_nodes):
         y = float(by_id[nid]['layer_idx'])
         positions[nid] = (x, y)
 
-    root_id = next(e['node_id'] for e in tree_nodes if e['parent_id'] is None)
-    _assign(root_id)
+    for e in tree_nodes:
+        if e['parent_id'] is None:
+            _assign(e['node_id'])
     return positions
 
 
@@ -199,16 +192,19 @@ def plot_factor_tree(
     labels = {}
     for e in tree_nodes:
         nid   = e['node_id']
-        depth = len(e['path'])
         lname = e['layer_name']
-        if depth == 0:
-            labels[nid] = f"L{e['layer_idx']}\n{lname}"
+        if 'factor_k' in e:
+            labels[nid] = f"L{e['layer_idx']}\nf{e['factor_k']}"
         else:
-            labels[nid] = f"L{e['layer_idx']}\nf{e['factor_idx']}"
+            depth = len(e['path'])
+            if depth == 0:
+                labels[nid] = f"L{e['layer_idx']}\n{lname}"
+            else:
+                labels[nid] = f"L{e['layer_idx']}\nf{e['factor_idx']}"
 
     n_nodes = len(tree_nodes)
     if ax is None:
-        fig, ax = plt.subplots(figsize=(max(4.0, n_nodes * 1.4), 4.0))
+        fig, ax = plt.subplots(figsize=(max(6.0, n_nodes * 0.9), 4.0))
     else:
         fig = ax.get_figure()
 
@@ -234,7 +230,77 @@ def plot_factor_tree(
     return fig, ax
 
 
-# ── 4. Factor fingerprints ────────────────────────────────────────────────────
+# ── 4. Factor-level tree (one node per (path, k)) ────────────────────────────
+
+def extract_factor_tree_nodes(root_node):
+    """Expand BFT tree into factor-level nodes — one node per (path_tuple, factor_k).
+
+    Each of the K NMF factors at every BFT path node becomes a separate visual
+    node, making all leaf factors visible in tree diagrams.
+
+    Connectivity:
+        Root factors  (path=[]):  parent_id = None
+        Other factors (path=P):   parent_id = (P[:-1], P[-1])
+            — i.e. the specific factor at the parent path that spawned this branch.
+
+    Parameters
+    ----------
+    root_node : dict — BFT root returned by bft()
+
+    Returns
+    -------
+    list[dict] with keys: node_id, parent_id, layer_idx, layer_name, layer_type,
+        path, factor_k, img_factors, lambdas, stimulus_weights_in
+    """
+    path_nodes = {}
+    queue = [root_node]
+    while queue:
+        node = queue.pop(0)
+        path_nodes[tuple(node['path'])] = node
+        queue.extend(node['children'])
+
+    factor_nodes = []
+    for pt, node in path_nodes.items():
+        K = node['img_factors'].shape[1]
+        parent_id = None if len(pt) == 0 else (pt[:-1], pt[-1])
+        for k in range(K):
+            factor_nodes.append({
+                'node_id':             (pt, k),
+                'parent_id':           parent_id,
+                'layer_idx':           node['layer_idx'],
+                'layer_name':          node['layer_name'],
+                'layer_type':          node['layer_type'],
+                'path':                node['path'],
+                'factor_k':            k,
+                'img_factors':         node['img_factors'],
+                'lambdas':             node['lambdas'],
+                'stimulus_weights_in': node['stimulus_weights_in'],
+            })
+    return factor_nodes
+
+
+def compute_factor_activations(factor_nodes, stimulus_indices):
+    """Compute per-node activation for a factor-level tree.
+
+    For each node the activation is the mean of img_factors[stimulus_indices, factor_k].
+
+    Parameters
+    ----------
+    factor_nodes     : list[dict]  from extract_factor_tree_nodes()
+    stimulus_indices : array-like of int
+
+    Returns
+    -------
+    dict  {node_id: float}
+    """
+    s_idx = np.asarray(stimulus_indices)
+    return {
+        e['node_id']: float(e['img_factors'][s_idx, e['factor_k']].mean())
+        for e in factor_nodes
+    }
+
+
+# ── 6. Factor fingerprints ────────────────────────────────────────────────────
 
 def extract_factor_fingerprint(root_node, stimulus_index):
     """Concatenate img_factors[s, :] for every node in the BFT tree (BFS order).
@@ -276,33 +342,70 @@ def extract_fingerprint_matrix(root_node, stimulus_indices):
     ])
 
 
-def compute_stimulus_similarity(fingerprint_matrix, metric='cosine'):
-    """Pairwise stimulus similarity from fingerprint vectors.
+def compute_stimulus_similarity(fingerprint_matrix):
+    """Pairwise cosine similarity from fingerprint vectors.
 
     Parameters
     ----------
     fingerprint_matrix : (n_stimuli, fingerprint_dim) array
-    metric             : 'cosine' | 'correlation'
-        'cosine'       → cosine similarity; range [-1, 1]
-        'correlation'  → Pearson correlation; range [-1, 1]
 
     Returns
     -------
-    np.ndarray  (n_stimuli, n_stimuli) symmetric similarity matrix
+    np.ndarray  (n_stimuli, n_stimuli) symmetric cosine similarity matrix, range [-1, 1]
     """
-    if metric == 'cosine':
-        from sklearn.metrics.pairwise import cosine_similarity
-        return cosine_similarity(fingerprint_matrix)
-    elif metric == 'correlation':
-        F    = fingerprint_matrix - fingerprint_matrix.mean(axis=1, keepdims=True)
-        nrm  = np.linalg.norm(F, axis=1, keepdims=True) + 1e-12
-        Fn   = F / nrm
-        return Fn @ Fn.T
-    else:
-        raise ValueError(f"Unknown metric {metric!r}. Use 'cosine' or 'correlation'.")
+    from sklearn.metrics.pairwise import cosine_similarity
+    return cosine_similarity(fingerprint_matrix)
 
 
-# ── 5. OOD / adversarial projection ──────────────────────────────────────────
+# ── 7. Tree traversal helpers ────────────────────────────────────────────────
+
+def nodes_at_layer(root_node, target_layer_idx):
+    """Return all BFT nodes whose layer_idx equals target_layer_idx.
+
+    Parameters
+    ----------
+    root_node        : dict — BFT root returned by bft()
+    target_layer_idx : int — 0 = input-side (leaves), max = output (root)
+
+    Returns
+    -------
+    list[dict]  matching nodes in BFS order
+    """
+    from collections import deque
+    result, queue = [], deque([root_node])
+    while queue:
+        n = queue.popleft()
+        if n['layer_idx'] == target_layer_idx:
+            result.append(n)
+        queue.extend(n['children'])
+    return result
+
+
+def top_stimuli_factor_activations(factor_nodes, source_path_node, factor_k, top_n):
+    """Select top-N stimuli for a given factor and compute factor-level tree activations.
+
+    Ranks stimuli by img_factors[:, factor_k] at source_path_node, selects the top_n,
+    and returns their mean activation across all factor nodes in the tree.
+
+    Parameters
+    ----------
+    factor_nodes     : list[dict]  from extract_factor_tree_nodes()
+    source_path_node : BFT path node dict whose img_factors column is used for ranking
+    factor_k         : int — which factor column to rank by
+    top_n            : int — number of top stimuli to include
+
+    Returns
+    -------
+    acts    : dict {node_id: float}  — mean factor activation per node for top stimuli
+    top_idx : np.ndarray             — indices of the top_n stimuli
+    """
+    loadings = source_path_node['img_factors'][:, factor_k]
+    top_idx  = np.argsort(loadings)[::-1][:top_n]
+    acts     = compute_factor_activations(factor_nodes, top_idx)
+    return acts, top_idx
+
+
+# ── 8. OOD / adversarial projection ──────────────────────────────────────────
 
 def _nnls_project(neural_factors, pos_joint):
     """Solve NNLS per row of pos_joint against the fixed neural_factors basis.

@@ -189,6 +189,117 @@ def collect_layer_data(model, loader, device, only_correct=True):
     return {'images': imgs, 'targets': tgts, 'confidences': confs, 'layer_data': layer_data}
 
 
+def collect_layer_inputs_generic(
+    model,
+    dataset_or_loader,
+    *,
+    layer_filter=None,
+    label_transform=None,
+    only_correct=True,
+    n_per_class=None,
+    device=None,
+    batch_size=256,
+):
+    """Hook-based layer input collection for any nn.Module.
+
+    Captures inputs to all layers that pass layer_filter, using forward pre-hooks.
+    Works with SimpleMLP, CNNs, and any model that does not require special
+    calling conventions.  Does not require model.linear_layer_indices().
+
+    Parameters
+    ----------
+    model             : nn.Module
+    dataset_or_loader : Dataset or DataLoader
+    layer_filter      : callable(module) -> bool, or None
+                        Selects which layers to capture inputs for.
+                        Default: captures inputs to all nn.Linear layers.
+    label_transform   : callable or None
+    only_correct      : bool — keep only samples where argmax(output) == target.
+                        Set False to collect all samples (e.g. OOD evaluation).
+    n_per_class       : int or None — max samples per transformed class.
+                        Only applied when only_correct=True; ignored otherwise.
+    device            : torch device; defaults to model's first parameter device
+    batch_size        : int — DataLoader batch size when dataset_or_loader is a Dataset
+
+    Returns
+    -------
+    dict with keys:
+        images        : (N, ...) float32 ndarray
+        targets       : (N,) transformed labels
+        digits        : (N,) original dataset labels
+        preds         : (N,) predicted class indices
+        layer_inputs  : list[ndarray] — (N, n_in) per matched layer, forward order
+    """
+    if device is None:
+        device = next(model.parameters()).device
+    if layer_filter is None:
+        layer_filter = lambda m: isinstance(m, nn.Linear)
+
+    named = [(name, mod) for name, mod in model.named_modules() if layer_filter(mod)]
+    store = {name: [] for name, _ in named}
+
+    def make_hook(name):
+        def h(mod, inp):
+            store[name].append(inp[0].detach().cpu())
+        return h
+
+    hooks = [mod.register_forward_pre_hook(make_hook(name)) for name, mod in named]
+
+    if isinstance(dataset_or_loader, DataLoader):
+        loader = dataset_or_loader
+    else:
+        loader = DataLoader(dataset_or_loader, batch_size=batch_size, shuffle=False)
+
+    all_imgs, all_digits, all_preds_list = [], [], []
+
+    model.eval()
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            out = model(x)
+            if isinstance(out, tuple):
+                out = out[0]
+            preds = out.argmax(1).cpu().numpy()
+            all_imgs.append(x.cpu().numpy())
+            all_digits.append(y.numpy())
+            all_preds_list.append(preds)
+
+    for h in hooks:
+        h.remove()
+
+    imgs   = np.concatenate(all_imgs)
+    digits = np.concatenate(all_digits)
+    preds  = np.concatenate(all_preds_list)
+
+    if label_transform is not None:
+        targets = label_transform(torch.tensor(digits)).numpy()
+    else:
+        targets = digits.copy()
+
+    keep = np.arange(len(imgs))
+    if only_correct:
+        keep = keep[preds[keep] == targets[keep]]
+        if n_per_class is not None:
+            per_class = []
+            for cl in np.unique(targets[keep]):
+                cl_idx = keep[targets[keep] == cl][:n_per_class]
+                per_class.append(cl_idx)
+            keep = np.sort(np.concatenate(per_class))
+
+    layer_inputs = []
+    for name, _ in named:
+        arr = torch.cat(store[name]).numpy()
+        layer_inputs.append(arr.reshape(len(arr), -1)[keep])
+
+    return {
+        'images':       imgs[keep],
+        'targets':      targets[keep],
+        'digits':       digits[keep],
+        'preds':        preds[keep],
+        'layer_inputs': layer_inputs,
+    }
+
+
 def collect_layer_inputs(model, dataset, label_transform=None, n_per_class=None, device=None):
     """
     Collect per-sample layer inputs and post-activation outputs for all linear layers.
