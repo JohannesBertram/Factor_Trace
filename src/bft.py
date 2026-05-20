@@ -776,7 +776,7 @@ def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
         # activation that belongs to factor fi.  Selects stimuli that strongly
         # activate fi but not other factors (high selectivity), not just stimuli
         # that activate fi in absolute terms.
-        weighted = img_f #* lams[np.newaxis, :]        # (n_samples, K)
+        weighted = img_f * lams[np.newaxis, :]        # (n_samples, K)
         total    = weighted.sum(axis=1)               # (n_samples,)
         sw       = weighted[:, fi] / (total + _EPS)   # (n_samples,) ∈ [0, 1]
         return sw, None
