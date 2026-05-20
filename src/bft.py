@@ -597,11 +597,13 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
 _EPS = 1e-12
 
 _WEIGHTING_OPTIONS = ('img_factor', 'factor_project_raw', 'factor_project_corrected',
-                      'img_factor_neuron', 'cosine_activation')
+                      'img_factor_neuron', 'cosine_activation', 'cosine_img_mix',
+                      'img_selectivity')
 
 
 def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
-                               layer_type='fc', attn_weights=None, factor_quantile=0.0):
+                               layer_type='fc', attn_weights=None, factor_quantile=0.0,
+                               cosine_mix=0.5, lams=None):
     """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
 
     Called at the layer-L → layer-(L-1) transition.  Returns importance signals
@@ -769,6 +771,62 @@ def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
         cos_sims = act_normed @ proto_unit                                     # (N,) ∈ [-1, 1]
         return np.clip(cos_sims, 0, None), None
 
+    elif weighting == 'img_selectivity':
+        # For each stimulus, compute the fraction of its total lambda-weighted NMF
+        # activation that belongs to factor fi.  Selects stimuli that strongly
+        # activate fi but not other factors (high selectivity), not just stimuli
+        # that activate fi in absolute terms.
+        weighted = img_f #* lams[np.newaxis, :]        # (n_samples, K)
+        total    = weighted.sum(axis=1)               # (n_samples,)
+        sw       = weighted[:, fi] / (total + _EPS)   # (n_samples,) ∈ [0, 1]
+        return sw, None
+
+    elif weighting == 'cosine_img_mix':
+        # Weighted average of 'cosine_activation' and 'img_factor' stimulus weights.
+        # Both signals are normalised to unit sum before blending so that cosine_mix
+        # is a true interpolation coefficient: 0 → pure img_factor, 1 → pure cosine.
+        # Uses the same factor_quantile threshold as 'cosine_activation'.
+
+        # -- cosine_activation component --
+        H_mat = neu_f[:, fi].reshape(n_out_flat, n_in_flat)
+        pos_vals = H_mat[H_mat > 0]
+        if len(pos_vals) > 0:
+            thresh = 0.0 if factor_quantile == 0.0 else float(np.quantile(pos_vals, factor_quantile))
+            active = H_mat > thresh
+            if layer_type == 'conv':
+                W_2d = W.reshape(C_out, C_in * kH * kW)
+            else:
+                W_2d = W
+            eps_w = max(1e-6 * float(np.abs(W_2d).mean()), 1e-12)
+            W_denom = np.where(W_2d > 0, W_2d + eps_w,
+                      np.where(W_2d < 0, W_2d - eps_w, eps_w))
+            H_active = np.where(active, H_mat, 0.0)
+            recovered = H_active / W_denom
+            active_count = active.sum(axis=0).clip(min=1).astype(float)
+            proto = recovered.sum(axis=0) / active_count
+            if layer_type == 'conv':
+                proto = proto.reshape(C_in, kH * kW).mean(axis=1)
+            proto_norm_val = np.linalg.norm(proto)
+            if proto_norm_val >= _EPS:
+                proto_unit = proto / proto_norm_val
+                act_row_norms = np.linalg.norm(act_2d, axis=1, keepdims=True)
+                act_normed = act_2d / (act_row_norms + _EPS)
+                sw_cos = np.clip(act_normed @ proto_unit, 0, None)
+            else:
+                sw_cos = np.ones(act_2d.shape[0])
+        else:
+            sw_cos = np.ones(act_2d.shape[0])
+
+        # -- img_factor component --
+        sw_img = img_f[:, fi]
+
+        # Normalise both to unit sum so cosine_mix interpolates on the same scale.
+        sw_cos = sw_cos / (sw_cos.sum() + _EPS)
+        sw_img = sw_img / (sw_img.sum() + _EPS)
+
+        sw = cosine_mix * sw_cos + (1.0 - cosine_mix) * sw_img
+        return sw, None
+
     else:
         raise ValueError(
             f"Unknown weighting {weighting!r}. Choose one of: {_WEIGHTING_OPTIONS}"
@@ -781,7 +839,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         threshold=0.95, min_cumvar=None, stimulus_threshold=0.0,
         weighting='img_factor', random_state=0, min_k=1, max_iter=20000,
         init=None, l1_ratio=0, k_fixed=None, cache_dir=None,
-        conv_pool_method='avg', factor_quantile=0.0):
+        conv_pool_method='avg', factor_quantile=0.0, cosine_mix=0.5):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -820,6 +878,10 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           'cosine_activation'      cosine sim between L2-normed stimuli
                                                    and the weight-corrected prototype;
                                                    stimulus-only weighting (nw=None)
+                          'img_selectivity'        fraction of each stimulus's lambda-
+                                                   weighted total NMF activity that
+                                                   belongs to factor fi; favours stimuli
+                                                   selective for the traced factor
                           For conv layers 'img_factor' is always safe; the projection modes
                           use global average pooling of the input feature map.
     factor_quantile     : float in [0, 1) — only used when weighting='cosine_activation'.
@@ -828,6 +890,10 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           prototype activation estimate.
                           0.0 (default) uses all nonzero entries;
                           0.1 uses the top 90%; 0.9 uses the top 10%.
+    cosine_mix          : float in [0, 1] — only used when weighting='cosine_img_mix'.
+                          Blend coefficient: 0.0 → pure img_factor, 1.0 → pure
+                          cosine_activation. Both signals are unit-sum normalised
+                          before blending. Default 0.5 (equal weight).
     random_state        : int — NMF random seed
     min_k               : int — minimum NMF components per layer
     max_iter            : int — NMF iteration cap
@@ -882,7 +948,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
     else:
         # Model-protocol mode: all layers assumed FC; no attention layers.
         linear_idxs       = model.linear_layer_indices()
-        weights           = [model.layers[li].weight.detach().numpy() for li in linear_idxs]
+        weights           = [model.layers[li].weight.detach().cpu().numpy() for li in linear_idxs]
         inputs            = layer_inputs_list
         types             = ['fc'] * len(linear_idxs)
         names             = [str(i) for i in range(len(linear_idxs))]
@@ -970,7 +1036,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                 sw_fi, nw_fi = _compute_trace_transition(
                     weighting, img_f, neu_f, W, act_input, fi=fi,
                     layer_type=ltype, attn_weights=attn_w,
-                    factor_quantile=factor_quantile)
+                    factor_quantile=factor_quantile, cosine_mix=cosine_mix,
+                    lams=lams)
                 node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
 
         # Persist completed leaf-path nodes to disk so reruns can skip NMF.
