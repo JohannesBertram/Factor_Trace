@@ -47,6 +47,7 @@ Any model object is accepted as long as it exposes:
 
 import os
 import pickle
+import time
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -490,7 +491,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         stimulus_threshold=0.0, neuron_weights=None,
                         random_state=0, max_iter=20000, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
-                        attn_weights=None):
+                        attn_weights=None, verbose=0, _layer_tag=''):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
     Parameters
@@ -553,9 +554,15 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     pos_joint = np.clip(raw_joint, 0, None)
     neg_joint = np.clip(-raw_joint, 0, None)
 
+    if verbose >= 2:
+        tag = f'[BFT{_layer_tag}]'
+        print(f'{tag}   joint arbor: {raw_joint.shape}  '
+              f'pos {pos_joint.shape}  neg {neg_joint.shape}')
+
     # Factorise the excitatory joint arbors. When k_fixed is set, fit at exactly
     # that rank instead of using auto-selection (useful for strict reproducibility
     # or controlled ablation experiments).
+    _t0 = time.perf_counter() if verbose >= 2 else None
     if k_fixed is not None:
         k = max(int(k_fixed), 1)
         k = min(k, min(pos_joint.shape) - 1)
@@ -571,10 +578,13 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             min_k=min_k, min_cumvar=min_cumvar,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
         )
+    if verbose >= 2:
+        print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
 
     # Factorise inhibitory joint arbors only when inhibitory content exists;
     # returns None triplet when the layer has no inhibitory weight-activation products.
     if neg_joint.max() > 0:
+        _t0_neg = time.perf_counter() if verbose >= 2 else None
         k_neg = k_fixed if k_fixed is not None else None
         if k_neg is not None:
             k_neg = max(1, min(int(k_neg), min(neg_joint.shape) - 1))
@@ -588,6 +598,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                 min_k=min_k, min_cumvar=min_cumvar,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             )
+        if verbose >= 2:
+            print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
     else:
         neg_img_f = neg_neu_f = neg_lams = None
 
@@ -839,7 +851,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         threshold=0.95, min_cumvar=None, stimulus_threshold=0.0,
         weighting='img_factor', random_state=0, min_k=1, max_iter=20000,
         init=None, l1_ratio=0, k_fixed=None, cache_dir=None,
-        conv_pool_method='avg', factor_quantile=0.0, cosine_mix=0.5):
+        conv_pool_method='avg', factor_quantile=0.0, cosine_mix=0.5,
+        verbose=0):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -911,6 +924,11 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           avoid redundant NMF computation (useful for large models).
                           None disables caching.
     conv_pool_method    : str — spatial pooling for conv layers: 'avg', 'max', 'center'
+    verbose             : int — verbosity level (default 0 = silent).
+                          1 — print one line per layer/branch showing layer index,
+                              name, type, and current branch path.
+                          2 — additionally print joint arbor shapes, per-NMF timing,
+                              and total trace_single_layer time for each step.
 
     Returns
     -------
@@ -984,9 +1002,15 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                 with open(cp, 'rb') as fh:
                     return pickle.load(fh)
 
+        layer_tag = f' L{l_idx + 1} {names[l_idx]!r} ({ltype})'
+        if verbose >= 1:
+            path_str = str(path) if path else '[]'
+            print(f'[BFT] Layer {l_idx + 1}/{n_layers} {names[l_idx]!r} ({ltype})  path={path_str}')
+
         # Run one BFT step: build the joint arbor matrix for this layer and
         # decompose it with NMF using the importance weights from the layer above.
         # For 'attn' layers, attn_w is forwarded so compute_attn_joint_arbors is used.
+        _t_layer = time.perf_counter() if verbose >= 2 else None
         img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
@@ -996,7 +1020,10 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w,
+            verbose=verbose, _layer_tag=layer_tag,
         )
+        if verbose >= 2:
+            print(f'[BFT{layer_tag}]   total: {time.perf_counter() - _t_layer:.2f} s')
         # active_samples: how many stimuli have non-negligible weight.
         # When weights are uniform (std ≈ 0) every sample is active.
         if stimulus_weights.std() > 1e-8:
