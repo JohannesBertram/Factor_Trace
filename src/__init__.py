@@ -28,6 +28,8 @@ from .checkpoint import (
     TRANSFORM_REGISTRY,
     DATASET_REGISTRY,
 )
+from .scaffold_utils import (bft_node_vals, build_scaffold_edges,
+                             scaffold_loading_from_edges, scaffold_layer_sizes_from_edges)
 from .ablation_utils import (
     assign_factors_to_classes,
     path_from_child,
