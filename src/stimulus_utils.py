@@ -75,12 +75,9 @@ def extract_tree_nodes(root_node):
 def compute_node_activations(tree_nodes, stimulus_indices):
     """Compute a scalar per-node activation for a set of stimuli.
 
-    Root node:      mean img_factors[stimulus_indices, 0].
-    Non-root nodes: mean stimulus_weights_in[stimulus_indices].
-
-    stimulus_weights_in captures the importance propagated from the parent branch —
-    the direct measure of "how relevant is this branch to these stimuli?"  For the
-    root the weights are uniform (1.0), so the top-factor loading is used instead.
+    Uses img_factors[stimulus_indices, 0] (primary factor loading) for every node.
+    This is consistent across original BFT trees and trees produced by
+    project_stimuli_onto_tree(), making the values directly comparable.
 
     Parameters
     ----------
@@ -92,15 +89,10 @@ def compute_node_activations(tree_nodes, stimulus_indices):
     dict  {node_id: float}
     """
     s_idx = np.asarray(stimulus_indices)
-    activations = {}
-    for e in tree_nodes:
-        nid = e['node_id']
-        if e['parent_id'] is None:
-            vals = e['img_factors'][s_idx, 0]
-        else:
-            vals = e['stimulus_weights_in'][s_idx]
-        activations[nid] = float(np.mean(vals))
-    return activations
+    return {
+        e['node_id']: float(e['img_factors'][s_idx, 0].mean())
+        for e in tree_nodes
+    }
 
 
 # ── 3. Tree layout & visualisation ───────────────────────────────────────────
@@ -471,11 +463,13 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
     stimuli's layer activations and then projected onto the stored neural_factors
     with non-negative least squares to obtain img_factors for the new stimuli.
 
-    This is an *approximation*: the original neural_factors were fitted on
-    stimulus-weighted arbors (weights propagated from the layer above), but here
-    all stimuli are treated with uniform weights.  The resulting img_factors are
-    still interpretable as "how much does this stimulus express each factor?" and
-    are compatible with extract_factor_fingerprint / plot_factor_tree.
+    img_factors are fitted via NNLS on unweighted joint arbors, while the original
+    BFT img_factors were fitted via NMF on stimulus-weighted arbors.  Both live in
+    the same neural_factors space so rankings and fingerprint comparisons are valid;
+    absolute magnitudes may differ for stimuli that had low parent weight in the
+    original BFT.  stimulus_weights_in is set to ones and should not be used for
+    cross-tree comparison — use img_factors directly via compute_node_activations,
+    compute_factor_activations, or extract_factor_fingerprint.
 
     Parameters
     ----------
