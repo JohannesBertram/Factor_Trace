@@ -329,7 +329,8 @@ def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=N
     return fig
 
 
-def plot_factor_graph(fi, neural_factors, model_layers, layer_sizes, linear_layer_indices):
+def plot_factor_graph(fi, neural_factors, model_layers, layer_sizes, linear_layer_indices,
+                      img_factors=None, top_pct=0.05):
     """
     Visualize one NMF component as a weighted network graph.
 
@@ -343,9 +344,22 @@ def plot_factor_graph(fi, neural_factors, model_layers, layer_sizes, linear_laye
     model_layers          : nn.Sequential (model.layers)
     layer_sizes           : list of int — neurons per layer
     linear_layer_indices  : list of int — Sequential indices of Linear layers
+    img_factors           : (n_samples, n_components) optional — when provided, the top
+                            top_pct stimuli by img_factors[:, fi] are selected and their
+                            full NMF reconstruction is averaged to give realistic node
+                            activations (instead of the raw factor vector).
+    top_pct               : float — fraction of stimuli to select (default 0.05 = 5%)
     """
     n = len(neural_factors)
-    normalized_nf = neural_factors[:, fi] / neural_factors[:, fi].max()
+
+    if img_factors is not None:
+        n_top = max(1, int(np.ceil(img_factors.shape[0] * top_pct)))
+        top_idx = np.argsort(img_factors[:, fi])[-n_top:]
+        node_vals = (img_factors[top_idx, :] @ neural_factors.T).mean(axis=0)
+    else:
+        node_vals = neural_factors[:, fi]
+
+    normalized_nf = node_vals / (node_vals.max() + 1e-12)
 
     pos = np.zeros((n, 2))
     A = np.zeros((n, n))

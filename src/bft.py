@@ -597,11 +597,11 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
 _EPS = 1e-12
 
 _WEIGHTING_OPTIONS = ('img_factor', 'factor_project_raw', 'factor_project_corrected',
-                      'img_factor_neuron')
+                      'img_factor_neuron', 'cosine_activation')
 
 
 def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
-                               layer_type='fc', attn_weights=None):
+                               layer_type='fc', attn_weights=None, factor_quantile=0.0):
     """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
 
     Called at the layer-L → layer-(L-1) transition.  Returns importance signals
@@ -714,6 +714,61 @@ def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
         nw = np.clip((sw @ act_2d) / (sw.sum() + _EPS), 0, None)
         return sw, nw
 
+    elif weighting == 'cosine_activation':
+        # Recover the prototypical L2-normalised activation in layer L's input space
+        # by dividing each active factor entry H_mat[i,j] by the corresponding weight
+        # W[i,j], then averaging over output neurons i for each input neuron j.
+        #
+        # "Active" entries: H_mat[i,j] > thresh, where thresh is the factor_quantile-th
+        # percentile of all strictly-positive factor values (0.0 default → all nonzero).
+        # Negative-weight positions are already zero in the positive-arbor NMF and are
+        # therefore excluded automatically without any explicit sign filter.
+        H_mat = neu_f[:, fi].reshape(n_out_flat, n_in_flat)                   # (n_out, n_in)
+
+        pos_vals = H_mat[H_mat > 0]
+        if len(pos_vals) == 0:
+            return np.ones(act_2d.shape[0]), None
+
+        thresh = 0.0 if factor_quantile == 0.0 else float(np.quantile(pos_vals, factor_quantile))
+        active = H_mat > thresh                                                # (n_out, n_in) bool
+
+        if layer_type == 'conv':
+            W_2d = W.reshape(C_out, C_in * kH * kW)                           # (C_out, C_in*kH*kW)
+        else:
+            W_2d = W                                                           # (n_out, n_in)
+
+        # Stabilised signed denominator: adds eps to |W| while preserving sign.
+        # Exactly-zero weights produce a small positive denominator; their H_mat
+        # entries are zero by construction so they don't influence proto.
+        eps_w = max(1e-6 * float(np.abs(W_2d).mean()), 1e-12)
+        W_denom = np.where(W_2d > 0, W_2d + eps_w,
+                  np.where(W_2d < 0, W_2d - eps_w, eps_w))                   # (n_out, n_in)
+
+        # For each input neuron j, average (H/W) over active output neurons.
+        # Non-active positions are zero before summing; active_count prevents /0.
+        H_active = np.where(active, H_mat, 0.0)                              # (n_out, n_in)
+        recovered = H_active / W_denom                                        # (n_out, n_in)
+        active_count = active.sum(axis=0).clip(min=1).astype(float)          # (n_in,)
+        proto = recovered.sum(axis=0) / active_count                          # (n_in,)
+
+        if layer_type == 'conv':
+            # Collapse patch space (C_in*kH*kW) → channel space (C_in) to align
+            # with the globally-pooled act_2d used by the conv weighting modes.
+            proto = proto.reshape(C_in, kH * kW).mean(axis=1)               # (C_in,)
+
+        # Guard: if the prototype is all-zero (dead factor), fall back to uniform weights.
+        proto_norm_val = np.linalg.norm(proto)
+        if proto_norm_val < _EPS:
+            return np.ones(act_2d.shape[0]), None
+        proto_unit = proto / proto_norm_val
+
+        # Cosine similarity: L2-normalise each stimulus's actual activation, then dot
+        # with the prototype unit vector. Values in [-1, 1]; clip to non-negative.
+        act_row_norms = np.linalg.norm(act_2d, axis=1, keepdims=True)        # (N, 1)
+        act_normed = act_2d / (act_row_norms + _EPS)                          # (N, n_in or C_in)
+        cos_sims = act_normed @ proto_unit                                     # (N,) ∈ [-1, 1]
+        return np.clip(cos_sims, 0, None), None
+
     else:
         raise ValueError(
             f"Unknown weighting {weighting!r}. Choose one of: {_WEIGHTING_OPTIONS}"
@@ -726,7 +781,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         threshold=0.95, min_cumvar=None, stimulus_threshold=0.0,
         weighting='img_factor', random_state=0, min_k=1, max_iter=20000,
         init=None, l1_ratio=0, k_fixed=None, cache_dir=None,
-        conv_pool_method='avg'):
+        conv_pool_method='avg', factor_quantile=0.0):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -762,8 +817,17 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           'factor_project_raw'     project onto arbor-space factor direction
                           'factor_project_corrected' same, corrected for weight magnitude
                           'img_factor_neuron'      img_f + loading-weighted mean activation
+                          'cosine_activation'      cosine sim between L2-normed stimuli
+                                                   and the weight-corrected prototype;
+                                                   stimulus-only weighting (nw=None)
                           For conv layers 'img_factor' is always safe; the projection modes
                           use global average pooling of the input feature map.
+    factor_quantile     : float in [0, 1) — only used when weighting='cosine_activation'.
+                          Quantile threshold applied to strictly-positive neural factor
+                          entries; only values above this percentile contribute to the
+                          prototype activation estimate.
+                          0.0 (default) uses all nonzero entries;
+                          0.1 uses the top 90%; 0.9 uses the top 10%.
     random_state        : int — NMF random seed
     min_k               : int — minimum NMF components per layer
     max_iter            : int — NMF iteration cap
@@ -905,7 +969,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                 # reconstructed when computing projections in the transition.
                 sw_fi, nw_fi = _compute_trace_transition(
                     weighting, img_f, neu_f, W, act_input, fi=fi,
-                    layer_type=ltype, attn_weights=attn_w)
+                    layer_type=ltype, attn_weights=attn_w,
+                    factor_quantile=factor_quantile)
                 node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
 
         # Persist completed leaf-path nodes to disk so reruns can skip NMF.
