@@ -30,6 +30,15 @@ from .checkpoint import (
 )
 from .scaffold_utils import (bft_node_vals, build_scaffold_edges,
                              scaffold_loading_from_edges, scaffold_layer_sizes_from_edges)
+from .stimulus_utils import (
+    extract_tree_nodes,
+    compute_node_activations,
+    plot_factor_tree,
+    extract_factor_fingerprint,
+    extract_fingerprint_matrix,
+    compute_stimulus_similarity,
+    project_stimuli_onto_tree,
+)
 from .ablation_utils import (
     assign_factors_to_classes,
     path_from_child,
