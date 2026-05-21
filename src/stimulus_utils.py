@@ -438,8 +438,22 @@ def _joint_for_node(node, new_input):
     """
     ltype = node['layer_type']
     W     = node['W']
+    # Replicate the normalization decision from the original BFT run.
+    # compute_joint_arbors_normalized skips L2-normalisation when
+    # stimulus_weights is not None and allclose(1.0).  At the BFT root the
+    # original call used stimulus_weights=np.ones(n_samples), so the root
+    # arbors were UN-normalised.  Passing None here would trigger normalisation
+    # instead, putting NNLS in a different space than the stored neural_factors.
+    # We detect the root case via the stored stimulus_weights_in and pass a
+    # matching all-ones array; non-root nodes had non-uniform weights so we
+    # pass None (→ normalise), which matches the original BFT behaviour there.
+    orig_sw = node['stimulus_weights_in']
+    n_new = (new_input['x_tokens'].shape[0]
+             if isinstance(new_input, dict) else new_input.shape[0])
+    sw = np.ones(n_new) if np.allclose(orig_sw, 1.0) else None
+
     if ltype == 'conv':
-        return compute_conv_joint_arbors(W, new_input, stimulus_weights=None)
+        return compute_conv_joint_arbors(W, new_input, stimulus_weights=sw)
     elif ltype == 'attn':
         if not isinstance(new_input, dict):
             raise ValueError(
@@ -450,10 +464,10 @@ def _joint_for_node(node, new_input):
             W,
             new_input['x_tokens'],
             new_input['attn_weights'],
-            stimulus_weights=None,
+            stimulus_weights=sw,
         )
     else:
-        return compute_joint_arbors_normalized(W, new_input, stimulus_weights=None)
+        return compute_joint_arbors_normalized(W, new_input, stimulus_weights=sw)
 
 
 def project_stimuli_onto_tree(root_node, new_layer_inputs):

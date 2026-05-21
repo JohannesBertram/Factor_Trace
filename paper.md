@@ -87,7 +87,7 @@
 \newcommand{\D}{\mathcal{D}}
 
 
-\title{Circuit Level Weight Interpretability}
+\title{Beyond Activations: Automated Circuit Discovery with Joint Weight-Activation Factorization}
 
 
 % The \author macro works with any number of authors. There are two commands
@@ -111,6 +111,7 @@
 
 \begin{abstract}
 Understanding which neurons and weights drive a classification decision is a central challenge in interpretability. Existing attribution methods assign importance to input features but ignore the multi-layer weight structure that produced them, while mechanistic interpretability methods rely on activation only rather than weights. We introduce the \textbf{Backward Factor Trace (BFT)}, a method that decomposes a trained network's computation into interpretable \emph{circuits}: sparse, class-specific subnetworks that collectively explain a class decision from the output layer back to the input pixels. At each layer we form a \emph{joint arbor matrix} — the outer product of weight vectors and input activations over a stimulus population — and factorize it with Non-negative Matrix Factorization (NMF). The resulting factors reveal co-active weight-neuron combinations for different stimuli. BFT propagetes these factors backward as a focusing lens on the preceding layers, yielding connected computational graphs. The method requires no reference input, no gradient computation, and no architectural modification. We validate it on MNIST even/odd and digit classification with small MLPs, demonstrate NMF factor stability across random seeds and show causal circuit specificity via targeted ablation. Preliminary results on a CIFAR-10 CNN and a tiny Vision Transformer show that the algorithm generalizes beyond MLPs.
+We further introduce \emph{factor fingerprints} — per-stimulus concatenations of NMF loadings across the full circuit tree — which provide a class-discriminative stimulus embedding that outperforms PCA on raw activations across all tested architectures.
 \end{abstract}
 
 
@@ -128,7 +129,7 @@ We address this gap by building on a simple observation: in any linear layer, ne
 Our main contributions are:
 
 \begin{itemize}
-    \item \textbf{The Backward Factor Trace (BFT)}: an automatic, layer-by-layer algorithm that decomposes a network's computation into interpretable \emph{circuits} — sparse, class-specific subnetworks — by factorizing joint weight-activation arbor matrices with NMF and propagating stimulus and neuron weights backward from output to input.
+    \item \textbf{The Backward Factor Trace (BFT)}: an automatic, layer-by-layer algorithm that decomposes a network's computation into interpretable \emph{circuits} — sparse, class-specific subnetworks — by factorizing joint weight-activation arbor matrices with NMF and propagating selectivity-weighted stimulus importance backward from output to input.
 
     \item \textbf{Stability}: NMF components are highly reproducible across random seeds (cosine similarity $0.938 \pm 0.083$ at L1 after Hungarian matching), demonstrating that the discovered circuits reflect stable structure in the network rather than NMF initialization artifacts.
 
@@ -137,6 +138,8 @@ Our main contributions are:
     \item \textbf{Attribution quality}: pixel-space attributions derived from the trace achieve a class discriminability score of $0.658$, outperforming integrated gradients ($0.422$), weight magnitude ($0.378$), and saliency maps ($0.103$).
 
     \item \textbf{Generalization}: preliminary experiments on a CIFAR-10 CNN and a tiny Vision Transformer demonstrate that the algorithm extends beyond MLPs, recovering within-class sub-circuits (truck vs.\ fire engine; left- vs.\ right-facing horses) and even/odd circuits through Transformer FFN layers.
+
+    \item \textbf{Factor fingerprints}: concatenating a stimulus's NMF loadings over all BFT tree nodes yields a \emph{factor fingerprint} that encodes the full hierarchical circuit activation. MDS on factor fingerprint distances reveals cleaner class structure than PCA on raw network activations, consistent across all tested architectures.
 \end{itemize}
 
 \section{Related Work}
@@ -149,15 +152,15 @@ Our main contributions are:
 \subsection{Setup and Notation}
 
 Let $f$ be an $L$-layer MLP with weight matrices $W_l \in \R^{d_l \times d_{l-1}}$ and element-wise sigmoid activations (no bias terms affect the analysis).
-For a test set of $N$ correctly-classified samples, we collect the \emph{input activation} to each linear layer:
+For a test set of $N$ correctly-classified [TODO use all samples/wrong samples to find errors in additional analyses] samples, we collect the \emph{input activation} to each linear layer:
 $A_l \in \R^{N \times d_{l-1}}$, where $A_l[s,:] = \mathbf{a}_s^l$ is the pre-linear input for sample $s$ at layer $l$.
-The goal is to find, for each class $c$, a \emph{circuit} — a sparse subset of neurons and weights across layers — that causally explains the decision $\hat{y} = c$.
+The goal is to find, for each class $c$, a \emph{circuit} — a sparse subset of neurons and weights across layers — that causally explains the decision $\hat{y} = c$ [TODO Maybe make the framing more general than classification?].
 
 \subsection{Joint Arbor Matrix}
 \label{sec:joint-arbor}
 
 Fix a layer $l$ with weight $W \in \R^{d_l \times d_{l-1}}$ and inputs $A \in \R^{N \times d_{l-1}}$.
-Let $\mathbf{sw} \in \R^N_{\geq 0}$ be per-sample \emph{stimulus weights} (initially uniform; derived from the layer above in subsequent layers) and $\mathbf{nw} \in \R^{d_l}_{\geq 0}$ be per-neuron \emph{neuron weights} (derived from the layer above; $\mathbf{nw} = \mathbf{1}$ at the output layer).
+Let $\mathbf{sw} \in \R^N_{\geq 0}$ be per-sample \emph{stimulus weights} (initially uniform; derived from the layer above in subsequent layers via the selectivity weighting described in \cref{sec:backward}).
 
 \textbf{Step 1: L2-normalize input activations.}
 \begin{equation}
@@ -169,12 +172,11 @@ The activation magnitudes are absorbed into the stimulus weights.
 \textbf{Step 2: Per-neuron arbors.}
 For output neuron $i$:
 \begin{equation}
-  J_s^{(i)}[j] = \mathrm{sw}[s] \cdot \mathrm{nw}[i] \cdot W[i,j] \cdot \hat{a}_s^l[j], \quad j = 1, \ldots, d_{l-1}.
+  J_s^{(i)}[j] = \mathrm{sw}[s] \cdot W[i,j] \cdot \hat{a}_s^l[j], \quad j = 1, \ldots, d_{l-1}.
 \end{equation}
 
 Here, $\mathrm{sw}[s] \geq 0$ is the \emph{stimulus weight} of sample $s$, encoding how relevant that sample is to the circuit being traced.
-It is initialized to $1$ (uniform) at the output layer and propagated backward from the layer above in subsequent steps.
-$\mathrm{nw}[i] \geq 0$ is the \emph{neuron weight} of output neuron $i$, encoding its importance to the circuit identified one layer above; it is initialized to $1$ at the output layer and derived from the preceding layer's neural factor thereafter.
+It is initialized to $1$ (uniform) at the output layer and propagated backward via the selectivity weighting in \cref{sec:backward}.
 
 \textbf{Step 3: Joint arbor matrix.}
 Concatenate all neurons' arbors horizontally:
@@ -189,7 +191,7 @@ This preserves inhibitory circuits rather than discarding them.
 We trace only the excitatory component $\mathbf{J}^+$ backward.
 Because Sigmoid activations are strictly positive, the L2-normalized inputs satisfy $\hat{a}_s^l[j] \geq 0$ for all $s, j$, so the sign of each arbor entry is determined entirely by the weight $W[i,j]$: positive weights yield excitatory entries, negative weights yield inhibitory ones.
 Crucially, negative weights \emph{suppress} certain input patterns rather than propagating through them — an inhibitory circuit fires more strongly when its preferred input is \emph{absent}.
-The backward-propagation formula $\mathrm{sw}^{l-1}[s] = \max(\mathbf{a}_s^{l-1} \cdot \hat{\mathbf{nw}}, 0)$ correctly selects samples that activate the circuit only when applied to the excitatory component; applying it to inhibitory factors would invert the selection logic.
+The selectivity-based backward propagation (see \cref{sec:backward}) correctly emphasises samples that preferentially activate the excitatory component; applying it to inhibitory factors would invert the selection logic.
 Inhibitory factors are therefore computed per-layer as complementary diagnostics that reveal which input patterns are suppressed at each step, without being propagated backward.
 
 \subsection{NMF Factorization and Rank Selection}
@@ -203,7 +205,7 @@ $W_\mathrm{img}[:,k]$ (the \emph{stimulus factor}) gives each sample's loading o
 
 \textbf{Automatic rank selection.}
 Rather than specifying $K$ by hand, we fit NMF at an upper-bound rank $k_\mathrm{max}$, normalize each component to unit $\ell^2$ norm and sort by $\lambda_k = \|w_k\|\cdot\|h_k\|$ (component informativity).
-The effective rank $K^*$ is chosen by the \emph{structural} method: find the first consecutive ratio drop $\lambda_k / \lambda_{k+1} \geq 1.5$ (fraction heuristic), then take the maximum of this and the smallest $K$ reaching $95\%$ cumulative variance (safety floor).
+The effective rank $K^*$ is chosen by the \emph{structural\_recon} method: find the first consecutive-ratio drop $\lambda_k / \lambda_{k+1} \geq 1.5$ (fraction heuristic) giving $k_\text{frac}$, and the smallest $K$ where the relative Frobenius reconstruction error $\|X - X_K\|_F / \|X\|_F \leq \varepsilon_r$ (reconstruction floor) giving $k_\text{recon}$; then $K^* = \max(k_\text{frac},\, k_\text{recon})$ with default $\varepsilon_r = 0.20$.
 This avoids both over-splitting weak components and discarding meaningful ones.
 
 \subsection{Backward Propagation}
@@ -212,39 +214,32 @@ This avoids both over-splitting weak components and discarding meaningful ones.
 The top stimulus factor $W_\mathrm{img}[:,0]$ identifies which samples most activate circuit $0$.
 To trace this circuit into layer $l-1$, we compute:
 
-\textbf{Neuron weights.}
-View the top neural factor $H_\mathrm{neu}[:,0] \in \R^{d_l d_{l-1}}$ as a matrix $\mathbf{M} \in \R^{d_l \times d_{l-1}}$, where $\mathbf{M}[i,j]$ gives the importance of connection $(i \leftarrow j)$ in the top circuit at layer $l$.
-Marginalizing over output neurons yields the \emph{input-neuron importance}:
+\textbf{New stimulus weights.}
+Let $\tilde{w}_{s,k} = W_\mathrm{img}[s,k] \cdot \lambda_k$ be the lambda-weighted loading of stimulus $s$ on factor $k$.
+The stimulus weight passed to layer $l-1$ when tracing factor $k^*$ is its \emph{selectivity}:
 \begin{equation}
-  \mathbf{nw}^{l-1}[j] = \sum_{i=1}^{d_l} \mathbf{M}[i,j] \;\in\; \R^{d_{l-1}}.
+  \mathrm{sw}^{l-1}[s] = \frac{\tilde{w}_{s,k^*}}{\displaystyle\sum_{k'} \tilde{w}_{s,k'} + \varepsilon}.
 \end{equation}
-Two properties follow.
-First, this \emph{prevents disconnected paths}: only input neurons that have strong connections (high entries in $\mathbf{M}$) to the circuit's active output neurons receive high $\mathbf{nw}^{l-1}$, ensuring the circuit traced at layer $l-1$ directly feeds the circuit at layer $l$.
-Second, because $\mathbf{nw}[i]$ scales the layer-$l$ arbors in Step 2 (\cref{sec:joint-arbor}), the NMF at each layer is focused on weight patterns that drive precisely the neurons already highlighted by the layer above — creating a coherent, connected circuit chain from output back to input.
+This rewards stimuli that are \emph{selectively} active in circuit $k^*$ relative to all other circuits at the current layer, not just stimuli with high absolute loading.
+The normalization ensures $\mathrm{sw} \in [0,1]$ and is the key coupling: the circuit at layer $l$ tells layer $l-1$ which stimuli to factorize.
+Connected pathways are enforced by this selectivity: only samples that preferentially flow through circuit $k^*$ at layer $l$ receive high weight, so the NMF at layer $l-1$ is dominated by samples that actually activate the identified circuit — ensuring the traced path is coherent from output back to input.
 
-\textbf{New stimulus weights:}
-\begin{equation}
-  \mathrm{sw}^{l-1}[s] = \max\!\left(\mathbf{a}_s^{l-1} \cdot \frac{\mathbf{nw}^{l-1}}{\|\mathbf{nw}^{l-1}\|},\; 0\right).
-\end{equation}
-Samples that align their activations with the circuit's preferred input direction receive high weight; others are suppressed.
-This is the key coupling: the circuit at layer $l$ tells layer $l-1$ which stimuli to factorize.
-
-Initialization: $\mathrm{sw} = \mathbf{1}$ (uniform) at the output layer (layer $L$); $\mathbf{nw} = \mathbf{1}$ (no neuron-level prior).
+Initialization: $\mathrm{sw} = \mathbf{1}$ (uniform) at the output layer (layer $L$).
 
 \begin{algorithm}[t]
 \caption{\textsc{BFT} — Backward Factor Trace}
 \label{alg:bft}
 \begin{algorithmic}[1]
 \Require Model weights $\{W_l\}$, layer inputs $\{A_l\}$, branches $\{B_l\}$, rank bound $k_\mathrm{max}$
-\State \textbf{function} \textsc{TraceNode}$(l,\; \mathrm{sw},\; \mathrm{nw},\; \mathrm{path})$
-\State $\quad$ Compute $\mathbf{J}_l$ from $W_l$, $A_l$, $\mathrm{sw}$, $\mathrm{nw}$ \hfill\Comment{\cref{sec:joint-arbor}}
+\State \textbf{function} \textsc{TraceNode}$(l,\; \mathrm{sw},\; \mathrm{path})$
+\State $\quad$ Compute $\mathbf{J}_l$ from $W_l$, $A_l$, $\mathrm{sw}$ \hfill\Comment{\cref{sec:joint-arbor}}
 \State $\quad$ $(W_\mathrm{img}, H_\mathrm{neu}, \boldsymbol{\lambda}) \leftarrow \textsc{AutoNMF}(\mathbf{J}_l^+,\; k_\mathrm{max})$ \hfill\Comment{\cref{sec:nmf}}
 \State $\quad$ \textbf{if} $l = 1$: \textbf{return} leaf node
 \State $\quad$ \textbf{for} $k = 0, \ldots, B_l - 1$ \textbf{do}
-\State $\quad\quad$ Compute $\mathbf{nw}^{l-1}_k$ from $H_\mathrm{neu}[:,k]$; compute $\mathrm{sw}^{l-1}_k$ from $A_{l-1}$ and $\mathbf{nw}^{l-1}_k$ \hfill\Comment{\cref{sec:backward}}
-\State $\quad\quad$ \textsc{TraceNode}$(l-1,\; \mathrm{sw}^{l-1}_k,\; \mathbf{nw}^{l-1}_k,\; \mathrm{path} \mathbin\| [k])$
-\State Initialize: $\mathrm{sw}^L = \mathbf{1}$, $\mathrm{nw}^L = \mathbf{1}$
-\State \textbf{return} \textsc{TraceNode}$(L,\; \mathrm{sw}^L,\; \mathrm{nw}^L,\; [])$
+\State $\quad\quad$ Compute $\mathrm{sw}^{l-1}_k$ from $W_\mathrm{img}$, $\boldsymbol{\lambda}$, factor index $k$ \hfill\Comment{\cref{sec:backward}}
+\State $\quad\quad$ \textsc{TraceNode}$(l-1,\; \mathrm{sw}^{l-1}_k,\; \mathrm{path} \mathbin\| [k])$
+\State Initialize: $\mathrm{sw}^L = \mathbf{1}$
+\State \textbf{return} \textsc{TraceNode}$(L,\; \mathrm{sw}^L,\; [])$
 \end{algorithmic}
 \end{algorithm}
 
@@ -409,6 +404,56 @@ The scaffold graphs (\cref{fig:digit-scaffold}) show 10 distinct sparse circuits
   \end{tabular}
   \caption{Scaffold graphs for first 10 factor circuits in the 40$\times$20 MLP. Each graph uses a distinct sparse subset of the 40 L1 neurons, confirming largely non-overlapping feature detectors per digit class.}
   \label{fig:digit-scaffold}
+\end{figure}
+
+\newpage
+\subsection{Factor Trees and Fingerprints}
+\label{sec:fingerprints}
+
+\subsubsection{Active Factor Trees}
+
+Each node in the BFT tree holds a set of NMF img\_factors: per-stimulus loadings that encode how strongly each sample activates the circuit at that position in the hierarchy.
+To visualise this, we select the top-$N_s$ stimuli by loading for each tree node and colour every node by their mean loading — producing an \emph{active factor tree} that shows which parts of the circuit hierarchy light up for a given class.
+
+\cref{fig:factor-tree-id} shows the active factor trees for the even/odd MLP (trained on digits $\{0,1,3,4\}$), comparing training and test stimuli of each class.
+Training and test sets of the same class produce visually similar activation patterns across all tree nodes, confirming that the discovered circuits generalise within the training distribution and are not overfit to individual samples.
+Even and odd circuits activate distinct parts of the tree, visually summarising the class separation already implied by the scaffold graphs.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/06_factor_tree/id_even_odd_train_vs_test.pdf}
+  \caption{Active factor trees for the even/odd MLP, coloured by mean img\_factor loading of class-selected stimuli. Rows: training (top) vs.\ test stimuli (bottom). Columns: even vs.\ odd class. The consistent activation patterns across train and test confirm the circuits generalise within the training distribution.}
+  \label{fig:factor-tree-id}
+\end{figure}
+
+\subsubsection{Factor Fingerprints}
+
+A \emph{factor fingerprint} $\mathbf{f}_s \in \mathbb{R}^{\sum_i K_i}$ is the concatenation of $W_\mathrm{img}[s,:]$ over all BFT tree nodes in breadth-first order, where $K_i$ is the number of NMF components at node $i$.
+The fingerprint captures the full hierarchical activation pattern of stimulus $s$ across the entire circuit tree — not just the output-layer factorisation.
+
+Pairwise cosine similarity between fingerprints (\cref{fig:fingerprint-similarity}) shows high within-class similarity and low between-class similarity, confirming that the circuit tree provides a class-discriminative stimulus representation.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.55\linewidth]{figs/06_factor_tree/fingerprint_similarity.pdf}
+  \caption{Pairwise cosine similarity matrix of factor fingerprints for the even/odd MLP test set (stimuli grouped by class). High intra-class similarity (warm colours) and low inter-class similarity (cool colours) confirm that the circuit tree encodes class-relevant structure.}
+  \label{fig:fingerprint-similarity}
+\end{figure}
+
+\subsubsection{MDS vs.\ PCA Embeddings}
+
+To compare the geometric structure encoded by factor fingerprints against raw network activations, we embed the test-set stimuli in two ways: (i) MDS on the pairwise cosine distances of factor fingerprints, and (ii) PCA on the concatenated layer-activation vectors.
+\cref{fig:mds-pca-comparison} shows this comparison for all three architectures evaluated in notebooks 06–08: the even/odd MLP, the 10-digit MLP, and the CIFAR-10 CNN.
+
+MDS on factor fingerprints consistently yields better-separated class clusters than PCA on raw activations.
+PCA mixes classes in activation space because it captures variance irrespective of task structure; the factor fingerprint, by encoding how each stimulus routes through the full circuit hierarchy, clusters stimuli by their computational pathway and thus by class.
+This holds across all three architectures and validates that the traced circuits encode task-relevant structure that is not directly visible in the raw activation geometry.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figs/06_factor_tree/mds_pca_comparison.pdf}
+  \caption{MDS on factor fingerprint cosine distances (left column) vs.\ PCA on raw network activations (right column) for the even/odd MLP (top), 10-digit MLP (middle), and CIFAR-10 CNN (bottom). Points are coloured by class. Factor fingerprint embeddings show consistently cleaner class separation across all architectures.}
+  \label{fig:mds-pca-comparison}
 \end{figure}
 
 \newpage
@@ -638,7 +683,7 @@ Inhibitory circuits are identified per-layer but their backward signal is not pr
 A method that traces suppression chains backward — identifying which stimuli are most strongly \emph{inhibited} by a circuit — would provide a more complete picture of the network's computation.
 
 \paragraph{NMF non-uniqueness and rank selection.}
-NMF solutions are non-unique; the \texttt{structural} rank-selection heuristic (fraction + cumvar floor) is motivated empirically but lacks a theoretical guarantee of recovering the ``correct'' number of circuits.
+NMF solutions are non-unique; the \texttt{structural\_recon} rank-selection heuristic (fraction drop + reconstruction error floor) is motivated empirically but lacks a theoretical guarantee of recovering the ``correct'' number of circuits.
 The stability analysis (\cref{sec:stability}) provides empirical evidence that the discovered factors are robust, but does not rule out alternative decompositions at the same rank that would yield a different circuit interpretation.
 
 \paragraph{Evaluation scope.}
@@ -651,6 +696,7 @@ Extending the ablation and attribution comparisons to tasks with less legible gr
 We introduced the Backward Factor Trace, a method for decomposing trained neural network decisions into interpretable circuits via NMF factorization of joint weight-activation arbors.
 The method is fully automatic (rank selection, backward propagation, branching), requires no gradient computation or reference input, and yields circuits that are causally specific to their target class, stable across NMF random seeds, and more class-discriminative than gradient-based attribution baselines.
 Preliminary results on a CIFAR-10 CNN and a tiny Vision Transformer confirm generalization beyond the MLP setting.
+Factor fingerprints — per-stimulus concatenations of NMF loadings across the full BFT circuit tree — provide a class-discriminative stimulus embedding that outperforms PCA on raw network activations, further validating that the traced circuits encode task-relevant structure.
 
 
 
@@ -737,8 +783,8 @@ TinyViT is trained with Adam and NLL loss for 12 epochs.
 
 \begin{table}[h]
 \centering
-\caption{Hyperparameter summary. BFT threshold $\theta$ controls the
-cumulative-$\lambda$ floor for rank selection; stimulus threshold $\tau$ zeros
+\caption{Hyperparameter summary. BFT reconstruction threshold $\varepsilon_r$ is the
+relative Frobenius error floor for rank selection; stimulus threshold $\tau$ zeros
 the lowest-$\tau$ fraction of samples by stimulus weight.}
 \label{tab:hyperparams}
 \begin{tabular}{@{}lll@{}}
@@ -751,12 +797,12 @@ CNN training   & Optimizer / lr / momentum   & SGD / $0.1$ / $0.9$ \\
 ViT training   & Optimizer / lr / epochs     & Adam / $10^{-3}$ / 12 \\
 \midrule
 BFT (MLP) & $k_\mathrm{max}$ [L1, L2, out] & $[20, 15, 15]$ \\
-               & Rank-selection method        & \texttt{structural} \\
-               & Threshold $\theta$           & $0.70$ \\
+               & Rank-selection method        & \texttt{structural\_recon} \\
+               & Recon.\ threshold $\varepsilon_r$ & $0.20$ \\
                & Stimulus threshold $\tau$    & $0.70$ (viz) / $0.10$ (ablation) \\
                & Branches $B$ (even/odd)      & $[10, 2, 2]$ \\
                & Branches $B$ (digit)         & $[1, 1, 10]$ \\
-BFT (ViT) & $k_\mathrm{max}$ / $\theta$ & $15$ / $0.90$ \\
+BFT (ViT) & $k_\mathrm{max}$ / $\varepsilon_r$ & $15$ / $0.20$ \\
 \midrule
 NMF solver     & Library / init               & scikit-learn / \texttt{nndsvda} \\
                & Max iterations               & $20{,}000$ \\
