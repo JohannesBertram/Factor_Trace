@@ -4,9 +4,10 @@ from .data_utils import (get_mnist_loaders, collect_activations,
                           collect_layer_inputs, collect_layer_inputs_generic,
                           collect_layer_data)
 from .bft import (run_nmf, normalize_factors, sort_by_lambda, full_nmf_pipeline,
-                  select_k_from_lambdas, auto_nmf_pipeline,
-                  nmf_component_sweep, compute_joint_arbors_normalized,
+                  auto_nmf_pipeline, compute_joint_arbors_normalized,
                   compute_conv_joint_arbors, trace_single_layer, bft)
+# Backward-compat: moved to old_code.py (gitignored) but still importable
+from .old_code import select_k_from_lambdas, nmf_component_sweep
 from .neuron_analysis import (
     compute_synaptic_arbors,
     pca_decoding,

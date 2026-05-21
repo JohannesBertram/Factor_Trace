@@ -147,93 +147,15 @@ def _select_k_from_recon(recon_errors, threshold, min_k=1):
     return max(min_k, int(passing[0]) + 1)
 
 
-def _select_k_single(lambdas, method, threshold, min_k):
-    """Single-method K selection. lambdas must be a numpy array, sorted descending."""
-    if method == 'cumvar':
-        # Smallest K where the cumulative sum of lambdas covers >= threshold of the total
-        total = lambdas.sum()
-        if total == 0:
-            return min_k
-        cumvar = np.cumsum(lambdas) / total
-        return int(np.searchsorted(cumvar, threshold)) + 1
-    elif method == 'marginal':
-        # Largest K where each lambda is at least `threshold` fraction of the first
-        if lambdas[0] == 0:
-            return min_k
-        passing = np.where(lambdas / lambdas[0] >= threshold)[0]
-        return int(passing[-1]) + 1 if len(passing) else min_k
-    elif method == 'elbow':
-        # K at the inflection point (maximum second-difference) of the lambda curve
-        if len(lambdas) < 3:
-            return len(lambdas)
-        d2 = np.diff(np.diff(lambdas))
-        return int(np.argmax(d2)) + 1
-    elif method == 'fraction':
-        # K at the first consecutive-ratio drop larger than 1.5x; +1e-12 avoids
-        # division by zero when a lambda is exactly 0.
-        for k in range(len(lambdas) - 1):
-            if lambdas[k] / (lambdas[k + 1] + 1e-12) >= 1.5:
-                return k
-        return len(lambdas) - 1
-    else:
-        raise ValueError(
-            f"Unknown method '{method}'. Choose 'cumvar', 'marginal', 'elbow', or 'fraction'. "
-            f"'structural' and 'structural_recon' are resolved before calling this function."
-        )
+def _select_k_single(lambdas, min_k=1):
+    """K at the first consecutive-ratio drop larger than 1.5x (fraction method).
 
-
-def select_k_from_lambdas(lambdas, method='cumvar', threshold=0.95, min_k=1,
-                          min_cumvar=None):
-    """Return the optimal number of NMF components based on factor informativity.
-
-    Parameters
-    ----------
-    lambdas    : (K,) array — factor importances, assumed sorted descending
-    method     : str or list[str]
-                   'cumvar'          smallest K where Σλ[:K]/Σλ >= threshold
-                   'marginal'        largest K where λ[k]/λ[0] >= threshold (drop-ratio)
-                   'elbow'           K at the maximum second-difference of the λ curve
-                   'fraction'        K at the first consecutive-ratio drop >= 1.5
-                   'structural'      alias for ['fraction', 'cumvar'] — fraction as primary
-                                     signal, cumvar floor at threshold
-                   'structural_recon' fraction as primary signal, actual reconstruction
-                                     error floor at recon_threshold (requires auto_nmf_pipeline
-                                     to have access to X; not resolved here)
-                   list              ['<structural>', 'cumvar'] — K* = max(k_structural,
-                                     k_cumvar), where both use the same threshold
-    threshold  : float — cumvar fraction or drop-ratio threshold; meaning is
-                 method-specific (see above)
-    min_k      : int — hard lower bound on returned K
-    min_cumvar : float or None — if set, K* is at least the K needed to reach
-                 this cumvar fraction, regardless of method. Useful as a safety
-                 floor when using a single structural method.
-
-    Returns
-    -------
-    k_star : int in [min_k, len(lambdas)]
+    +1e-12 avoids division by zero when a lambda is exactly 0.
     """
-    lambdas = np.asarray(lambdas, dtype=float)
-    if len(lambdas) == 0:
-        return min_k
-
-    # Resolve alias
-    if method == 'structural':
-        method = ['fraction', 'cumvar']
-
-    if isinstance(method, (list, tuple)):
-        # List form: K* = max(k from structural method, k from cumvar floor)
-        k_struct = _select_k_single(lambdas, method[0], threshold, min_k)
-        k_floor  = _select_k_single(lambdas, 'cumvar',   threshold, min_k)
-        k_star   = max(k_struct, k_floor)
-    else:
-        k_star = _select_k_single(lambdas, method, threshold, min_k)
-
-    # Optional explicit cumvar floor: guarantee at least this much variance is covered
-    if min_cumvar is not None:
-        k_floor = _select_k_single(lambdas, 'cumvar', min_cumvar, min_k)
-        k_star  = max(k_star, k_floor)
-
-    return max(min_k, min(k_star, len(lambdas)))
+    for k in range(len(lambdas) - 1):
+        if lambdas[k] / (lambdas[k + 1] + 1e-12) >= 1.5:
+            return max(k, min_k)
+    return max(len(lambdas) - 1, min_k)
 
 
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
@@ -259,34 +181,23 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
     return W * scale, H * scale, lambdas
 
 
-def auto_nmf_pipeline(X, k_max=None, method='cumvar', threshold=0.95,
-                      min_k=1, min_cumvar=None, random_state=0, max_iter=20000,
+def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
                       init=None, l1_ratio=0, recon_threshold=None):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
-    A single NMF fit is performed at k_max; components are pruned to K*
-    based on sorted lambda values via select_k_from_lambdas. This avoids
-    re-fitting for every candidate rank (NMF is not hierarchical like PCA,
-    so K*-component results will differ from a fresh fit at K*, but the
-    trade-off is acceptable for relative informativity selection).
+    Uses the structural_recon method: fraction drop as primary signal and actual
+    Frobenius reconstruction error as a floor.  A single NMF fit is performed at
+    k_max; components are pruned to K* so re-fitting at every candidate rank is
+    avoided (trade-off acceptable for relative informativity selection).
 
     Parameters
     ----------
     X               : (n_samples, n_features) non-negative matrix
     k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
-    method          : str or list — passed to select_k_from_lambdas; 'structural'
-                      recommended (fraction as primary, cumvar floor at threshold).
-                      Use 'structural_recon' to replace the cumvar floor with an
-                      actual reconstruction-error floor (requires recon_threshold).
-    threshold       : float — passed to select_k_from_lambdas
-    min_k           : int — minimum number of components to return
-    min_cumvar      : float or None — explicit cumvar floor; passed to select_k_from_lambdas
     recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
-                      error (0 = perfect, 1 = no reconstruction). When set, K* is at least
-                      large enough that ||X - X_K||_F / ||X||_F <= recon_threshold.
-                      Required when method='structural_recon'; also acts as a standalone
-                      floor for any other method when provided.
-                      Default None = disabled. Recommended value: 0.2 (20% error).
+                      error. K* is at least the smallest K where
+                      ||X - X_K||_F / ||X||_F <= recon_threshold.
+                      Default None uses 0.2 (20% error).
     random_state, max_iter, init, l1_ratio : passed to run_nmf
 
     Returns
@@ -304,47 +215,12 @@ def auto_nmf_pipeline(X, k_max=None, method='cumvar', threshold=0.95,
                                             max_iter=max_iter, init=init,
                                             l1_ratio=l1_ratio)
 
-    # 'structural_recon': fraction drop as primary + actual reconstruction error as floor.
-    # Handled here (not in select_k_from_lambdas) because X is required to compute recon errors.
-    if method == 'structural_recon':
-        rt = recon_threshold if recon_threshold is not None else 0.2
-        recon_errs = _partial_recon_errors(X, img_f, neu_f)
-        k_frac  = _select_k_single(lams, 'fraction', threshold, min_k)
-        k_recon = _select_k_from_recon(recon_errs, rt, min_k)
-        k_star  = max(k_frac, k_recon)
-    else:
-        k_star = select_k_from_lambdas(lams, method=method, threshold=threshold,
-                                       min_k=min_k, min_cumvar=min_cumvar)
-        # Optional standalone reconstruction error floor on top of any other method.
-        if recon_threshold is not None:
-            recon_errs = _partial_recon_errors(X, img_f, neu_f)
-            k_recon    = _select_k_from_recon(recon_errs, recon_threshold, min_k)
-            k_star     = max(k_star, k_recon)
-
-    # Apply min_cumvar floor when 'structural_recon' is used (bypass select_k_from_lambdas path).
-    if method == 'structural_recon' and min_cumvar is not None:
-        k_floor = _select_k_single(lams, 'cumvar', min_cumvar, min_k)
-        k_star  = max(k_star, k_floor)
-
-    k_star = max(min_k, min(k_star, len(lams)))
+    rt = recon_threshold if recon_threshold is not None else 0.2
+    recon_errs = _partial_recon_errors(X, img_f, neu_f)
+    k_frac  = _select_k_single(lams, min_k=1)
+    k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
+    k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
     return img_f[:, :k_star], neu_f[:, :k_star], lams[:k_star], k_star
-
-
-def nmf_component_sweep(X, n_components_range, max_iter=20000):
-    """Run NMF for each value of k in n_components_range and report fit quality.
-
-    Explained variance is defined as 1 - ||X - WH||_F^2 / ||X||_F^2,
-    analogous to R² for PCA.  Useful for choosing k_max before running BFT.
-
-    Returns dict {k: explained_variance} for each k in n_components_range.
-    """
-    X_norm_sq = np.sum(X ** 2)
-    results = {}
-    for k in n_components_range:
-        _, _, nmf_model = run_nmf(X, k, max_iter=max_iter)
-        ev = 1.0 - nmf_model.reconstruction_err_ ** 2 / X_norm_sq
-        results[k] = float(ev)
-    return results
 
 
 # ── BFT core ──────────────────────────────────────────────────────────────────
@@ -557,7 +433,6 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
 
 
 def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
-                        method='cumvar', threshold=0.95, min_k=1, min_cumvar=None,
                         stimulus_threshold=0.0, neuron_weights=None,
                         random_state=0, max_iter=20000, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
@@ -574,7 +449,6 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     stimulus_weights    : (n_samples,) per-sample importance from the layer above
     k_max               : upper bound on NMF rank; None uses auto default.
                           Ignored when k_fixed is set.
-    method, threshold, min_k, min_cumvar : rank-selection criteria for auto_nmf_pipeline
     stimulus_threshold  : passed through to the arbor-computation function
     neuron_weights      : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
     random_state, max_iter, init, l1_ratio : passed through to run_nmf
@@ -645,8 +519,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         # Factorise excitatory joint arbors: img_factors are per-stimulus loadings,
         # neural_factors are per-synapse pattern vectors, lambdas rank importance.
         img_f, neu_f, lams, _ = auto_nmf_pipeline(
-            pos_joint, k_max=k_max, method=method, threshold=threshold,
-            min_k=min_k, min_cumvar=min_cumvar,
+            pos_joint, k_max=k_max,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             recon_threshold=recon_threshold,
         )
@@ -666,8 +539,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             )
         else:
             neg_img_f, neg_neu_f, neg_lams, _ = auto_nmf_pipeline(
-                neg_joint, k_max=k_max, method=method, threshold=threshold,
-                min_k=min_k, min_cumvar=min_cumvar,
+                neg_joint, k_max=k_max,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
                 recon_threshold=recon_threshold,
             )
@@ -681,236 +553,39 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
 
 _EPS = 1e-12
 
-_WEIGHTING_OPTIONS = ('img_factor', 'factor_project_raw', 'factor_project_corrected',
-                      'img_factor_neuron', 'cosine_activation', 'cosine_img_mix',
-                      'img_selectivity')
+_WEIGHTING_OPTIONS = ('img_selectivity', 'img_factor')
 
 
-def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
-                               layer_type='fc', attn_weights=None, factor_quantile=0.0,
-                               cosine_mix=0.5, lams=None):
+def _compute_trace_transition(weighting, img_f, lams, fi):
     """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
 
     Called at the layer-L → layer-(L-1) transition.  Returns importance signals
     that guide the preceding layer's trace_single_layer call.
 
-    For conv layers (layer_type='conv'), the 4-D input feature map is spatially
-    average-pooled to a 2-D matrix before any projection so that all weighting
-    modes produce a valid (N,) stimulus weight vector.  'img_factor' is the
-    recommended default for conv-heavy models as it needs no projection.
-
-    For attention layers (layer_type='attn'), the token tensor is collapsed to a
-    single attention-weighted effective input before projections, mirroring the
-    arbor-computation step.  All weighting modes then operate on this effective
-    2-D matrix exactly as for FC layers.
-
     Parameters
     ----------
-    weighting        : str — one of the _WEIGHTING_OPTIONS
-    img_f            : (n_samples, K) NMF img_factors from layer L
-    neu_f            : (n_out*n_in, K) NMF neural_factors from layer L
-                       for conv: (C_out * C_in * kH * kW, K)
-                       for attn: (d_v * d_model, K)
-    W                : weight matrix of layer L
-                       FC: (n_out, n_in); conv: (C_out, C_in, kH, kW);
-                       attn: (d_v, d_model) value projection W_V
-    act_into_current : activations flowing from layer L-1 into layer L
-                       FC:   (n_samples, n_in)
-                       conv: (n_samples, C_in, H, W)
-                       attn: (n_samples, T, d_model) — all token activations
-    fi               : int — factor index to trace
-    layer_type       : 'fc' (default), 'conv', or 'attn'
-    attn_weights     : (N, T) or None — required when layer_type=='attn'.
-                       CLS-row attention scores (same array used in arbor construction).
+    weighting : str — 'img_selectivity' (default) or 'img_factor'
+    img_f     : (n_samples, K) NMF img_factors from layer L
+    lams      : (K,) lambda values (descending) from layer L
+    fi        : int — factor index to trace
 
     Returns
     -------
     sw : (n_samples,) stimulus weights for layer L-1's NMF
-    nw : neuron weights for layer L-1's NMF, or None
-         FC: shape (n_in,); conv: shape (C_in,) representing per-channel importance;
-         attn: shape (d_model,) representing per-input-dimension importance
+    nw : None (neither mode produces neuron weights)
     """
-    # Reduce any 3-D or 4-D input to a 2-D (N, features) matrix so that all
-    # weighting modes below can apply uniform dot-product logic.
-    if layer_type == 'conv':
-        C_out, C_in, kH, kW = W.shape
-        n_out_flat = C_out
-        n_in_flat  = C_in * kH * kW
-        # Global average pool: (N, C_in, H, W) → (N, C_in)
-        act_2d = act_into_current.mean(axis=(2, 3))
-    elif layer_type == 'attn':
-        # Collapse the token sequence to the attention-weighted effective input.
-        # This mirrors compute_attn_joint_arbors exactly: x_eff[n] = sum_j A[n,j]*x[n,j]
-        # The result is (N, d_model), matching the FC input layout for W_V.
-        if attn_weights is None:
-            raise ValueError(
-                "_compute_trace_transition: attn_weights required for layer_type='attn'."
-            )
-        # attn_weights: (N, T), act_into_current: (N, T, d_model) → x_eff: (N, d_model)
-        act_2d = np.einsum('nt,ntd->nd', attn_weights, act_into_current)
-        n_out_flat, n_in_flat = W.shape   # (d_v, d_model)
-    else:
-        n_out_flat, n_in_flat = W.shape
-        act_2d = act_into_current
-
-    if weighting == 'img_factor':
-        # Use the factor's per-stimulus loading directly as stimulus weights.
-        # Selects stimuli by how strongly they activate this factor; no neuron weights.
-        # Works identically for FC and conv layers.
-        return img_f[:, fi], None
-
-    elif weighting == 'factor_project_raw':
-        # Project input activations onto the arbor-space direction of the neural factor.
-        # The dot product measures how well each stimulus aligns with the synaptic pattern;
-        # returns the direction itself as neuron weights to guide the preceding layer.
-        nw_full = neu_f[:, fi].reshape(n_out_flat, n_in_flat).sum(axis=0)  # (n_in_flat,)
-        if layer_type == 'conv':
-            # Reduce from patch space (C_in*kH*kW,) to channel space (C_in,)
-            # by averaging over kernel positions so nw aligns with the pooled act_2d.
-            nw = nw_full.reshape(C_in, kH * kW).mean(axis=1)               # (C_in,)
-        else:
-            nw = nw_full
-        target = nw / (np.linalg.norm(nw) + _EPS)
-        sw = np.clip(act_2d @ target, 0, None)
-        return sw, nw
-
-    elif weighting == 'factor_project_corrected':
-        # Same projection as factor_project_raw, but first divide the neural factor
-        # by the absolute weight values to convert from arbor space to activation space.
-        # This corrects the bias that large weights would otherwise introduce.
-        H_mat = neu_f[:, fi].reshape(n_out_flat, n_in_flat)                 # (n_out, n_in)
-        if layer_type == 'conv':
-            abs_W = np.abs(W).reshape(C_out, C_in * kH * kW)
-            eps_w = max(1e-6 * float(abs_W.mean()), 1e-12)
-            corrected_full = (H_mat / (abs_W + eps_w)).sum(axis=0)          # (C_in*kH*kW,)
-            corrected = corrected_full.reshape(C_in, kH * kW).mean(axis=1)  # (C_in,)
-        else:
-            abs_W = np.abs(W)
-            eps_w = max(1e-6 * float(abs_W.mean()), 1e-12)
-            corrected = (H_mat / (abs_W + eps_w)).sum(axis=0)               # (n_in,)
-        target = corrected / (np.linalg.norm(corrected) + _EPS)
-        sw = np.clip(act_2d @ target, 0, None)
-        return sw, corrected
-
-    elif weighting == 'img_factor_neuron':
-        # Use the factor's loading as stimulus weights; compute neuron weights as the
-        # loading-weighted mean activation so both stimulus and neuron selection are
-        # grounded in where the factor is actually active.
-        sw = img_f[:, fi]                                                    # (n_samples,)
-        # act_2d is (N, n_in) or (N, C_in): compute loading-weighted mean activation.
-        nw = np.clip((sw @ act_2d) / (sw.sum() + _EPS), 0, None)
-        return sw, nw
-
-    elif weighting == 'cosine_activation':
-        # Recover the prototypical L2-normalised activation in layer L's input space
-        # by dividing each active factor entry H_mat[i,j] by the corresponding weight
-        # W[i,j], then averaging over output neurons i for each input neuron j.
-        #
-        # "Active" entries: H_mat[i,j] > thresh, where thresh is the factor_quantile-th
-        # percentile of all strictly-positive factor values (0.0 default → all nonzero).
-        # Negative-weight positions are already zero in the positive-arbor NMF and are
-        # therefore excluded automatically without any explicit sign filter.
-        H_mat = neu_f[:, fi].reshape(n_out_flat, n_in_flat)                   # (n_out, n_in)
-
-        pos_vals = H_mat[H_mat > 0]
-        if len(pos_vals) == 0:
-            return np.ones(act_2d.shape[0]), None
-
-        thresh = 0.0 if factor_quantile == 0.0 else float(np.quantile(pos_vals, factor_quantile))
-        active = H_mat > thresh                                                # (n_out, n_in) bool
-
-        if layer_type == 'conv':
-            W_2d = W.reshape(C_out, C_in * kH * kW)                           # (C_out, C_in*kH*kW)
-        else:
-            W_2d = W                                                           # (n_out, n_in)
-
-        # Stabilised signed denominator: adds eps to |W| while preserving sign.
-        # Exactly-zero weights produce a small positive denominator; their H_mat
-        # entries are zero by construction so they don't influence proto.
-        eps_w = max(1e-6 * float(np.abs(W_2d).mean()), 1e-12)
-        W_denom = np.where(W_2d > 0, W_2d + eps_w,
-                  np.where(W_2d < 0, W_2d - eps_w, eps_w))                   # (n_out, n_in)
-
-        # For each input neuron j, average (H/W) over active output neurons.
-        # Non-active positions are zero before summing; active_count prevents /0.
-        H_active = np.where(active, H_mat, 0.0)                              # (n_out, n_in)
-        recovered = H_active / W_denom                                        # (n_out, n_in)
-        active_count = active.sum(axis=0).clip(min=1).astype(float)          # (n_in,)
-        proto = recovered.sum(axis=0) / active_count                          # (n_in,)
-
-        if layer_type == 'conv':
-            # Collapse patch space (C_in*kH*kW) → channel space (C_in) to align
-            # with the globally-pooled act_2d used by the conv weighting modes.
-            proto = proto.reshape(C_in, kH * kW).mean(axis=1)               # (C_in,)
-
-        # Guard: if the prototype is all-zero (dead factor), fall back to uniform weights.
-        proto_norm_val = np.linalg.norm(proto)
-        if proto_norm_val < _EPS:
-            return np.ones(act_2d.shape[0]), None
-        proto_unit = proto / proto_norm_val
-
-        # Cosine similarity: L2-normalise each stimulus's actual activation, then dot
-        # with the prototype unit vector. Values in [-1, 1]; clip to non-negative.
-        act_row_norms = np.linalg.norm(act_2d, axis=1, keepdims=True)        # (N, 1)
-        act_normed = act_2d / (act_row_norms + _EPS)                          # (N, n_in or C_in)
-        cos_sims = act_normed @ proto_unit                                     # (N,) ∈ [-1, 1]
-        return np.clip(cos_sims, 0, None), None
-
-    elif weighting == 'img_selectivity':
-        # For each stimulus, compute the fraction of its total lambda-weighted NMF
-        # activation that belongs to factor fi.  Selects stimuli that strongly
-        # activate fi but not other factors (high selectivity), not just stimuli
-        # that activate fi in absolute terms.
+    if weighting == 'img_selectivity':
+        # Fraction of each stimulus's lambda-weighted total NMF activation that
+        # belongs to factor fi.  Favours stimuli selective for the traced factor,
+        # not just stimuli that activate fi in absolute terms.
         weighted = img_f * lams[np.newaxis, :]        # (n_samples, K)
         total    = weighted.sum(axis=1)               # (n_samples,)
         sw       = weighted[:, fi] / (total + _EPS)   # (n_samples,) ∈ [0, 1]
         return sw, None
 
-    elif weighting == 'cosine_img_mix':
-        # Weighted average of 'cosine_activation' and 'img_factor' stimulus weights.
-        # Both signals are normalised to unit sum before blending so that cosine_mix
-        # is a true interpolation coefficient: 0 → pure img_factor, 1 → pure cosine.
-        # Uses the same factor_quantile threshold as 'cosine_activation'.
-
-        # -- cosine_activation component --
-        H_mat = neu_f[:, fi].reshape(n_out_flat, n_in_flat)
-        pos_vals = H_mat[H_mat > 0]
-        if len(pos_vals) > 0:
-            thresh = 0.0 if factor_quantile == 0.0 else float(np.quantile(pos_vals, factor_quantile))
-            active = H_mat > thresh
-            if layer_type == 'conv':
-                W_2d = W.reshape(C_out, C_in * kH * kW)
-            else:
-                W_2d = W
-            eps_w = max(1e-6 * float(np.abs(W_2d).mean()), 1e-12)
-            W_denom = np.where(W_2d > 0, W_2d + eps_w,
-                      np.where(W_2d < 0, W_2d - eps_w, eps_w))
-            H_active = np.where(active, H_mat, 0.0)
-            recovered = H_active / W_denom
-            active_count = active.sum(axis=0).clip(min=1).astype(float)
-            proto = recovered.sum(axis=0) / active_count
-            if layer_type == 'conv':
-                proto = proto.reshape(C_in, kH * kW).mean(axis=1)
-            proto_norm_val = np.linalg.norm(proto)
-            if proto_norm_val >= _EPS:
-                proto_unit = proto / proto_norm_val
-                act_row_norms = np.linalg.norm(act_2d, axis=1, keepdims=True)
-                act_normed = act_2d / (act_row_norms + _EPS)
-                sw_cos = np.clip(act_normed @ proto_unit, 0, None)
-            else:
-                sw_cos = np.ones(act_2d.shape[0])
-        else:
-            sw_cos = np.ones(act_2d.shape[0])
-
-        # -- img_factor component --
-        sw_img = img_f[:, fi]
-
-        # Normalise both to unit sum so cosine_mix interpolates on the same scale.
-        sw_cos = sw_cos / (sw_cos.sum() + _EPS)
-        sw_img = sw_img / (sw_img.sum() + _EPS)
-
-        sw = cosine_mix * sw_cos + (1.0 - cosine_mix) * sw_img
-        return sw, None
+    elif weighting == 'img_factor':
+        # Factor's per-stimulus loading directly as stimulus weights.
+        return img_f[:, fi], None
 
     else:
         raise ValueError(
@@ -920,12 +595,10 @@ def _compute_trace_transition(weighting, img_f, neu_f, W, act_into_current, fi,
 
 # ── BFT public entry point ────────────────────────────────────────────────────
 
-def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
-        threshold=0.95, min_cumvar=None, stimulus_threshold=0.0,
-        weighting='img_factor', random_state=0, min_k=1, max_iter=20000,
-        init=None, l1_ratio=0, k_fixed=None, cache_dir=None,
-        conv_pool_method='avg', factor_quantile=0.0, cosine_mix=0.5,
-        recon_threshold=None, verbose=0):
+def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
+        stimulus_threshold=0.0, weighting='img_selectivity', random_state=0,
+        min_k=1, max_iter=20000, init=None, l1_ratio=0, k_fixed=None,
+        cache_dir=None, conv_pool_method='avg', recon_threshold=None, verbose=0):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -951,35 +624,13 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           to all layers. Ignored for layers where k_fixed is set.
     n_branches          : int or list[int] — how many top factors to follow at
                           each layer (first-to-last). A single int applies to all.
-    method              : str or list — rank-selection criterion for auto_nmf_pipeline
-    threshold           : float — passed to auto_nmf_pipeline
-    min_cumvar          : float or None — explicit cumvar floor
     stimulus_threshold  : fraction in [0, 1) — zeros the lowest-weight stimuli
-    weighting           : str — how to compute stimulus/neuron weights at each
-                          layer transition; one of:
-                          'img_factor'             img_f[:,fi] as stimulus weights (default)
-                          'factor_project_raw'     project onto arbor-space factor direction
-                          'factor_project_corrected' same, corrected for weight magnitude
-                          'img_factor_neuron'      img_f + loading-weighted mean activation
-                          'cosine_activation'      cosine sim between L2-normed stimuli
-                                                   and the weight-corrected prototype;
-                                                   stimulus-only weighting (nw=None)
-                          'img_selectivity'        fraction of each stimulus's lambda-
-                                                   weighted total NMF activity that
-                                                   belongs to factor fi; favours stimuli
-                                                   selective for the traced factor
-                          For conv layers 'img_factor' is always safe; the projection modes
-                          use global average pooling of the input feature map.
-    factor_quantile     : float in [0, 1) — only used when weighting='cosine_activation'.
-                          Quantile threshold applied to strictly-positive neural factor
-                          entries; only values above this percentile contribute to the
-                          prototype activation estimate.
-                          0.0 (default) uses all nonzero entries;
-                          0.1 uses the top 90%; 0.9 uses the top 10%.
-    cosine_mix          : float in [0, 1] — only used when weighting='cosine_img_mix'.
-                          Blend coefficient: 0.0 → pure img_factor, 1.0 → pure
-                          cosine_activation. Both signals are unit-sum normalised
-                          before blending. Default 0.5 (equal weight).
+    weighting           : str — how to propagate importance between layers; one of:
+                          'img_selectivity' (default) — fraction of each stimulus's
+                                            lambda-weighted NMF activity belonging to
+                                            factor fi; favours stimuli selective for the
+                                            traced factor
+                          'img_factor'      img_f[:,fi] directly as stimulus weights
     random_state        : int — NMF random seed
     min_k               : int — minimum NMF components per layer
     max_iter            : int — NMF iteration cap
@@ -998,11 +649,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                           None disables caching.
     conv_pool_method    : str — spatial pooling for conv layers: 'avg', 'max', 'center'
     recon_threshold     : float or None — maximum acceptable relative Frobenius
-                          reconstruction error for the K*-component truncation of the
-                          k_max NMF fit. Used as the floor in method='structural_recon',
-                          or as a standalone floor on any other method when provided.
-                          0 = perfect reconstruction (forces K=kmax), 1 = no constraint.
-                          Default None = disabled. Recommended with 'structural_recon': 0.2.
+                          reconstruction error floor (structural_recon method).
+                          Default None uses 0.2 (20% error).
     verbose             : int — verbosity level (default 0 = silent).
                           1 — print one line per layer/branch showing layer index,
                               name, type, and current branch path.
@@ -1093,8 +741,6 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
         img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
-            method=method, threshold=threshold,
-            min_k=min_k, min_cumvar=min_cumvar,
             stimulus_threshold=stimulus_threshold, neuron_weights=neuron_weights,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
@@ -1139,11 +785,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2, method='cumvar',
                 # based on factor fi's loadings and the chosen weighting mode.
                 # For 'attn' layers, attn_w is passed so the effective input can be
                 # reconstructed when computing projections in the transition.
-                sw_fi, nw_fi = _compute_trace_transition(
-                    weighting, img_f, neu_f, W, act_input, fi=fi,
-                    layer_type=ltype, attn_weights=attn_w,
-                    factor_quantile=factor_quantile, cosine_mix=cosine_mix,
-                    lams=lams)
+                sw_fi, nw_fi = _compute_trace_transition(weighting, img_f, lams, fi)
                 node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
 
         # Persist completed leaf-path nodes to disk so reruns can skip NMF.

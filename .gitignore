@@ -9,3 +9,6 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+figs/
+src/old_code.py
+figs_old/
