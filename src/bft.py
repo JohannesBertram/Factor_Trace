@@ -52,6 +52,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.decomposition import NMF
+from .r1d import run_r1d
 
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
@@ -161,20 +162,33 @@ def _select_k_single(lambdas, min_k=1):
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
 
 def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
-                      init=None, l1_ratio=0):
+                      init=None, l1_ratio=0, factorizer='sklearn',
+                      **factorizer_kwargs):
     """Fit NMF, normalise, sort by importance, and rescale by sqrt(lambda).
 
     The sqrt(lambda) rescaling distributes importance equally between the
     image factors (W) and neural factors (H) so that their dot product
     reconstructs X with unit-norm columns carrying equal weight.
 
+    Parameters
+    ----------
+    factorizer : str
+        'sklearn' (default) — use sklearn NMF.
+        'r1d'               — use greedy rank-1 deflation (see src/r1d.py).
+    **factorizer_kwargs
+        Passed to run_r1d when factorizer='r1d' (e.g. gamma, maxiters,
+        penalize_lownorm, monotonic). Ignored for sklearn.
+
     Returns (img_factors, neural_factors, lambdas).
       img_factors    : (n_samples, n_components)
       neural_factors : (n_neurons, n_components)
       lambdas        : (n_components,) descending
     """
-    W, H, _ = run_nmf(X, n_components, random_state=random_state,
-                      max_iter=max_iter, init=init, l1_ratio=l1_ratio)
+    if factorizer == 'r1d':
+        W, H, _ = run_r1d(X, n_components, **factorizer_kwargs)
+    else:
+        W, H, _ = run_nmf(X, n_components, random_state=random_state,
+                          max_iter=max_iter, init=init, l1_ratio=l1_ratio)
     W, H, lambdas = normalize_factors(W, H)
     W, H, lambdas, _ = sort_by_lambda(W, H, lambdas)
     scale = np.sqrt(lambdas)
@@ -182,7 +196,8 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
 
 
 def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
-                      init=None, l1_ratio=0, recon_threshold=None):
+                      init=None, l1_ratio=0, recon_threshold=None,
+                      factorizer='sklearn', **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
     Uses the structural_recon method: fraction drop as primary signal and actual
@@ -198,7 +213,9 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
                       error. K* is at least the smallest K where
                       ||X - X_K||_F / ||X||_F <= recon_threshold.
                       Default None uses 0.2 (20% error).
-    random_state, max_iter, init, l1_ratio : passed to run_nmf
+    random_state, max_iter, init, l1_ratio : passed to run_nmf (sklearn path only)
+    factorizer : str — 'sklearn' (default) or 'r1d'; see full_nmf_pipeline.
+    **factorizer_kwargs : passed to run_r1d when factorizer='r1d'.
 
     Returns
     -------
@@ -213,7 +230,9 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
 
     img_f, neu_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
                                             max_iter=max_iter, init=init,
-                                            l1_ratio=l1_ratio)
+                                            l1_ratio=l1_ratio,
+                                            factorizer=factorizer,
+                                            **factorizer_kwargs)
 
     rt = recon_threshold if recon_threshold is not None else 0.2
     recon_errs = _partial_recon_errors(X, img_f, neu_f)
@@ -437,7 +456,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         random_state=0, max_iter=20000, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
-                        verbose=0, _layer_tag=''):
+                        factorizer='sklearn', verbose=0, _layer_tag='',
+                        **factorizer_kwargs):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
     Parameters
@@ -514,6 +534,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         img_f, neu_f, lams = full_nmf_pipeline(
             pos_joint, k, random_state=random_state, max_iter=max_iter,
             init=init, l1_ratio=l1_ratio,
+            factorizer=factorizer, **factorizer_kwargs,
         )
     else:
         # Factorise excitatory joint arbors: img_factors are per-stimulus loadings,
@@ -522,6 +543,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             pos_joint, k_max=k_max,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             recon_threshold=recon_threshold,
+            factorizer=factorizer, **factorizer_kwargs,
         )
     if verbose >= 2:
         print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
@@ -536,12 +558,14 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             neg_img_f, neg_neu_f, neg_lams = full_nmf_pipeline(
                 neg_joint, k_neg, random_state=random_state, max_iter=max_iter,
                 init=init, l1_ratio=l1_ratio,
+                factorizer=factorizer, **factorizer_kwargs,
             )
         else:
             neg_img_f, neg_neu_f, neg_lams, _ = auto_nmf_pipeline(
                 neg_joint, k_max=k_max,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
                 recon_threshold=recon_threshold,
+                factorizer=factorizer, **factorizer_kwargs,
             )
         if verbose >= 2:
             print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
@@ -598,7 +622,8 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
 def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
         stimulus_threshold=0.0, weighting='img_selectivity', random_state=0,
         min_k=1, max_iter=20000, init=None, l1_ratio=0, k_fixed=None,
-        cache_dir=None, conv_pool_method='avg', recon_threshold=None, verbose=0):
+        cache_dir=None, conv_pool_method='avg', recon_threshold=None,
+        factorizer='sklearn', verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
@@ -732,12 +757,13 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
         layer_tag = f' L{l_idx + 1} {names[l_idx]!r} ({ltype})'
         if verbose >= 1:
             path_str = str(path) if path else '[]'
-            print(f'[BFT] Layer {l_idx + 1}/{n_layers} {names[l_idx]!r} ({ltype})  path={path_str}')
+            print(f'[BFT] Layer {l_idx + 1}/{n_layers} {names[l_idx]!r} ({ltype})  '
+                  f'path={path_str}  factorizer={factorizer}')
 
         # Run one BFT step: build the joint arbor matrix for this layer and
         # decompose it with NMF using the importance weights from the layer above.
         # For 'attn' layers, attn_w is forwarded so compute_attn_joint_arbors is used.
-        _t_layer = time.perf_counter() if verbose >= 2 else None
+        _t_layer = time.perf_counter()
         img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
@@ -745,10 +771,14 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w, recon_threshold=recon_threshold,
-            verbose=verbose, _layer_tag=layer_tag,
+            factorizer=factorizer, verbose=verbose, _layer_tag=layer_tag,
+            **factorizer_kwargs,
         )
+        _t_nmf = time.perf_counter() - _t_layer
+        if verbose >= 1:
+            print(f'[BFT{layer_tag}]   K={len(lams)}  t={_t_nmf:.3f}s')
         if verbose >= 2:
-            print(f'[BFT{layer_tag}]   total: {time.perf_counter() - _t_layer:.2f} s')
+            print(f'[BFT{layer_tag}]   total: {_t_nmf:.2f} s')
         # active_samples: how many stimuli have non-negligible weight.
         # When weights are uniform (std ≈ 0) every sample is active.
         if stimulus_weights.std() > 1e-8:
