@@ -20,6 +20,7 @@ from .bft import (
     compute_joint_arbors_normalized,
     compute_conv_joint_arbors,
     compute_attn_joint_arbors,
+    _compute_trace_transition,
 )
 
 
@@ -422,15 +423,16 @@ def _nnls_project(neural_factors, pos_joint):
     return img_f
 
 
-def _joint_for_node(node, new_input):
-    """Compute the raw signed joint arbor for new_input at a given BFT node.
+def _joint_for_node_weighted(node, new_input, stimulus_weights):
+    """Compute the raw signed joint arbor for new_input at a BFT node with explicit stimulus weights.
 
     Parameters
     ----------
-    node      : BFT node dict (contains 'W', 'layer_type')
-    new_input : For 'fc' / 'conv': numpy array of activations.
-                For 'attn': dict with keys 'x_tokens' (N,T,d_model)
-                            and 'attn_weights' (N,T).
+    node             : BFT node dict (contains 'W', 'layer_type', 'stimulus_threshold')
+    new_input        : For 'fc' / 'conv': numpy array of activations.
+                       For 'attn': dict with keys 'x_tokens' (N,T,d_model)
+                                   and 'attn_weights' (N,T).
+    stimulus_weights : (n_new,) per-sample importance weights; np.ones(n_new) for the root.
 
     Returns
     -------
@@ -438,22 +440,12 @@ def _joint_for_node(node, new_input):
     """
     ltype = node['layer_type']
     W     = node['W']
-    # Replicate the normalization decision from the original BFT run.
-    # compute_joint_arbors_normalized skips L2-normalisation when
-    # stimulus_weights is not None and allclose(1.0).  At the BFT root the
-    # original call used stimulus_weights=np.ones(n_samples), so the root
-    # arbors were UN-normalised.  Passing None here would trigger normalisation
-    # instead, putting NNLS in a different space than the stored neural_factors.
-    # We detect the root case via the stored stimulus_weights_in and pass a
-    # matching all-ones array; non-root nodes had non-uniform weights so we
-    # pass None (→ normalise), which matches the original BFT behaviour there.
-    orig_sw = node['stimulus_weights_in']
-    n_new = (new_input['x_tokens'].shape[0]
-             if isinstance(new_input, dict) else new_input.shape[0])
-    sw = np.ones(n_new) if np.allclose(orig_sw, 1.0) else None
+    st    = node.get('stimulus_threshold', 0.0)
 
     if ltype == 'conv':
-        return compute_conv_joint_arbors(W, new_input, stimulus_weights=sw)
+        return compute_conv_joint_arbors(W, new_input,
+                                          stimulus_weights=stimulus_weights,
+                                          stimulus_threshold=st)
     elif ltype == 'attn':
         if not isinstance(new_input, dict):
             raise ValueError(
@@ -464,26 +456,29 @@ def _joint_for_node(node, new_input):
             W,
             new_input['x_tokens'],
             new_input['attn_weights'],
-            stimulus_weights=sw,
+            stimulus_weights=stimulus_weights,
+            stimulus_threshold=st,
         )
     else:
-        return compute_joint_arbors_normalized(W, new_input, stimulus_weights=sw)
+        return compute_joint_arbors_normalized(W, new_input,
+                                               stimulus_weights=stimulus_weights,
+                                               stimulus_threshold=st)
 
 
 def project_stimuli_onto_tree(root_node, new_layer_inputs):
-    """Project new stimuli onto fixed BFT factors via per-node NNLS.
+    """Project new stimuli onto fixed BFT factors via backward-weighted NNLS.
 
-    For every node in the BFT tree the joint arbor is recomputed from the new
-    stimuli's layer activations and then projected onto the stored neural_factors
-    with non-negative least squares to obtain img_factors for the new stimuli.
+    Mirrors the BFT backward pass: starts at the output (root) layer with uniform
+    stimulus weights and works toward the input, propagating per-factor stimulus
+    weights using the same weighting strategy as the original BFT.  At each node
+    the joint arbor is built with the inherited stimulus weights — putting NNLS in
+    the same weighted space as the NMF factors stored there — before solving:
 
-    img_factors are fitted via NNLS on unweighted joint arbors, while the original
-    BFT img_factors were fitted via NMF on stimulus-weighted arbors.  Both live in
-    the same neural_factors space so rankings and fingerprint comparisons are valid;
-    absolute magnitudes may differ for stimuli that had low parent weight in the
-    original BFT.  stimulus_weights_in is set to ones and should not be used for
-    cross-tree comparison — use img_factors directly via compute_node_activations,
-    compute_factor_activations, or extract_factor_fingerprint.
+        min_{x >= 0}  ||neural_factors @ x − weighted_pos_joint[s]||²
+
+    This corrects the mismatch in the previous approach where inner-layer NNLS
+    used unweighted arbors while the stored neural_factors were trained on
+    stimulus-weighted ones.
 
     Parameters
     ----------
@@ -501,16 +496,20 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
     Returns
     -------
     dict  — deep copy of the BFT tree with 'img_factors' (and 'neg_img_factors'
-            if present) replaced by NNLS-projected values for the new stimuli,
-            and 'stimulus_weights_in' set to uniform ones.
+            if present) replaced by backward-weighted NNLS projections for the
+            new stimuli, and 'stimulus_weights_in' set to the propagated weights.
     """
     new_root = copy.deepcopy(root_node)
 
-    def _project(node):
+    root_input = new_layer_inputs[root_node['layer_idx']]
+    n_new = (root_input['x_tokens'].shape[0]
+             if isinstance(root_input, dict) else root_input.shape[0])
+
+    def _project(node, stimulus_weights):
         l_idx     = node['layer_idx']
         new_input = new_layer_inputs[l_idx]
-        raw_joint = _joint_for_node(node, new_input)
 
+        raw_joint = _joint_for_node_weighted(node, new_input, stimulus_weights)
         pos_joint = np.clip(raw_joint,  0, None)
         neg_joint = np.clip(-raw_joint, 0, None)
 
@@ -519,11 +518,14 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
         if node.get('neg_neural_factors') is not None:
             node['neg_img_factors'] = _nnls_project(node['neg_neural_factors'], neg_joint)
 
-        n_new = pos_joint.shape[0]
-        node['stimulus_weights_in'] = np.ones(n_new)
+        node['stimulus_weights_in'] = stimulus_weights.copy()
 
+        weighting = node.get('weighting', 'img_selectivity')
         for child in node['children']:
-            _project(child)
+            fi = child['factor_idx']
+            sw_fi, _ = _compute_trace_transition(weighting, node['img_factors'],
+                                                  node['lambdas'], fi)
+            _project(child, sw_fi)
 
-    _project(new_root)
+    _project(new_root, np.ones(n_new))
     return new_root

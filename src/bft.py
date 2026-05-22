@@ -797,6 +797,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
             'neg_lambdas': neg_lams,
             'stimulus_weights_in': stimulus_weights.copy(),
             'neuron_weights_in': neuron_weights.copy() if neuron_weights is not None else None,
+            'weighting': weighting,
+            'stimulus_threshold': stimulus_threshold,
             'path': path, 'children': [],
         }
         # For attention layers, store the CLS attention scores in the node so downstream
