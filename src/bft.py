@@ -52,7 +52,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from sklearn.decomposition import NMF
-from .r1d import run_r1d
+from .r1d import run_r1d, run_r1d_sparse, run_r1d_sparse2
 
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
@@ -186,6 +186,10 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
     """
     if factorizer == 'r1d':
         W, H, _ = run_r1d(X, n_components, **factorizer_kwargs)
+    elif factorizer == 'r1d_sparse':
+        W, H, _ = run_r1d_sparse(X, n_components, **factorizer_kwargs)
+    elif factorizer == 'r1d_sparse2':
+        W, H, _ = run_r1d_sparse2(X, n_components, **factorizer_kwargs)
     else:
         W, H, _ = run_nmf(X, n_components, random_state=random_state,
                           max_iter=max_iter, init=init, l1_ratio=l1_ratio)

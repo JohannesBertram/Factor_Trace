@@ -120,6 +120,13 @@ We further introduce \emph{factor fingerprints} — per-stimulus concatenations 
 
 Modern neural networks achieve remarkable accuracy across vision, language, and scientific domains, yet their internal computations remain largely opaque. This opacity limits trust in high-stakes applications and impedes systematic improvement: when a model fails, we cannot easily diagnose \emph{why}. The field of mechanistic interpretability aims to fill this gap by explaining not just \emph{what} a network predicts, but \emph{which} internal computations produced that prediction.
 
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\linewidth]{figs/Overview_bft.pdf}
+    \caption{Preliminary BFT overview}
+    \label{fig:placeholder}
+\end{figure}
+
 A natural unit of explanation is the \emph{circuit}: a sparse subgraph of neurons and weights that implements a specific computation~\citep{olahZoomIntroductionCircuits2020}. Identifying circuits is appealing because they are both human-interpretable and causally testable — ablating a circuit should disrupt the computation it implements. However, existing approaches to circuit discovery either require costly manual0inspection~\citep{olahZoomIntroductionCircuits2020, Elhage2021mathematicalGoogleSearch}, or rely on input-space attribution methods that identify relevant \emph{features} but not the internal \emph{weight structure} responsible for them.
 
 \textbf{Related Work} Input attribution methods such as saliency maps~\citep{simonyanDeepConvolutionalNetworks2013}, integrated gradients~\citep{sundararajanAxiomaticAttributionDeep2017}, and SHAP~\citep{lundbergUnifiedApproachInterpreting2017a} produce pixel-space heatmaps but do not expose multi-layer circuits. Activation-space methods — including linear probes~\citep{alain2016understanding} and Sparse Autoencoders~\citep{cunningham2023sparse} — decompose representations layer by layer but treat each layer in isolation, ignoring the weights that connect them. Transcoders~\citep{lindsey2025transcoders} partially bridge this gap but require training an auxiliary model and a predefined dictionary. None of these methods answers the fundamental question at each neuron: not merely \emph{did this neuron fire}, but \emph{via which upstream weights}?
@@ -225,6 +232,33 @@ The normalization ensures $\mathrm{sw} \in [0,1]$ and is the key coupling: the c
 Connected pathways are enforced by this selectivity: only samples that preferentially flow through circuit $k^*$ at layer $l$ receive high weight, so the NMF at layer $l-1$ is dominated by samples that actually activate the identified circuit — ensuring the traced path is coherent from output back to input.
 
 Initialization: $\mathrm{sw} = \mathbf{1}$ (uniform) at the output layer (layer $L$).
+
+\subsection{Projecting New Stimuli via Backward-Weighted NNLS}
+\label{sec:nnls-projection}
+
+Once a BFT tree is fixed on a training population, we can represent any new stimulus $s'$ in the same factor space without refitting NMF.
+The key insight is that the neural factors $H_\mathrm{neu}^l$ at an inner layer were trained on a \emph{stimulus-weighted} joint arbor; projecting a new stimulus with an \emph{unweighted} arbor places it in a different space and yields poor inner-layer reconstructions.
+The fix is to mirror the BFT backward pass during projection.
+
+\textbf{Root node (output layer).}
+For new stimulus $s'$, form the unweighted joint arbor $\hat{\mathbf{J}}_L[s',:] = J_{s'}^{(i)}[j]$ with uniform $\mathrm{sw}[s'] = 1$ (matching the original BFT initialization) and solve per-row NNLS against the stored $H_\mathrm{neu}^L$:
+\begin{equation}
+  \hat{w}^L_{s'} = \arg\min_{x \geq 0} \bigl\| H_\mathrm{neu}^L\, x - \hat{\mathbf{J}}_L[s',:]\bigr\|_2^2.
+\end{equation}
+
+\textbf{Propagating weights to child nodes.}
+Given $\hat{W}_\mathrm{img}^L$ and stored $\boldsymbol{\lambda}^L$, compute the stimulus weight for factor $k$ exactly as in \cref{sec:backward}:
+\begin{equation}
+  \hat{\mathrm{sw}}^{L-1}_k[s'] = \frac{\hat{w}^L_{s',k}\,\lambda^L_k}{\displaystyle\sum_{k'} \hat{w}^L_{s',k'}\,\lambda^L_{k'} + \varepsilon}.
+\end{equation}
+
+\textbf{Inner layers.}
+For each child node at layer $l-1$ reached by following factor $k$, build the weighted joint arbor
+$\hat{\mathbf{J}}_{l-1}^+[s',:] = \mathrm{clip}\bigl(\hat{\mathrm{sw}}^{l-1}_k[s'] \cdot J_{s'}^{\mathrm{raw}}, 0\bigr)$
+and solve NNLS against $H_\mathrm{neu}^{l-1}$; then propagate to the next child using the same selectivity formula.
+
+This backward pass ensures that the NNLS at every node operates on a joint arbor in the same weighted space as the NMF factors stored there, removing the mismatch that caused the round-trip cosine similarity to degrade from ${\approx}1.0$ at the root to ${\approx}0.47$ at inner nodes.
+The public API is unchanged: \texttt{project\_stimuli\_onto\_tree(root, new\_layer\_inputs)} performs the full backward-weighted NNLS automatically.
 
 \begin{algorithm}[t]
 \caption{\textsc{BFT} — Backward Factor Trace}
@@ -421,25 +455,23 @@ Even and odd circuits activate distinct parts of the tree, visually summarising 
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.9\linewidth]{figs/06_factor_tree/id_even_odd_train_vs_test.pdf}
-  \caption{Active factor trees for the even/odd MLP, coloured by mean img\_factor loading of class-selected stimuli. Rows: training (top) vs.\ test stimuli (bottom). Columns: even vs.\ odd class. The consistent activation patterns across train and test confirm the circuits generalise within the training distribution.}
+  \begin{tabular}{cc}
+     \includegraphics[width=0.67\linewidth]{figs/06_stimulus_factor_analysis/tree_output_factors.png}  & \includegraphics[width=0.28\linewidth]{figs/06_stimulus_factor_analysis/similarity_heatmap.png} \\
+     (a) Active factor trees & (b) Fingerprint similarity
+  \end{tabular}
+  
+  \caption{(a) Active factor trees for the even/odd MLP, colored by mean img\_factor loading of class-selected stimuli. Left: even circuit. Right: odd ciruit. (b) Pairwise cosine similarity matrix of factor fingerprints for the even/odd MLP test set (stimuli grouped by class). High intra-class similarity and low inter-class similarity confirm that the circuit tree encodes class-relevant structure.}
   \label{fig:factor-tree-id}
 \end{figure}
 
 \subsubsection{Factor Fingerprints}
 
 A \emph{factor fingerprint} $\mathbf{f}_s \in \mathbb{R}^{\sum_i K_i}$ is the concatenation of $W_\mathrm{img}[s,:]$ over all BFT tree nodes in breadth-first order, where $K_i$ is the number of NMF components at node $i$.
-The fingerprint captures the full hierarchical activation pattern of stimulus $s$ across the entire circuit tree — not just the output-layer factorisation.
+The fingerprint captures the full hierarchical activation pattern of stimulus $s$ across the entire circuit tree — not just the output-layer factorization.
 
 Pairwise cosine similarity between fingerprints (\cref{fig:fingerprint-similarity}) shows high within-class similarity and low between-class similarity, confirming that the circuit tree provides a class-discriminative stimulus representation.
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.55\linewidth]{figs/06_factor_tree/fingerprint_similarity.pdf}
-  \caption{Pairwise cosine similarity matrix of factor fingerprints for the even/odd MLP test set (stimuli grouped by class). High intra-class similarity (warm colours) and low inter-class similarity (cool colours) confirm that the circuit tree encodes class-relevant structure.}
-  \label{fig:fingerprint-similarity}
-\end{figure}
-
+\newpage
 \subsubsection{MDS vs.\ PCA Embeddings}
 
 To compare the geometric structure encoded by factor fingerprints against raw network activations, we embed the test-set stimuli in two ways: (i) MDS on the pairwise cosine distances of factor fingerprints, and (ii) PCA on the concatenated layer-activation vectors.
@@ -451,7 +483,13 @@ This holds across all three architectures and validates that the traced circuits
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=0.9\linewidth]{figs/06_factor_tree/mds_pca_comparison.pdf}
+  \begin{tabular}{c}
+       \includegraphics[width=0.9\linewidth]{figs/06_stimulus_factor_analysis/similarity_mds.png} \\
+       \includegraphics[width=0.9\linewidth]{figs/06_stimulus_factor_analysis/far_ood_mds.png} \\
+       \includegraphics[width=0.9\linewidth]{figs/06_stimulus_factor_analysis/40_20_similarity_mds.png} \\
+       \includegraphics[width=0.9\linewidth]{figs/cnn_similarity_mds.png}
+  \end{tabular}
+  
   \caption{MDS on factor fingerprint cosine distances (left column) vs.\ PCA on raw network activations (right column) for the even/odd MLP (top), 10-digit MLP (middle), and CIFAR-10 CNN (bottom). Points are coloured by class. Factor fingerprint embeddings show consistently cleaner class separation across all architectures.}
   \label{fig:mds-pca-comparison}
 \end{figure}
