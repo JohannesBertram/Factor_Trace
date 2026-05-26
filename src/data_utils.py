@@ -366,3 +366,57 @@ def collect_layer_inputs(model, dataset, label_transform=None, n_per_class=None,
         'layer_inputs': [np.array(acc) for acc in layer_in_acc],
         'layer_acts': [np.array(acc) for acc in layer_act_acc],
     }
+
+
+def get_cifar10_loaders(batch_size=128, root='./data/', augment='baseline'):
+    """Return (train_loader, test_loader) for CIFAR-10.
+
+    augment: 'baseline' — RandomCrop + HorizontalFlip
+             'cutout'   — baseline + CutOut(8×8 patch)
+             'none'     — no training augmentation (ToTensor + Normalize only)
+    Test set always uses ToTensor + Normalize only.
+    """
+    import torchvision.transforms as T
+    from torchvision import datasets as tv_datasets
+
+    _mean = (0.4914, 0.4822, 0.4465)
+    _std  = (0.2470, 0.2435, 0.2616)
+
+    class _CutOut:
+        """Zero out a random square patch after normalisation."""
+        def __init__(self, size):
+            self.size = size
+
+        def __call__(self, img):
+            _, h, w = img.shape
+            cy = torch.randint(0, h, (1,)).item()
+            cx = torch.randint(0, w, (1,)).item()
+            y1 = max(0, cy - self.size // 2)
+            y2 = min(h, cy + self.size // 2)
+            x1 = max(0, cx - self.size // 2)
+            x2 = min(w, cx + self.size // 2)
+            img = img.clone()
+            img[:, y1:y2, x1:x2] = 0.0
+            return img
+
+    base = [T.ToTensor(), T.Normalize(_mean, _std)]
+
+    if augment == 'baseline':
+        train_tfm = T.Compose([T.RandomCrop(32, padding=4),
+                               T.RandomHorizontalFlip()] + base)
+    elif augment == 'cutout':
+        train_tfm = T.Compose([T.RandomCrop(32, padding=4),
+                               T.RandomHorizontalFlip()] + base + [_CutOut(8)])
+    elif augment == 'none':
+        train_tfm = T.Compose(base)
+    else:
+        raise ValueError(f"augment must be 'baseline', 'cutout', or 'none'; got {augment!r}")
+
+    test_tfm = T.Compose(base)
+
+    train_ds = tv_datasets.CIFAR10(root, train=True,  download=True, transform=train_tfm)
+    test_ds  = tv_datasets.CIFAR10(root, train=False, download=True, transform=test_tfm)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    test_loader  = DataLoader(test_ds,  batch_size=256,         shuffle=False)
+    return train_loader, test_loader

@@ -35,13 +35,14 @@ import json
 import os
 import torch
 
-from .models import SimpleMLP
+from .models import SimpleMLP, SmallCNN
 from .training import label_transform_even_odd
-from .data_utils import get_mnist_loaders
+from .data_utils import get_mnist_loaders, get_cifar10_loaders
 
 
 MODEL_REGISTRY = {
     "SimpleMLP": SimpleMLP,
+    "SmallCNN":  SmallCNN,
 }
 
 TRANSFORM_REGISTRY = {
@@ -50,7 +51,8 @@ TRANSFORM_REGISTRY = {
 }
 
 DATASET_REGISTRY = {
-    "MNIST": get_mnist_loaders,
+    "MNIST":   get_mnist_loaders,
+    "CIFAR10": get_cifar10_loaders,
 }
 
 

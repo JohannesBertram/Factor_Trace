@@ -1,6 +1,7 @@
-from .models import SimpleMLP
+from .models import SimpleMLP, SmallCNN
 from .training import correct, label_transform_even_odd, train_epoch, evaluate
-from .data_utils import (get_mnist_loaders, collect_activations,
+from .data_utils import (get_mnist_loaders, get_cifar10_loaders,
+                          collect_activations,
                           collect_layer_inputs, collect_layer_inputs_generic,
                           collect_layer_data)
 from .bft import (run_nmf, normalize_factors, sort_by_lambda, full_nmf_pipeline,
