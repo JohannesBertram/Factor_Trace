@@ -6,7 +6,8 @@ from .data_utils import (get_mnist_loaders, get_cifar10_loaders,
                           collect_layer_data)
 from .bft import (run_nmf, normalize_factors, sort_by_lambda, full_nmf_pipeline,
                   auto_nmf_pipeline, compute_joint_arbors_normalized,
-                  compute_conv_joint_arbors, trace_single_layer, bft)
+                  compute_conv_joint_arbors, compute_attn_joint_arbors,
+                  trace_single_layer, bft)
 from .r1d import run_r1d, run_r1d_sparse, run_r1d_sparse2, r1d, r1d_sparse, r1d_sparse2, rec_err_curve
 # Backward-compat: moved to old_code.py (gitignored) but still importable
 from .old_code import select_k_from_lambdas, nmf_component_sweep

@@ -373,6 +373,7 @@ def get_cifar10_loaders(batch_size=128, root='./data/', augment='baseline'):
 
     augment: 'baseline' — RandomCrop + HorizontalFlip
              'cutout'   — baseline + CutOut(8×8 patch)
+             'strong'   — baseline + ColorJitter + CutOut(16×16 patch)
              'none'     — no training augmentation (ToTensor + Normalize only)
     Test set always uses ToTensor + Normalize only.
     """
@@ -407,10 +408,14 @@ def get_cifar10_loaders(batch_size=128, root='./data/', augment='baseline'):
     elif augment == 'cutout':
         train_tfm = T.Compose([T.RandomCrop(32, padding=4),
                                T.RandomHorizontalFlip()] + base + [_CutOut(8)])
+    elif augment == 'strong':
+        train_tfm = T.Compose([T.RandomCrop(32, padding=4),
+                               T.RandomHorizontalFlip(),
+                               T.ColorJitter(0.4, 0.4, 0.4, 0.1)] + base + [_CutOut(16)])
     elif augment == 'none':
         train_tfm = T.Compose(base)
     else:
-        raise ValueError(f"augment must be 'baseline', 'cutout', or 'none'; got {augment!r}")
+        raise ValueError(f"augment must be 'baseline', 'cutout', 'strong', or 'none'; got {augment!r}")
 
     test_tfm = T.Compose(base)
 
