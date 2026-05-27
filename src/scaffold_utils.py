@@ -140,12 +140,15 @@ def build_scaffold_edges(
 
 def scaffold_layer_sizes_from_edges(edge_matrices):
     """
-    Derive layer_sizes from edge matrices: [n_in_of_first] + [n_out for each edge].
-    Works for any mix of fc and conv (post-aggregate) edges.
+    Derive layer_sizes from edge matrices.
+
+    Returns [n_in of E0, n_in of E1, ..., n_in of E_{N-1}, n_out of E_{N-1}].
+    This is consistent with scaffold_loading_from_edges and correctly handles
+    CNN→FC boundaries where the FC n_in (spatially flattened) differs from the
+    preceding conv layer's C_out.
     """
-    sizes = [edge_matrices[0].shape[1]]
-    for E in edge_matrices:
-        sizes.append(E.shape[0])
+    sizes = [E.shape[1] for E in edge_matrices]
+    sizes.append(edge_matrices[-1].shape[0])
     return sizes
 
 
