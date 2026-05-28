@@ -1,4 +1,6 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class SimpleMLP(nn.Module):
@@ -31,17 +33,20 @@ class SimpleMLP(nn.Module):
 
 
 class SmallCNN(nn.Module):
-    """Configurable 3-conv-block CNN for CIFAR-10.
+    """Configurable N-conv-block CNN for image classification.
 
-    Backbone: 3 × (Conv2d + BatchNorm + ReLU + MaxPool(2)).
-    Head (global_pool=False): AdaptiveAvgPool(4) → FC(ch[-1]*16, fc_dim) → FC(fc_dim, n_classes)
-    Head (global_pool=True):  AdaptiveAvgPool(1) → FC(ch[-1], n_classes)   ← much smaller
+    Default: Deep4s config — 4 blocks [32, 64, 128, 256] with GlobalAvgPool.
+    Achieved 90 % on CIFAR-10 in 150 epochs with baseline augmentation.
+
+    Backbone: N × (Conv2d + BatchNorm + ReLU + MaxPool(2)).
+    Head (global_pool=True):  AdaptiveAvgPool(1) → Linear(ch[-1], n_classes)
+    Head (global_pool=False): AdaptiveAvgPool(4) → Linear(ch[-1]*16, fc_dim) → Linear(fc_dim, n_classes)
 
     forward(x) returns raw logits. Use nn.CrossEntropyLoss.
-    Compatible with hook-based collect_layer_data() in data_utils.
+    Compatible with hook-based collect_layer_dicts() in bft.py.
     """
 
-    def __init__(self, channels=(16, 32, 64), fc_dim=128, n_classes=10, global_pool=False):
+    def __init__(self, channels=(32, 64, 128, 256), fc_dim=128, n_classes=10, global_pool=True):
         super().__init__()
         in_ch = 3
         blocks = []
@@ -73,3 +78,88 @@ class SmallCNN(nn.Module):
 
     def count_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+# ── Vision Transformer (Tiny) ─────────────────────────────────────────────────
+
+class PatchEmbedder(nn.Module):
+    def __init__(self, img_size=28, patch_size=7, embed_dim=32):
+        super().__init__()
+        self.patch_size = patch_size
+        self.n_patches  = (img_size // patch_size) ** 2   # 16
+        patch_dim = patch_size * patch_size                # 49
+        self.proj = nn.Linear(patch_dim, embed_dim)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        p = self.patch_size
+        x = x.unfold(2, p, p).unfold(3, p, p)            # (B,1,4,4,7,7)
+        x = x.contiguous().view(B, -1, p * p)             # (B,16,49)
+        return self.proj(x)                                # (B,16,32)
+
+
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim=32, n_heads=2, ffn_dim=64):
+        super().__init__()
+        self.ln1  = nn.LayerNorm(embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim, n_heads, batch_first=True)
+        self.ln2  = nn.LayerNorm(embed_dim)
+        self.ffn1 = nn.Linear(embed_dim, ffn_dim)
+        self.ffn2 = nn.Linear(ffn_dim, embed_dim)
+        self._capture = False
+        # Captured activations (set during forward when _capture=True)
+        self._attn_in   = None   # (B, T, d) post-LN1, all tokens entering MHA
+        self._attn_w    = None   # (B, heads, T, T) raw attention weights
+        self._attn_out  = None   # (B, T, d) MHA output before residual
+        self._ffn1_in   = None   # (B, T, d) post-LN2
+        self._ffn2_in   = None   # (B, T, ffn_dim) post-GELU
+
+    def forward(self, x):
+        h = self.ln1(x)
+        if self._capture:
+            self._attn_in = h.detach()
+        attn_out, attn_w = self.attn(h, h, h,
+                                     need_weights=self._capture,
+                                     average_attn_weights=False)
+        if self._capture:
+            self._attn_w   = attn_w.detach()    # (B, heads, T, T)
+            self._attn_out = attn_out.detach()
+        x = x + attn_out
+        h = self.ln2(x)
+        if self._capture:
+            self._ffn1_in = h.detach()
+        h2 = F.gelu(self.ffn1(h))
+        if self._capture:
+            self._ffn2_in = h2.detach()
+        x = x + self.ffn2(h2)
+        return x
+
+
+class TinyViT(nn.Module):
+    """Tiny Vision Transformer for small images (default: 28×28 MNIST, 2 classes).
+
+    Single transformer block with learned CLS token and positional embeddings.
+    forward(x, capture=False) — set capture=True to record activations in block._*.
+    Returns log_softmax logits.
+    Compatible with save_experiment / load_experiment via MODEL_REGISTRY.
+    """
+
+    def __init__(self, embed_dim=32, n_heads=2, ffn_dim=64, n_classes=2):
+        super().__init__()
+        self.patch_embed = PatchEmbedder(embed_dim=embed_dim)
+        T = self.patch_embed.n_patches + 1   # 17
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, T, embed_dim))
+        self.block = TransformerBlock(embed_dim, n_heads, ffn_dim)
+        self.ln    = nn.LayerNorm(embed_dim)
+        self.head  = nn.Linear(embed_dim, n_classes)
+        nn.init.trunc_normal_(self.cls_token, std=0.02)
+        nn.init.trunc_normal_(self.pos_embed, std=0.02)
+
+    def forward(self, x, capture=False):
+        self.block._capture = capture
+        B = x.shape[0]
+        tokens = torch.cat([self.cls_token.expand(B, -1, -1),
+                             self.patch_embed(x)], dim=1) + self.pos_embed
+        tokens = self.block(tokens)
+        return F.log_softmax(self.head(self.ln(tokens[:, 0])), dim=1)

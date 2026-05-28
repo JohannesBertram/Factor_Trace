@@ -135,6 +135,19 @@ def build_scaffold_edges(
         edge_matrices.append(E)
         neg_edge_matrices.append(neg_E)
 
+    # At conv→FC boundaries the FC weight's n_in is spatially flattened
+    # (prev_channels × H × W). Aggregate over the spatial positions so every
+    # edge matrix has shape (layer_out, layer_in) using channel counts only.
+    for i in range(1, len(edge_matrices)):
+        prev_out = edge_matrices[i - 1].shape[0]
+        curr_in  = edge_matrices[i].shape[1]
+        if curr_in != prev_out and curr_in % prev_out == 0:
+            spatial = curr_in // prev_out
+            edge_matrices[i] = edge_matrices[i].reshape(
+                edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
+            neg_edge_matrices[i] = neg_edge_matrices[i].reshape(
+                neg_edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
+
     return edge_matrices, neg_edge_matrices
 
 
@@ -142,13 +155,12 @@ def scaffold_layer_sizes_from_edges(edge_matrices):
     """
     Derive layer_sizes from edge matrices.
 
-    Returns [n_in of E0, n_in of E1, ..., n_in of E_{N-1}, n_out of E_{N-1}].
-    This is consistent with scaffold_loading_from_edges and correctly handles
-    CNN→FC boundaries where the FC n_in (spatially flattened) differs from the
-    preceding conv layer's C_out.
+    Returns [n_in of E0, n_out of E0, n_out of E1, ..., n_out of E_{N-1}].
+    Chaining via output dims ensures consistency after conv→FC spatial aggregation.
     """
-    sizes = [E.shape[1] for E in edge_matrices]
-    sizes.append(edge_matrices[-1].shape[0])
+    sizes = [edge_matrices[0].shape[1]]
+    for E in edge_matrices:
+        sizes.append(E.shape[0])
     return sizes
 
 

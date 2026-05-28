@@ -18,7 +18,8 @@ def train_epoch(model, loader, optimizer, criterion, device, label_transform=Non
         target = target.to(device)
         if label_transform is not None:
             target = label_transform(target)
-        output, _ = model(data)
+        result = model(data)
+        output = result[0] if isinstance(result, tuple) else result
         loss = criterion(output, target)
         total_loss += loss.item()
         total_correct += correct(output, target)
@@ -37,7 +38,8 @@ def evaluate(model, loader, criterion, device, label_transform=None):
             target = target.to(device)
             if label_transform is not None:
                 target = label_transform(target)
-            output, _ = model(data)
+            result = model(data)
+            output = result[0] if isinstance(result, tuple) else result
             loss = criterion(output, target)
             total_loss += loss.item()
             total_correct += correct(output, target)

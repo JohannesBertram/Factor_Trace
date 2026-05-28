@@ -21,7 +21,7 @@ config.json schema
 
 Adding a new architecture
 -------------------------
-1. Implement forward(self, x, inference=False) -> (output, feature_maps)
+1. Implement an nn.Module subclass in src/models.py.
 2. Add an entry to MODEL_REGISTRY below.
 
 Adding a new dataset
@@ -35,7 +35,7 @@ import json
 import os
 import torch
 
-from .models import SimpleMLP, SmallCNN
+from .models import SimpleMLP, SmallCNN, TinyViT
 from .training import label_transform_even_odd
 from .data_utils import get_mnist_loaders, get_cifar10_loaders
 
@@ -43,6 +43,7 @@ from .data_utils import get_mnist_loaders, get_cifar10_loaders
 MODEL_REGISTRY = {
     "SimpleMLP": SimpleMLP,
     "SmallCNN":  SmallCNN,
+    "TinyViT":   TinyViT,
 }
 
 TRANSFORM_REGISTRY = {

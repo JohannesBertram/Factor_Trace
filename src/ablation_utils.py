@@ -60,7 +60,7 @@ def path_from_child(root_node, child_node):
 
 def extract_importance_scores(path_nodes):
     """
-    Extract per-weight importance from neural_factors[:, 0] along a traced path.
+    Extract per-weight importance from neural_factors along a traced path.
 
     Parameters
     ----------
@@ -69,12 +69,36 @@ def extract_importance_scores(path_nodes):
     Returns
     -------
     scores : dict {(layer_idx, i, j): float}
+
+    Notes
+    -----
+    factor_idx on a node records which column of the *parent's* NMF spawned this
+    branch, not which column to use from this node's own neural_factors.
+
+    For path_nodes[0] (the root / output-side node), the relevant column is
+    path_nodes[1]['factor_idx'] — i.e. which root factor this path follows.
+    For all deeper nodes, inner BFT always branches on factor 0, so column 0 is used.
+    A safety clamp handles any edge case where fi >= node's actual k.
     """
     scores = {}
-    for node in path_nodes:
-        l_idx = node['layer_idx']
-        n_out, n_in = node['W'].shape
-        imp = node['neural_factors'][:, 0].reshape(n_out, n_in)
+    for idx, node in enumerate(path_nodes):
+        l_idx  = node['layer_idx']
+        ltype  = node.get('layer_type', 'fc')
+        W      = node['W']
+        if idx == 0 and len(path_nodes) > 1:
+            fi = path_nodes[1].get('factor_idx', 0)
+        else:
+            fi = 0
+        k  = node['neural_factors'].shape[1]
+        fi = min(fi, k - 1)
+        flat = node['neural_factors'][:, fi]  # (n_out * n_in_flat,)
+        if ltype == 'conv':
+            C_out, C_in, kH, kW = W.shape
+            imp = flat.reshape(C_out, C_in * kH * kW)
+            n_out, n_in = C_out, C_in * kH * kW
+        else:
+            n_out, n_in = W.shape
+            imp = flat.reshape(n_out, n_in)
         for i in range(n_out):
             for j in range(n_in):
                 scores[(l_idx, i, j)] = float(imp[i, j])
@@ -143,7 +167,8 @@ def per_class_accuracy(model, loader, label_transform, device):
             target = target.to(device)
             if label_transform is not None:
                 target = label_transform(target)
-            output, _ = model(data)
+            result = model(data)
+            output = result[0] if isinstance(result, (tuple, list)) else result
             preds = output.argmax(1)
             for t, p in zip(target.cpu().numpy(), preds.cpu().numpy()):
                 t = int(t)
@@ -209,7 +234,8 @@ def taylor_scores(model, loader, label_transform, device, target_class):
         mask = (target == target_class)
         if not mask.any():
             continue
-        output, _ = model_tmp(data[mask])
+        result = model_tmp(data[mask])
+        output = result[0] if isinstance(result, tuple) else result
         loss = criterion(output, target[mask])
         loss.backward()
         n_seen += int(mask.sum())

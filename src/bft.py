@@ -12,75 +12,91 @@ attributing the network's output to increasingly fine-grained input patterns.
 
 Public entry point
 ------------------
-    bft(model_or_layers, ...)
-        Runs BFT from the last layer to the first.  With n_branches=1 at
-        every layer this yields a single linear trace; with n_branches>1 it
-        produces a tree of parallel pathways.
+    bft(model, loader, ...)
+        Primary interface. Pass any nn.Module and a DataLoader; layer data is
+        collected automatically via forward hooks on all Conv2d and Linear
+        sub-modules, then BFT is run. The returned root node includes
+        'images', 'targets', and 'confidences' metadata.
 
-        Two calling conventions are supported:
+    bft(layer_dicts, ...)
+        Advanced / backward-compat mode. Pass a pre-collected list of dicts,
+        one per layer in forward order:
+            {'type': 'fc' | 'conv' | 'attn',
+             'weight': ndarray,          # fc: (n_out,n_in); conv: (C_out,C_in,kH,kW);
+                                         # attn: (d_v,d_model) value-projection W_V
+             'input_fmap': ndarray,      # fc: (N,n_in); conv: (N,C_in,H,W);
+                                         # attn: (N,T,d_model) all token activations
+             'attn_weights': ndarray}    # attn only: (N,T) CLS-row scores (head-avg'd)
 
-        1. Model-protocol mode (SimpleMLP-style):
-               bft(model, layer_inputs_list, ...)
-           model must expose linear_layer_indices() and model.layers[i].weight.
+    bft(model, layer_inputs_list, ...)
+        Legacy model-protocol mode (SimpleMLP). model must expose
+        linear_layer_indices() and model.layers[i].weight.
 
-        2. Layer-dict mode (model-agnostic, works with CNNs, transformers, etc.):
-               bft(layer_dicts, ...)
-           layer_dicts is a list of dicts, one per layer in forward order:
-               {'type': 'fc' | 'conv' | 'attn',
-                'weight': ndarray,          # fc: (n_out,n_in); conv: (C_out,C_in,kH,kW);
-                                            # attn: (d_v,d_model) value-projection W_V
-                'input_fmap': ndarray,      # fc: (N,n_in); conv: (N,C_in,H,W);
-                                            # attn: (N,T,d_model) all token activations
-                'attn_weights': ndarray}    # attn only: (N,T) CLS-row scores (head-avg'd)
-
-Model protocol (mode 1)
------------------------
-Any model object is accepted as long as it exposes:
-    model.linear_layer_indices() -> list[int]
-        Indices (into model.layers) of every nn.Linear sub-module, ordered
-        first (nearest input) to last (nearest output).
-    model.layers[i].weight
-        The weight tensor of the i-th sub-module (PyTorch nn.Linear
-        convention: shape (n_out, n_in), .detach().numpy() must work).
-    All layers are assumed to be fully-connected (type 'fc').
+collect_layer_dicts(model, loader, device, only_correct=True)
+    Public helper: run forward hooks and return layer data suitable for the
+    layer-dict mode of bft(). Useful when you need to inspect or reuse the
+    collected activations separately from running BFT.
 """
 
 import os
 import pickle
 import time
 import numpy as np
+import scipy.sparse as sp
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.decomposition import NMF
-from .r1d import run_r1d, run_r1d_sparse, run_r1d_sparse2
+from sklearn.decomposition import MiniBatchNMF
+from threadpoolctl import threadpool_limits
+from torch.utils.data import DataLoader
 
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
 
-def run_nmf(X, n_components, random_state=0, max_iter=20000, init=None,
-            l1_ratio=0, **kwargs):
-    """Fit NMF and return (img_factors W, neural_factors H, fitted model).
+def _safe_init(n_components, n_samples, n_features, sparse_input=False):
+    """Pick a safe NMF init string given matrix dimensions.
+
+    nndsvda/nndsvd both require n_components <= min(n_samples, n_features).
+    For sparse inputs nndsvd is preferred (nndsvda incurs an extra dense pass).
+    Falls back to 'random' when the constraint is violated (small layers).
+    """
+    if n_components > min(n_samples, n_features):
+        return 'random'
+    return 'nndsvd' if sparse_input else 'nndsvda'
+
+
+def run_nmf_minibatch(X, n_components, random_state=0, max_iter=200,
+                      batch_size=1024, init=None, l1_ratio=0,
+                      sparse_threshold=None, n_jobs=None, **kwargs):
+    """MiniBatchNMF (online MU) in float32; optionally with CSR sparse input.
 
     Parameters
     ----------
-    X            : (n_samples, n_features) non-negative matrix
-    n_components : int — number of components to fit
-    random_state : int — for reproducibility
-    max_iter     : int — sklearn NMF iteration cap
-    init         : str or None — initialisation strategy; None auto-selects
-                   'nndsvda' when n_components <= min(X.shape), else 'random'
-    l1_ratio     : float in [0, 1] — L1 vs L2 regularisation mix for sklearn
-                   NMF; 0 = pure L2 (Frobenius), 1 = pure L1
-    **kwargs     : forwarded to sklearn.decomposition.NMF
+    X                : (n_samples, n_features) non-negative matrix
+    batch_size       : rows per mini-batch; 1024 works well for n_samples ~10k
+    l1_ratio         : float in [0, 1] — regularisation mix (0 = L2, 1 = L1).
+                       Passed directly to MiniBatchNMF.
+    sparse_threshold : convert X to CSR when exact-zero fraction >= this value
+    n_jobs           : BLAS thread count (via threadpoolctl); None = OS default.
+                       MiniBatchNMF has no native n_jobs; parallelism is in BLAS.
     """
-    # nndsvda initialisation requires n_components <= min(n_samples, n_features)
-    if init is None:
-        init = 'nndsvda' if n_components <= min(X.shape) else 'random'
-    nmf = NMF(n_components=n_components, init=init,
-              random_state=random_state, max_iter=max_iter,
-              l1_ratio=l1_ratio, **kwargs)
-    W = nmf.fit_transform(X)        # (n_samples, n_components)
-    H = nmf.components_.T           # (n_neurons, n_components)
+    X32 = X.astype(np.float32, copy=False)
+    n_s, n_f = X32.shape
+    use_sparse = (sparse_threshold is not None and
+                  float(np.mean(X32 == 0)) >= sparse_threshold)
+    if use_sparse:
+        X32 = sp.csr_matrix(X32)
+    resolved_init = init if init is not None else _safe_init(n_components, n_s, n_f,
+                                                              sparse_input=use_sparse)
+    nmf = MiniBatchNMF(n_components=n_components, init=resolved_init,
+                       random_state=random_state, max_iter=max_iter,
+                       batch_size=batch_size, l1_ratio=l1_ratio, **kwargs)
+    if n_jobs is not None:
+        with threadpool_limits(limits=n_jobs):
+            W = nmf.fit_transform(X32)
+    else:
+        W = nmf.fit_transform(X32)
+    H = nmf.components_.T
     return W, H, nmf
 
 
@@ -161,47 +177,30 @@ def _select_k_single(lambdas, min_k=1):
 
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
 
-def full_nmf_pipeline(X, n_components, random_state=0, max_iter=20000,
-                      init=None, l1_ratio=0, factorizer='sklearn',
-                      **factorizer_kwargs):
-    """Fit NMF, normalise, sort by importance, and rescale by sqrt(lambda).
+def full_nmf_pipeline(X, n_components, random_state=0, max_iter=200, init=None,
+                      l1_ratio=0, **factorizer_kwargs):
+    """Fit MiniBatchNMF (f32), normalise, sort by importance, and rescale by sqrt(lambda).
 
     The sqrt(lambda) rescaling distributes importance equally between the
     image factors (W) and neural factors (H) so that their dot product
     reconstructs X with unit-norm columns carrying equal weight.
-
-    Parameters
-    ----------
-    factorizer : str
-        'sklearn' (default) — use sklearn NMF.
-        'r1d'               — use greedy rank-1 deflation (see src/r1d.py).
-    **factorizer_kwargs
-        Passed to run_r1d when factorizer='r1d' (e.g. gamma, maxiters,
-        penalize_lownorm, monotonic). Ignored for sklearn.
 
     Returns (img_factors, neural_factors, lambdas).
       img_factors    : (n_samples, n_components)
       neural_factors : (n_neurons, n_components)
       lambdas        : (n_components,) descending
     """
-    if factorizer == 'r1d':
-        W, H, _ = run_r1d(X, n_components, **factorizer_kwargs)
-    elif factorizer == 'r1d_sparse':
-        W, H, _ = run_r1d_sparse(X, n_components, **factorizer_kwargs)
-    elif factorizer == 'r1d_sparse2':
-        W, H, _ = run_r1d_sparse2(X, n_components, **factorizer_kwargs)
-    else:
-        W, H, _ = run_nmf(X, n_components, random_state=random_state,
-                          max_iter=max_iter, init=init, l1_ratio=l1_ratio)
+    W, H, _ = run_nmf_minibatch(X, n_components, random_state=random_state,
+                                 max_iter=max_iter, init=init,
+                                 l1_ratio=l1_ratio, **factorizer_kwargs)
     W, H, lambdas = normalize_factors(W, H)
     W, H, lambdas, _ = sort_by_lambda(W, H, lambdas)
     scale = np.sqrt(lambdas)
     return W * scale, H * scale, lambdas
 
 
-def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
-                      init=None, l1_ratio=0, recon_threshold=None,
-                      factorizer='sklearn', **factorizer_kwargs):
+def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
+                      l1_ratio=0, recon_threshold=None, **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
     Uses the structural_recon method: fraction drop as primary signal and actual
@@ -217,9 +216,6 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
                       error. K* is at least the smallest K where
                       ||X - X_K||_F / ||X||_F <= recon_threshold.
                       Default None uses 0.2 (20% error).
-    random_state, max_iter, init, l1_ratio : passed to run_nmf (sklearn path only)
-    factorizer : str — 'sklearn' (default) or 'r1d'; see full_nmf_pipeline.
-    **factorizer_kwargs : passed to run_r1d when factorizer='r1d'.
 
     Returns
     -------
@@ -234,9 +230,7 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=20000,
 
     img_f, neu_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
                                             max_iter=max_iter, init=init,
-                                            l1_ratio=l1_ratio,
-                                            factorizer=factorizer,
-                                            **factorizer_kwargs)
+                                            l1_ratio=l1_ratio, **factorizer_kwargs)
 
     rt = recon_threshold if recon_threshold is not None else 0.2
     recon_errs = _partial_recon_errors(X, img_f, neu_f)
@@ -354,7 +348,6 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
     patches = F.unfold(fmap_t, kernel_size=(kH, kW), padding=pad).numpy()
 
     # Reduce the spatial dimension so each sample is a single vector (N, C_in*kH*kW).
-    # The chosen pooling captures the most representative local patch per stimulus.
     if pool_method == 'avg':
         pooled = patches.mean(axis=2)                          # (N, C_in*kH*kW)
     elif pool_method == 'max':
@@ -374,19 +367,14 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
         norms = np.linalg.norm(pooled, axis=1, keepdims=True)
         act_norm = pooled / (norms + eps)
 
-    # Build each output channel's arbor: W_flat[c] * act_norm gives the contribution
-    # of each input patch element to channel c's pre-activation; scale by neuron_weights[c]
-    # when an importance signal from the layer above is available.
+    # Build each output channel's arbor.
     if neuron_weights is not None:
         arbors = [act_norm * W_flat[c] * neuron_weights[c] for c in range(C_out)]
     else:
         arbors = [act_norm * W_flat[c] for c in range(C_out)]
 
-    # Stack all channels' arbors to form (N, C_out * C_in * kH * kW):
-    # NMF on this joint matrix discovers cross-channel patterns in the conv layer.
     joint = np.concatenate(arbors, axis=1)
 
-    # Apply stimulus weighting and threshold (identical logic to FC joint arbors).
     if stimulus_weights is not None:
         joint = joint * stimulus_weights[:, np.newaxis]
 
@@ -410,45 +398,27 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
 
     Because attn_weights_cls are non-negative (softmax output), x_eff is a convex combination
     of the token activations.  We then form the joint arbor exactly as for an FC layer with
-    W_V as the weight matrix and x_eff as the input.  This means each column of the joint
-    arbor represents the attention-reweighted synaptic contribution of each input dimension
-    to one output dimension of the value projection.
-
-    The approximation discards per-token spatial resolution (all tokens are blended into one
-    effective vector).  Use the ``attn_weights_cls`` stored in the returned BFT node to
-    recover per-token attribution in downstream analysis.
+    W_V as the weight matrix and x_eff as the input.
 
     Parameters
     ----------
     W_V               : (d_v, d_model) — value-projection weight matrix.
-                        For multi-head attention, pass the full concatenated W_V
-                        (H * d_head_v, d_model).
     x_tokens          : (N, T, d_model) — all T token activations entering the attention
                         sublayer (after layer-norm), for each of the N samples.
     attn_weights_cls  : (N, T) — attention scores from the CLS token to every token,
-                        already softmax-normalised (non-negative, sum≈1 per row).
-                        For multi-head, pass the head-averaged CLS row.
-    stimulus_weights  : (N,) per-sample importance propagated from the layer above; None
-                        means all samples are equally weighted.
+                        already softmax-normalised. For multi-head, pass head-averaged CLS row.
+    stimulus_weights  : (N,) per-sample importance propagated from the layer above.
     eps               : stabiliser for L2 norm division (internal only)
-    stimulus_threshold : fraction in [0, 1) — zeros the lowest-weight stimuli after
-                        applying stimulus_weights (matches behaviour of FC/conv variants).
-    neuron_weights    : (d_v,) per-output-dimension importance from the layer above
-                        (e.g., from W_O tracing); None = all dimensions equally weighted.
+    stimulus_threshold : fraction in [0, 1) — zeros the lowest-weight stimuli.
+    neuron_weights    : (d_v,) per-output-dimension importance from the layer above.
 
     Returns
     -------
     joint_arbor : (N, d_v * d_model), signed — caller clips as needed.
-                  Same layout as compute_joint_arbors_normalized: each block of d_model
-                  columns corresponds to one output dimension of W_V.
     """
     # Collapse the token sequence into a single attention-weighted effective input.
-    # attn_weights_cls has shape (N, T); x_tokens has shape (N, T, d_model).
-    # The einsum computes, for each sample n: sum_j attn[n,j] * x_tokens[n,j,:]
     x_eff = np.einsum('nt,ntd->nd', attn_weights_cls, x_tokens)  # (N, d_model)
 
-    # Delegate to the FC arbor function: x_eff acts as a 2-D activation matrix.
-    # All stimulus weighting, normalisation, and threshold logic is handled there.
     return compute_joint_arbors_normalized(W_V, x_eff, stimulus_weights,
                                            eps=eps,
                                            stimulus_threshold=stimulus_threshold,
@@ -457,11 +427,10 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
 
 def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         stimulus_threshold=0.0, neuron_weights=None,
-                        random_state=0, max_iter=20000, init=None, l1_ratio=0,
+                        random_state=0, max_iter=200, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
-                        factorizer='sklearn', verbose=0, _layer_tag='',
-                        **factorizer_kwargs):
+                        verbose=0, _layer_tag='', **factorizer_kwargs):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
     Parameters
@@ -475,13 +444,12 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                           Ignored when k_fixed is set.
     stimulus_threshold  : passed through to the arbor-computation function
     neuron_weights      : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
-    random_state, max_iter, init, l1_ratio : passed through to run_nmf
+    random_state, max_iter, init, l1_ratio : passed through to run_nmf_minibatch
     layer_type          : 'fc' (default), 'conv', or 'attn' — selects the arbor function
     conv_pool_method    : spatial pooling for conv arbors: 'avg', 'max', 'center'
     k_fixed             : int or None — when set, use exactly this many components
                           (calls full_nmf_pipeline directly at k_fixed, bypasses auto)
     attn_weights        : (N, T) or None — required when layer_type=='attn'.
-                          CLS-row attention scores (head-averaged, softmax-normalised).
 
     Returns
     -------
@@ -494,15 +462,12 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     neg_neural_factors : same shape as neural_factors, or None
     neg_lambdas        : (K*,) or None
     """
-    # Compute the joint arbor matrix using the layer-type-appropriate function.
     if layer_type == 'conv':
         raw_joint = compute_conv_joint_arbors(W, act_input, stimulus_weights,
                                               stimulus_threshold=stimulus_threshold,
                                               neuron_weights=neuron_weights,
                                               pool_method=conv_pool_method)
     elif layer_type == 'attn':
-        # Attention layers require the full token tensor and the CLS attention scores.
-        # attn_weights must be provided as a (N, T) array when layer_type=='attn'.
         if attn_weights is None:
             raise ValueError(
                 "layer_type='attn' requires attn_weights (N, T) CLS-row scores. "
@@ -518,8 +483,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                                                     neuron_weights=neuron_weights)
 
     # Split signed arbors into excitatory and inhibitory parts: NMF requires
-    # non-negative inputs, so the two polarities are factorised separately to
-    # preserve both directions without sign ambiguity.
+    # non-negative inputs, so the two polarities are factorised separately.
     pos_joint = np.clip(raw_joint, 0, None)
     neg_joint = np.clip(-raw_joint, 0, None)
 
@@ -528,32 +492,23 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         print(f'{tag}   joint arbor: {raw_joint.shape}  '
               f'pos {pos_joint.shape}  neg {neg_joint.shape}')
 
-    # Factorise the excitatory joint arbors. When k_fixed is set, fit at exactly
-    # that rank instead of using auto-selection (useful for strict reproducibility
-    # or controlled ablation experiments).
     _t0 = time.perf_counter() if verbose >= 2 else None
     if k_fixed is not None:
         k = max(int(k_fixed), 1)
         k = min(k, min(pos_joint.shape) - 1)
         img_f, neu_f, lams = full_nmf_pipeline(
             pos_joint, k, random_state=random_state, max_iter=max_iter,
-            init=init, l1_ratio=l1_ratio,
-            factorizer=factorizer, **factorizer_kwargs,
+            init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
         )
     else:
-        # Factorise excitatory joint arbors: img_factors are per-stimulus loadings,
-        # neural_factors are per-synapse pattern vectors, lambdas rank importance.
         img_f, neu_f, lams, _ = auto_nmf_pipeline(
             pos_joint, k_max=k_max,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-            recon_threshold=recon_threshold,
-            factorizer=factorizer, **factorizer_kwargs,
+            recon_threshold=recon_threshold, **factorizer_kwargs,
         )
     if verbose >= 2:
         print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
 
-    # Factorise inhibitory joint arbors only when inhibitory content exists;
-    # returns None triplet when the layer has no inhibitory weight-activation products.
     if neg_joint.max() > 0:
         _t0_neg = time.perf_counter() if verbose >= 2 else None
         k_neg = k_fixed if k_fixed is not None else None
@@ -561,15 +516,13 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             k_neg = max(1, min(int(k_neg), min(neg_joint.shape) - 1))
             neg_img_f, neg_neu_f, neg_lams = full_nmf_pipeline(
                 neg_joint, k_neg, random_state=random_state, max_iter=max_iter,
-                init=init, l1_ratio=l1_ratio,
-                factorizer=factorizer, **factorizer_kwargs,
+                init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
             )
         else:
             neg_img_f, neg_neu_f, neg_lams, _ = auto_nmf_pipeline(
                 neg_joint, k_max=k_max,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-                recon_threshold=recon_threshold,
-                factorizer=factorizer, **factorizer_kwargs,
+                recon_threshold=recon_threshold, **factorizer_kwargs,
             )
         if verbose >= 2:
             print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
@@ -587,9 +540,6 @@ _WEIGHTING_OPTIONS = ('img_selectivity', 'img_factor')
 def _compute_trace_transition(weighting, img_f, lams, fi):
     """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
 
-    Called at the layer-L → layer-(L-1) transition.  Returns importance signals
-    that guide the preceding layer's trace_single_layer call.
-
     Parameters
     ----------
     weighting : str — 'img_selectivity' (default) or 'img_factor'
@@ -603,16 +553,12 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
     nw : None (neither mode produces neuron weights)
     """
     if weighting == 'img_selectivity':
-        # Fraction of each stimulus's lambda-weighted total NMF activation that
-        # belongs to factor fi.  Favours stimuli selective for the traced factor,
-        # not just stimuli that activate fi in absolute terms.
         weighted = img_f * lams[np.newaxis, :]        # (n_samples, K)
         total    = weighted.sum(axis=1)               # (n_samples,)
         sw       = weighted[:, fi] / (total + _EPS)   # (n_samples,) ∈ [0, 1]
         return sw, None
 
     elif weighting == 'img_factor':
-        # Factor's per-stimulus loading directly as stimulus weights.
         return img_f[:, fi], None
 
     else:
@@ -621,106 +567,199 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
         )
 
 
+# ── Data collection ───────────────────────────────────────────────────────────
+
+def _collect_layer_dicts(model, loader, device=None, only_correct=True):
+    """Hook all Conv2d and Linear sub-modules, run the loader, return layer data.
+
+    Parameters
+    ----------
+    model        : nn.Module — any architecture
+    loader       : DataLoader — yields (images, labels) batches
+    device       : torch device; defaults to model's first parameter device
+    only_correct : bool — when True, keeps only samples where argmax(output)==label
+
+    Returns
+    -------
+    dict with keys:
+        'images'      : (N, C, H, W) float32 numpy array
+        'targets'     : (N,) int numpy array of ground-truth labels
+        'confidences' : (N,) float32 numpy array — max output probability per sample
+        'layer_data'  : list of dicts, one per Conv2d/Linear in forward order:
+            {'name': str, 'type': 'conv'|'fc',
+             'weight':      ndarray,
+             'input_fmap':  ndarray,
+             'output_fmap': ndarray}
+    """
+    if device is None:
+        device = next(model.parameters()).device
+
+    model.eval()
+    named = [(n, m) for n, m in model.named_modules()
+             if isinstance(m, (nn.Conv2d, nn.Linear))]
+    store = {n: {'inp': None, 'out': None} for n, _ in named}
+
+    def make_hook(name):
+        def h(mod, inp, out):
+            store[name]['inp'] = inp[0].detach().cpu()
+            store[name]['out'] = out.detach().cpu()
+        return h
+
+    hooks = [m.register_forward_hook(make_hook(n)) for n, m in named]
+    acc_inp = {n: [] for n, _ in named}
+    acc_out = {n: [] for n, _ in named}
+    all_imgs, all_tgts, all_confs = [], [], []
+
+    with torch.no_grad():
+        for x, y in loader:
+            x, y = x.to(device), y.to(device)
+            out = model(x)
+            if isinstance(out, tuple):
+                out = out[0]
+            # Support log-softmax output (negative values) as well as raw logits/probs.
+            probs = out.exp() if out.min() < 0 else out
+            confs = probs.max(1).values
+            preds = probs.argmax(1)
+            ok = (preds == y).cpu().nonzero(as_tuple=True)[0] if only_correct \
+                 else torch.arange(len(y))
+            if not len(ok):
+                continue
+            all_imgs.append(x[ok].cpu())
+            all_tgts.append(y[ok].cpu())
+            all_confs.append(confs[ok].cpu())
+            for n, _ in named:
+                acc_inp[n].append(store[n]['inp'][ok])
+                acc_out[n].append(store[n]['out'][ok])
+
+    for h in hooks:
+        h.remove()
+
+    imgs  = torch.cat(all_imgs).numpy()
+    tgts  = torch.cat(all_tgts).numpy()
+    confs = torch.cat(all_confs).numpy()
+
+    layer_data = []
+    for n, mod in named:
+        is_conv = isinstance(mod, nn.Conv2d)
+        layer_data.append({
+            'name':        n,
+            'type':        'conv' if is_conv else 'fc',
+            'weight':      mod.weight.detach().cpu().numpy(),
+            'input_fmap':  torch.cat(acc_inp[n]).numpy(),
+            'output_fmap': torch.cat(acc_out[n]).numpy(),
+        })
+    return {'images': imgs, 'targets': tgts, 'confidences': confs, 'layer_data': layer_data}
+
+
+def collect_layer_dicts(model, loader, device=None, only_correct=True):
+    """Collect layer-dict data for all Conv2d/Linear layers in the model.
+
+    Thin public wrapper around the internal hook-based collection. Use this
+    when you need to inspect or reuse the collected activations independently
+    from running BFT. The returned 'layer_data' list is directly usable as
+    the layer_dicts argument to bft().
+
+    Parameters
+    ----------
+    model        : nn.Module
+    loader       : DataLoader yielding (images, labels) batches
+    device       : torch device; defaults to model's first parameter device
+    only_correct : bool — keep only correctly classified samples (default True)
+
+    Returns
+    -------
+    dict: {'images', 'targets', 'confidences', 'layer_data'}
+    """
+    return _collect_layer_dicts(model, loader, device=device, only_correct=only_correct)
+
+
 # ── BFT public entry point ────────────────────────────────────────────────────
 
-def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
-        stimulus_threshold=0.0, weighting='img_selectivity', random_state=0,
-        min_k=1, max_iter=20000, init=None, l1_ratio=0, k_fixed=None,
+def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
+        device=None, stimulus_threshold=0.0, weighting='img_selectivity',
+        random_state=0, max_iter=200, init=None, l1_ratio=0, k_fixed=None,
         cache_dir=None, conv_pool_method='avg', recon_threshold=None,
-        factorizer='sklearn', verbose=0, **factorizer_kwargs):
+        verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
     Traces the network's computation from the output layer to the input by
     factorising weight-activation products at each layer with NMF, then
     propagating the top factor's importance signal backward.
 
-    With n_branches=1 at every layer this produces a single linear trace
-    (one pathway from output to input).  With n_branches>1 it produces a
-    tree, branching over the top n_branches NMF factors at each layer to
-    discover parallel computational pathways.
+    Calling conventions
+    -------------------
+    Primary (recommended):
+        root = bft(model, loader, ...)
+        Automatically collects layer data via forward hooks, then runs the trace.
+        root['images'] and root['targets'] expose the collected sample metadata.
 
-    Two calling conventions are supported — see module docstring for details.
+    Layer-dict mode (advanced / pre-collected):
+        root = bft(layer_dicts, ...)
+        layer_dicts is a list of dicts, one per layer in forward order.
+        See module docstring for the dict schema.
+
+    Legacy model-protocol mode (SimpleMLP):
+        root = bft(model, layer_inputs_list, ...)
+        model must expose linear_layer_indices() and model.layers[i].weight.
 
     Parameters
     ----------
-    model               : model object (model-protocol mode) or list of layer
-                          dicts (layer-dict mode — model-agnostic).
-                          See module docstring for the layer-dict schema.
-    layer_inputs_list   : list[ndarray] per linear layer, first-to-last.
-                          Required in model-protocol mode; ignored in layer-dict mode.
-    k_max               : int, list[int or None], or None — upper bound on NMF
-                          rank per layer (L1 first). A single int/None applies
-                          to all layers. Ignored for layers where k_fixed is set.
-    n_branches          : int or list[int] — how many top factors to follow at
-                          each layer (first-to-last). A single int applies to all.
+    model               : nn.Module (primary/legacy modes) or list of layer dicts
+    data                : DataLoader (primary), list[ndarray] (legacy), or None (layer-dict)
+    only_correct        : bool — keep only correctly classified samples (primary mode only)
+    device              : torch device for data collection (primary mode only)
+    k_max               : int, list[int or None], or None — upper bound on NMF rank per layer
+    n_branches          : int or list[int] — how many top factors to follow at each layer
     stimulus_threshold  : fraction in [0, 1) — zeros the lowest-weight stimuli
-    weighting           : str — how to propagate importance between layers; one of:
-                          'img_selectivity' (default) — fraction of each stimulus's
-                                            lambda-weighted NMF activity belonging to
-                                            factor fi; favours stimuli selective for the
-                                            traced factor
-                          'img_factor'      img_f[:,fi] directly as stimulus weights
+    weighting           : 'img_selectivity' (default) or 'img_factor'
     random_state        : int — NMF random seed
-    min_k               : int — minimum NMF components per layer
-    max_iter            : int — NMF iteration cap
+    max_iter            : int — NMF iteration cap (default 200 for MiniBatchNMF)
     init                : str or None — NMF initialisation
-    l1_ratio            : float — NMF L1/L2 mix (0 = Frobenius, 1 = pure L1)
-    k_fixed             : list[int or None] or None — per-layer fixed NMF rank.
-                          When an entry is not None, that layer uses exactly that K
-                          (calls full_nmf_pipeline directly, bypasses auto_nmf_pipeline).
-                          Length must equal n_layers when provided as a list; None
-                          means auto for all layers.
-    cache_dir           : str or None — directory for per-path on-disk caching.
-                          Each completed leaf path is pickled as
-                          `<cache_dir>/bft_path_<seq>.pkl` (e.g. 'bft_path_0-1-2.pkl').
-                          On re-run, existing cached paths are loaded from disk to
-                          avoid redundant NMF computation (useful for large models).
-                          None disables caching.
-    conv_pool_method    : str — spatial pooling for conv layers: 'avg', 'max', 'center'
-    recon_threshold     : float or None — maximum acceptable relative Frobenius
-                          reconstruction error floor (structural_recon method).
-                          Default None uses 0.2 (20% error).
-    verbose             : int — verbosity level (default 0 = silent).
-                          1 — print one line per layer/branch showing layer index,
-                              name, type, and current branch path.
-                          2 — additionally print joint arbor shapes, per-NMF timing,
-                              and total trace_single_layer time for each step.
+    l1_ratio            : float — NMF L1/L2 regularisation mix (0 = L2, 1 = L1)
+    k_fixed             : list[int or None] or None — per-layer fixed NMF rank
+    cache_dir           : str or None — directory for per-path on-disk caching
+    conv_pool_method    : 'avg', 'max', or 'center' — spatial pooling for conv layers
+    recon_threshold     : float or None — max acceptable relative Frobenius error
+    verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
     Returns
     -------
-    root : dict — last-layer node, with keys:
-        layer_idx           : 0-based index (0 = first/input-side layer)
-        layer_type          : 'fc' or 'conv'
-        W                   : weight matrix (numpy)
-        joint_arbor         : positive joint matrix used for NMF
-        img_factors         : (n_samples, K*)
-        neural_factors      : (n_out*n_in, K*) or (C_out*C_in*kH*kW, K*)
-        lambdas             : (K*,) descending
-        neg_img_factors     : (n_samples, K*) or None
-        neg_neural_factors  : same shape or None
-        neg_lambdas         : (K*,) or None
-        stimulus_weights_in : (n_samples,) weights passed into this layer
-        neuron_weights_in   : per-neuron/channel importance passed in, or None
-        path                : list[int] — factor indices from root to this node
-        children            : list[dict] — preceding-layer nodes (empty at L1)
-        [model-protocol only]
-        linear_idx          : index in model.layers Sequential
+    root : dict — last-layer node with keys:
+        layer_idx, layer_type, W, joint_arbor, img_factors, neural_factors, lambdas,
+        neg_img_factors, neg_neural_factors, neg_lambdas,
+        stimulus_weights_in, neuron_weights_in, path, children
+        [primary mode only] images, targets, confidences
     """
-    # ── Resolve inputs from the two calling conventions ───────────────────────
-    if isinstance(model, list):
-        # Layer-dict mode: extract weights, activations, and types from the dicts.
+    # ── Resolve inputs from the three calling conventions ─────────────────────
+    images_meta = targets_meta = confidences_meta = None
+
+    if isinstance(model, list) and model and isinstance(model[0], dict):
+        # Layer-dict mode: list of pre-collected dicts.
         layer_dicts   = model
         weights       = [d['weight']     for d in layer_dicts]
         inputs        = [d['input_fmap'] for d in layer_dicts]
         types         = [d.get('type', 'fc') for d in layer_dicts]
         names         = [d.get('name', str(i)) for i, d in enumerate(layer_dicts)]
         linear_idxs   = [None] * len(layer_dicts)
-        # attn_weights_list holds the (N, T) CLS attention scores for each layer that
-        # has type=='attn'; None for all other layer types.  Kept as a parallel list so
-        # _trace_node can look up the scores by layer index without touching layer_dicts.
         attn_weights_list = [d.get('attn_weights') for d in layer_dicts]
+
+    elif isinstance(data, DataLoader):
+        # Primary mode: collect layer data from the model + loader, then trace.
+        raw = _collect_layer_dicts(model, data, device=device, only_correct=only_correct)
+        images_meta      = raw['images']
+        targets_meta     = raw['targets']
+        confidences_meta = raw['confidences']
+        layer_dicts      = raw['layer_data']
+        weights          = [d['weight']    for d in layer_dicts]
+        inputs           = [d['input_fmap'] for d in layer_dicts]
+        types            = [d['type']       for d in layer_dicts]
+        names            = [d['name']       for d in layer_dicts]
+        linear_idxs      = [None] * len(layer_dicts)
+        attn_weights_list = [d.get('attn_weights') for d in layer_dicts]
+
     else:
-        # Model-protocol mode: all layers assumed FC; no attention layers.
+        # Legacy model-protocol mode: SimpleMLP with linear_layer_indices().
+        layer_inputs_list = data
         linear_idxs       = model.linear_layer_indices()
         weights           = [model.layers[li].weight.detach().cpu().numpy() for li in linear_idxs]
         inputs            = layer_inputs_list
@@ -747,11 +786,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
         act_input = inputs[l_idx]
         ltype     = types[l_idx]
         li        = linear_idxs[l_idx]
-        # Retrieve the CLS-row attention scores for this layer (None for non-attn layers).
         attn_w    = attn_weights_list[l_idx]
 
-        # Load from cache if this leaf path was previously computed.
-        # Cache is keyed by the full factor-index path from root to this node.
         if cache_dir is not None and l_idx == 0:
             cp = _cache_path(path)
             if os.path.exists(cp):
@@ -762,11 +798,8 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
         if verbose >= 1:
             path_str = str(path) if path else '[]'
             print(f'[BFT] Layer {l_idx + 1}/{n_layers} {names[l_idx]!r} ({ltype})  '
-                  f'path={path_str}  factorizer={factorizer}')
+                  f'path={path_str}')
 
-        # Run one BFT step: build the joint arbor matrix for this layer and
-        # decompose it with NMF using the importance weights from the layer above.
-        # For 'attn' layers, attn_w is forwarded so compute_attn_joint_arbors is used.
         _t_layer = time.perf_counter()
         img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
@@ -775,7 +808,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w, recon_threshold=recon_threshold,
-            factorizer=factorizer, verbose=verbose, _layer_tag=layer_tag,
+            verbose=verbose, _layer_tag=layer_tag,
             **factorizer_kwargs,
         )
         _t_nmf = time.perf_counter() - _t_layer
@@ -783,8 +816,7 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
             print(f'[BFT{layer_tag}]   K={len(lams)}  t={_t_nmf:.3f}s')
         if verbose >= 2:
             print(f'[BFT{layer_tag}]   total: {_t_nmf:.2f} s')
-        # active_samples: how many stimuli have non-negligible weight.
-        # When weights are uniform (std ≈ 0) every sample is active.
+
         if stimulus_weights.std() > 1e-8:
             n_active = int((stimulus_weights > 1e-9).sum())
         else:
@@ -805,26 +837,16 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
             'stimulus_threshold': stimulus_threshold,
             'path': path, 'children': [],
         }
-        # For attention layers, store the CLS attention scores in the node so downstream
-        # analysis can recover per-token attribution (e.g., spatial grounding on patches).
         if ltype == 'attn' and attn_w is not None:
             node['attn_weights'] = attn_w
         if li is not None:
             node['linear_idx'] = li
 
         if l_idx > 0:
-            # Branch over the top n_branches factors: each factor seeds an
-            # independent trace into the preceding layer, producing parallel
-            # pathways. With nb_list[l_idx]=1 this reduces to a single chain.
             for fi in range(min(nb_list[l_idx], len(lams))):
-                # Compute the importance signal to pass to the preceding layer
-                # based on factor fi's loadings and the chosen weighting mode.
-                # For 'attn' layers, attn_w is passed so the effective input can be
-                # reconstructed when computing projections in the transition.
                 sw_fi, nw_fi = _compute_trace_transition(weighting, img_f, lams, fi)
                 node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
 
-        # Persist completed leaf-path nodes to disk so reruns can skip NMF.
         if cache_dir is not None and l_idx == 0:
             os.makedirs(cache_dir, exist_ok=True)
             with open(_cache_path(path), 'wb') as fh:
@@ -832,7 +854,12 @@ def bft(model, layer_inputs_list=None, k_max=5, n_branches=2,
 
         return node
 
-    # Start from the last (output) layer with uniform stimulus weights: every
-    # sample is equally relevant before any factorisation; structure emerges
-    # from the decomposition itself, not from a prior importance signal.
-    return _trace_node(n_layers - 1, np.ones(n_samples), None, [])
+    root = _trace_node(n_layers - 1, np.ones(n_samples), None, [])
+
+    # Attach sample metadata to the root node when collected in primary mode.
+    if images_meta is not None:
+        root['images']      = images_meta
+        root['targets']     = targets_meta
+        root['confidences'] = confidences_meta
+
+    return root

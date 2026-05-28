@@ -6,14 +6,11 @@ import networkx as nx
 
 def plot_nmf_scree(results):
     """
-    Plot explained variance vs n_components from nmf_component_sweep output.
-
-    Shows mean ± std across seeds as a line with error bars, and individual
-    seed values as small grey dots.
+    Plot explained variance vs n_components.
 
     Parameters
     ----------
-    results : dict {k: ev} from nmf_component_sweep
+    results : dict {k: ev} mapping n_components → explained variance
 
     Returns
     -------
