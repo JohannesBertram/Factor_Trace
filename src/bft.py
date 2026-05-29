@@ -569,8 +569,9 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
 
 # ── Data collection ───────────────────────────────────────────────────────────
 
-def _collect_layer_dicts(model, loader, device=None, only_correct=True):
-    """Hook all Conv2d and Linear sub-modules, run the loader, return layer data.
+def _collect_layer_dicts(model, loader, device=None, only_correct=True,
+                         layer_filter=None):
+    """Hook Conv2d/Linear sub-modules, run the loader, return layer data.
 
     Parameters
     ----------
@@ -578,6 +579,12 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True):
     loader       : DataLoader — yields (images, labels) batches
     device       : torch device; defaults to model's first parameter device
     only_correct : bool — when True, keeps only samples where argmax(output)==label
+    layer_filter : callable(name: str, mod: nn.Module) -> bool, or None.
+                   When provided, only modules for which the callable returns True
+                   are captured. Useful for architectures with parallel branches
+                   (e.g. SqueezeNet Fire modules) where capturing all Conv2d layers
+                   would violate BFT's sequential-layer assumption.
+                   When None, all Conv2d and Linear layers are captured (default).
 
     Returns
     -------
@@ -585,7 +592,7 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True):
         'images'      : (N, C, H, W) float32 numpy array
         'targets'     : (N,) int numpy array of ground-truth labels
         'confidences' : (N,) float32 numpy array — max output probability per sample
-        'layer_data'  : list of dicts, one per Conv2d/Linear in forward order:
+        'layer_data'  : list of dicts, one per captured layer in forward order:
             {'name': str, 'type': 'conv'|'fc',
              'weight':      ndarray,
              'input_fmap':  ndarray,
@@ -596,7 +603,8 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True):
 
     model.eval()
     named = [(n, m) for n, m in model.named_modules()
-             if isinstance(m, (nn.Conv2d, nn.Linear))]
+             if isinstance(m, (nn.Conv2d, nn.Linear))
+             and (layer_filter is None or layer_filter(n, m))]
     store = {n: {'inp': None, 'out': None} for n, _ in named}
 
     def make_hook(name):
@@ -651,8 +659,9 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True):
     return {'images': imgs, 'targets': tgts, 'confidences': confs, 'layer_data': layer_data}
 
 
-def collect_layer_dicts(model, loader, device=None, only_correct=True):
-    """Collect layer-dict data for all Conv2d/Linear layers in the model.
+def collect_layer_dicts(model, loader, device=None, only_correct=True,
+                        layer_filter=None):
+    """Collect layer-dict data for Conv2d/Linear layers in the model.
 
     Thin public wrapper around the internal hook-based collection. Use this
     when you need to inspect or reuse the collected activations independently
@@ -665,12 +674,20 @@ def collect_layer_dicts(model, loader, device=None, only_correct=True):
     loader       : DataLoader yielding (images, labels) batches
     device       : torch device; defaults to model's first parameter device
     only_correct : bool — keep only correctly classified samples (default True)
+    layer_filter : callable(name: str, mod: nn.Module) -> bool, or None.
+                   When provided, restricts capture to layers for which the
+                   callable returns True. Useful for non-sequential architectures
+                   (e.g. pass only the squeeze-conv spine of SqueezeNet to keep
+                   BFT's sequential-layer assumption valid). Default None captures
+                   all Conv2d and Linear layers.
 
     Returns
     -------
     dict: {'images', 'targets', 'confidences', 'layer_data'}
     """
-    return _collect_layer_dicts(model, loader, device=device, only_correct=only_correct)
+    return _collect_layer_dicts(model, loader, device=device,
+                                only_correct=only_correct,
+                                layer_filter=layer_filter)
 
 
 # ── BFT public entry point ────────────────────────────────────────────────────
