@@ -37,7 +37,7 @@ import torch
 
 from .models import SimpleMLP, SmallCNN, TinyViT
 from .training import label_transform_even_odd
-from .data_utils import get_mnist_loaders, get_cifar10_loaders
+from .data_utils import get_mnist_loaders, get_cifar10_loaders, get_imagenet_loaders
 
 
 MODEL_REGISTRY = {
@@ -52,8 +52,9 @@ TRANSFORM_REGISTRY = {
 }
 
 DATASET_REGISTRY = {
-    "MNIST":   get_mnist_loaders,
-    "CIFAR10": get_cifar10_loaders,
+    "MNIST":    get_mnist_loaders,
+    "CIFAR10":  get_cifar10_loaders,
+    "ImageNet": get_imagenet_loaders,
 }
 
 

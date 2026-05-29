@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -285,6 +287,69 @@ def collect_layer_inputs(model, dataset, label_transform=None, n_per_class=None,
         'layer_inputs': [np.array(acc) for acc in layer_in_acc],
         'layer_acts': [np.array(acc) for acc in layer_act_acc],
     }
+
+
+def get_imagenet_loaders(batch_size=128, root='./data/imagenet/', augment='baseline',
+                         img_size=224, num_workers=4):
+    """Return (train_loader, val_loader) for ImageNet.
+
+    Expects ImageNet at root/ with train/ and val/ subdirectories (ImageFolder layout).
+    Falls back to torchvision.datasets.ImageNet if the ILSVRC directory structure exists.
+
+    augment: 'baseline' — RandomResizedCrop + RandomHorizontalFlip
+             'strong'   — baseline + ColorJitter
+             'none'     — no training augmentation (val transforms only)
+    Val set always uses Resize(256) + CenterCrop + Normalize.
+    """
+    import torchvision.transforms as T
+    from torchvision import datasets as tv_datasets
+
+    _mean = (0.485, 0.456, 0.406)
+    _std  = (0.229, 0.224, 0.225)
+
+    test_tfm = T.Compose([
+        T.Resize(256),
+        T.CenterCrop(img_size),
+        T.ToTensor(),
+        T.Normalize(_mean, _std),
+    ])
+
+    if augment == 'baseline':
+        train_tfm = T.Compose([
+            T.RandomResizedCrop(img_size),
+            T.RandomHorizontalFlip(),
+            T.ToTensor(),
+            T.Normalize(_mean, _std),
+        ])
+    elif augment == 'strong':
+        train_tfm = T.Compose([
+            T.RandomResizedCrop(img_size),
+            T.RandomHorizontalFlip(),
+            T.ColorJitter(0.4, 0.4, 0.4, 0.1),
+            T.ToTensor(),
+            T.Normalize(_mean, _std),
+        ])
+    elif augment == 'none':
+        train_tfm = test_tfm
+    else:
+        raise ValueError(f"augment must be 'baseline', 'strong', or 'none'; got {augment!r}")
+
+    def _load(split, transform):
+        try:
+            return tv_datasets.ImageNet(root, split=split, transform=transform)
+        except Exception:
+            folder = 'train' if split == 'train' else 'val'
+            return tv_datasets.ImageFolder(
+                os.path.join(root, folder), transform=transform)
+
+    train_ds = _load('train', train_tfm)
+    val_ds   = _load('val',   test_tfm)
+
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+                               num_workers=num_workers, pin_memory=True)
+    val_loader   = DataLoader(val_ds,   batch_size=256,        shuffle=False,
+                               num_workers=num_workers, pin_memory=True)
+    return train_loader, val_loader
 
 
 def get_cifar10_loaders(batch_size=128, root='./data/', augment='baseline'):
