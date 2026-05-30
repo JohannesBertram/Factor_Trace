@@ -22,7 +22,10 @@ from .neuron_analysis import (
 )
 from .plot_utils import (plot_nmf_component, plot_factor_graph, plot_nmf_scree,
                          plot_neuron_nmf_component, plot_neuron_nmf_scatter,
-                         plot_scaffold_graph)
+                         plot_scaffold_graph,
+                         plot_factor_overview_panel, plot_input_layer_factors,
+                         plot_factor_gallery, plot_pruning_results,
+                         plot_embedding_comparison)
 from .checkpoint import (
     save_experiment,
     load_experiment,
@@ -58,4 +61,13 @@ from .ablation_utils import (
     act_magnitude_scores,
     taylor_scores,
     run_ablation_sweep,
+    select_class_circuit,
+)
+from .robustness_utils import (
+    compute_nmf_stability,
+    align_factors,
+    compute_k_sensitivity,
+    plot_nmf_stability_figure,
+    plot_k_sensitivity_figure,
+    plot_robustness_summary,
 )

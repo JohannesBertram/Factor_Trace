@@ -261,6 +261,76 @@ def taylor_scores(model, loader, label_transform, device, target_class):
 
 # ── Ablation sweep ────────────────────────────────────────────────────────────
 
+def select_class_circuit(root_node, targets, class_d):
+    """
+    Return importance scores for the output factor most selective for class d.
+
+    Selectivity of factor k for class d is defined as:
+        selectivity_k = mean(img_factors[targets==d, k])
+                      / (mean(img_factors[targets!=d, k]) + 1e-6)
+
+    The factor k* with the highest selectivity is chosen. If k* < 1 (no factor
+    prefers class d), the factor with the highest raw mean activation for class d
+    is used instead, and ``info['is_selective']`` is False.
+
+    Parameters
+    ----------
+    root_node : BFT root node dict (has img_factors, children)
+    targets   : (N,) int array of task-class labels
+    class_d   : int — which class to select a circuit for
+
+    Returns
+    -------
+    importance_scores : dict {(layer_idx, i, j): float}
+    info : dict with keys 'k_star', 'selectivity', 'all_selectivities',
+           'is_selective', 'warning' (str or None)
+    """
+    img_factors = root_node['img_factors']  # (N, K)
+    K = img_factors.shape[1]
+    tgt = np.asarray(targets)
+    mask_d = (tgt == class_d)
+    mask_o = ~mask_d
+
+    selectivities = []
+    for k in range(K):
+        mean_d = float(img_factors[mask_d, k].mean()) if mask_d.any() else 0.0
+        mean_o = float(img_factors[mask_o, k].mean()) if mask_o.any() else 0.0
+        selectivities.append(mean_d / (mean_o + 1e-6))
+
+    k_star = int(np.argmax(selectivities))
+    is_selective = selectivities[k_star] > 1.0
+    warning = None if is_selective else (
+        f'No factor with selectivity > 1.0 for class {class_d}; '
+        f'using factor {k_star} (highest raw mean activation for this class).'
+    )
+
+    # Find the child of root that followed factor k_star
+    children = root_node.get('children', [])
+    child = None
+    for c in children:
+        if c.get('factor_idx', -1) == k_star:
+            child = c
+            break
+    if child is None and children:
+        child = children[0]  # fallback: first child
+
+    if child is not None:
+        path_nodes = path_from_child(root_node, child)
+    else:
+        path_nodes = [root_node]
+
+    importance_scores = extract_importance_scores(path_nodes)
+
+    info = {
+        'k_star': k_star,
+        'selectivity': selectivities[k_star],
+        'all_selectivities': selectivities,
+        'is_selective': is_selective,
+        'warning': warning,
+    }
+    return importance_scores, info
+
+
 def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
                        test_loader, label_transform, device,
                        method='algo_top', n_random_repeats=10,

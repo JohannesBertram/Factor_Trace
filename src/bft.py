@@ -50,6 +50,12 @@ from sklearn.decomposition import MiniBatchNMF
 from threadpoolctl import threadpool_limits
 from torch.utils.data import DataLoader
 
+try:
+    from kneed import KneeLocator as _KneeLocator
+    _KNEED_AVAILABLE = True
+except ImportError:
+    _KNEED_AVAILABLE = False
+
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
 
@@ -175,6 +181,43 @@ def _select_k_single(lambdas, min_k=1):
     return max(len(lambdas) - 1, min_k)
 
 
+def _select_k_kneed(values, min_k=1, S=1.0, curve='convex', direction='decreasing'):
+    """K* via kneed's KneeLocator applied to a 1-D curve.
+
+    Parameters
+    ----------
+    values    : (kmax,) 1-D array — e.g. sorted lambdas (descending) or
+                recon errors (descending).  Index k → rank K = k+1.
+    min_k     : int — lower bound on the returned K.
+    S         : float — KneeLocator sensitivity.  Higher values prefer a
+                knee closer to the beginning of the curve (fewer components).
+                Passed directly to KneeLocator(S=...).
+    curve     : str — 'convex' or 'concave'. Use 'convex' for a decreasing
+                lambda scree plot; 'concave' is rarely needed here.
+    direction : str — 'decreasing' or 'increasing'. Lambdas and recon errors
+                are both decreasing sequences.
+
+    Returns
+    -------
+    int — selected K* (>= min_k).  Falls back to len(values) when no knee
+    is detected (flat curve or kneed not installed).
+    """
+    if not _KNEED_AVAILABLE:
+        raise ImportError(
+            "kneed is required for k_method='kneed_*'. "
+            "Install it with:  pip install kneed"
+        )
+    n = len(values)
+    if n < 2:
+        return max(1, min_k)
+    x = list(range(1, n + 1))
+    kl = _KneeLocator(x, list(values), curve=curve, direction=direction, S=S)
+    knee = kl.knee
+    if knee is None:
+        return max(n, min_k)
+    return max(int(knee), min_k)
+
+
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
 
 def full_nmf_pipeline(X, n_components, random_state=0, max_iter=200, init=None,
@@ -199,23 +242,42 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=200, init=None,
     return W * scale, H * scale, lambdas
 
 
+_K_METHODS = ('structural_recon', 'kneed_lambda', 'kneed_recon')
+
+
 def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
-                      l1_ratio=0, recon_threshold=None, **factorizer_kwargs):
+                      l1_ratio=0, recon_threshold=None, k_method='structural_recon',
+                      kneed_S=1.0, **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
-    Uses the structural_recon method: fraction drop as primary signal and actual
-    Frobenius reconstruction error as a floor.  A single NMF fit is performed at
-    k_max; components are pruned to K* so re-fitting at every candidate rank is
-    avoided (trade-off acceptable for relative informativity selection).
+    A single NMF fit is performed at k_max; components are pruned to K* so
+    re-fitting at every candidate rank is avoided.
 
     Parameters
     ----------
     X               : (n_samples, n_features) non-negative matrix
     k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
     recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
-                      error. K* is at least the smallest K where
-                      ||X - X_K||_F / ||X||_F <= recon_threshold.
+                      error (used by 'structural_recon' and as a floor for 'kneed_lambda').
                       Default None uses 0.2 (20% error).
+    k_method        : str — K* selection strategy. One of:
+
+                      'structural_recon' (default)
+                          Legacy heuristic: take the max of the consecutive-ratio
+                          lambda drop (>= 1.5×) and the reconstruction-error floor.
+
+                      'kneed_lambda'
+                          Apply kneed's KneeLocator to the sorted lambda (scree) curve.
+                          Finds the elbow of the explained-importance curve.
+                          Requires ``pip install kneed``.
+
+                      'kneed_recon'
+                          Apply kneed's KneeLocator to the relative reconstruction-error
+                          curve. Finds the elbow of the error vs. rank curve.
+                          Requires ``pip install kneed``.
+
+    kneed_S         : float — KneeLocator sensitivity; only used when k_method starts
+                      with 'kneed_'. Higher values prefer fewer components. Default 1.0.
 
     Returns
     -------
@@ -224,6 +286,9 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
     lambdas        : (k_star,) descending
     k_star         : int — automatically selected rank
     """
+    if k_method not in _K_METHODS:
+        raise ValueError(f"k_method must be one of {_K_METHODS}, got {k_method!r}")
+
     if k_max is None:
         k_max = min(min(X.shape) - 1, 20)
     k_max = max(int(k_max), 2)
@@ -232,11 +297,24 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
                                             max_iter=max_iter, init=init,
                                             l1_ratio=l1_ratio, **factorizer_kwargs)
 
-    rt = recon_threshold if recon_threshold is not None else 0.2
-    recon_errs = _partial_recon_errors(X, img_f, neu_f)
-    k_frac  = _select_k_single(lams, min_k=1)
-    k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
-    k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
+    if k_method == 'structural_recon':
+        rt = recon_threshold if recon_threshold is not None else 0.2
+        recon_errs = _partial_recon_errors(X, img_f, neu_f)
+        k_frac  = _select_k_single(lams, min_k=1)
+        k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
+        k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
+
+    elif k_method == 'kneed_lambda':
+        k_star = _select_k_kneed(lams, min_k=1, S=kneed_S,
+                                  curve='convex', direction='decreasing')
+        k_star = min(k_star, len(lams))
+
+    elif k_method == 'kneed_recon':
+        recon_errs = _partial_recon_errors(X, img_f, neu_f)
+        k_star = _select_k_kneed(recon_errs, min_k=1, S=kneed_S,
+                                  curve='convex', direction='decreasing')
+        k_star = min(k_star, len(lams))
+
     return img_f[:, :k_star], neu_f[:, :k_star], lams[:k_star], k_star
 
 
@@ -430,6 +508,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         random_state=0, max_iter=200, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
+                        k_method='structural_recon', kneed_S=1.0,
                         verbose=0, _layer_tag='', **factorizer_kwargs):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
@@ -504,7 +583,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         img_f, neu_f, lams, _ = auto_nmf_pipeline(
             pos_joint, k_max=k_max,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-            recon_threshold=recon_threshold, **factorizer_kwargs,
+            recon_threshold=recon_threshold, k_method=k_method, kneed_S=kneed_S,
+            **factorizer_kwargs,
         )
     if verbose >= 2:
         print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
@@ -522,7 +602,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
             neg_img_f, neg_neu_f, neg_lams, _ = auto_nmf_pipeline(
                 neg_joint, k_max=k_max,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-                recon_threshold=recon_threshold, **factorizer_kwargs,
+                recon_threshold=recon_threshold, k_method=k_method, kneed_S=kneed_S,
+                **factorizer_kwargs,
             )
         if verbose >= 2:
             print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
@@ -696,6 +777,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
         random_state=0, max_iter=200, init=None, l1_ratio=0, k_fixed=None,
         cache_dir=None, conv_pool_method='avg', recon_threshold=None,
+        k_method='structural_recon', kneed_S=1.0,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
@@ -737,6 +819,11 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     cache_dir           : str or None — directory for per-path on-disk caching
     conv_pool_method    : 'avg', 'max', or 'center' — spatial pooling for conv layers
     recon_threshold     : float or None — max acceptable relative Frobenius error
+    k_method            : str — K* selection strategy passed to auto_nmf_pipeline.
+                          One of 'structural_recon' (default), 'kneed_lambda',
+                          'kneed_recon'. See auto_nmf_pipeline for details.
+    kneed_S             : float — KneeLocator sensitivity; only used when k_method
+                          starts with 'kneed_'. Default 1.0.
     verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
     Returns
@@ -825,6 +912,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w, recon_threshold=recon_threshold,
+            k_method=k_method, kneed_S=kneed_S,
             verbose=verbose, _layer_tag=layer_tag,
             **factorizer_kwargs,
         )
