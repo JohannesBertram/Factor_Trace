@@ -184,7 +184,7 @@ def magnitude_scores(model):
     """Return {(l_idx, i, j): |W[i,j]|} for all weights."""
     scores = {}
     for l_idx, li in enumerate(model.linear_layer_indices()):
-        W = model.layers[li].weight.detach().numpy()
+        W = model.layers[li].weight.detach().cpu().numpy()
         n_out, n_in = W.shape
         for i in range(n_out):
             for j in range(n_in):
@@ -199,7 +199,7 @@ def act_magnitude_scores(model, layer_inputs_list):
     """
     scores = {}
     for l_idx, li in enumerate(model.linear_layer_indices()):
-        W = model.layers[li].weight.detach().numpy()
+        W = model.layers[li].weight.detach().cpu().numpy()
         n_out, n_in = W.shape
         mean_act = np.abs(layer_inputs_list[l_idx]).mean(axis=0)  # (n_in,)
         for i in range(n_out):
@@ -251,7 +251,7 @@ def taylor_scores(model, loader, label_transform, device, target_class):
                 for j in range(n_in):
                     scores[(l_idx, i, j)] = 0.0
             continue
-        taylor = (grad * W).abs().detach().numpy()
+        taylor = (grad * W).abs().detach().cpu().numpy()
         n_out, n_in = taylor.shape
         for i in range(n_out):
             for j in range(n_in):
