@@ -71,7 +71,7 @@ def _safe_init(n_components, n_samples, n_features, sparse_input=False):
     return 'nndsvd' if sparse_input else 'nndsvda'
 
 
-def run_nmf_minibatch(X, n_components, random_state=0, max_iter=200,
+def run_nmf_minibatch(X, n_components, random_state=0, max_iter=500,
                       batch_size=1024, init=None, l1_ratio=0,
                       sparse_threshold=None, n_jobs=None, **kwargs):
     """MiniBatchNMF (online MU) in float32; optionally with CSR sparse input.
@@ -220,7 +220,7 @@ def _select_k_kneed(values, min_k=1, S=1.0, curve='convex', direction='decreasin
 
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
 
-def full_nmf_pipeline(X, n_components, random_state=0, max_iter=200, init=None,
+def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
                       l1_ratio=0, **factorizer_kwargs):
     """Fit MiniBatchNMF (f32), normalise, sort by importance, and rescale by sqrt(lambda).
 
@@ -245,7 +245,7 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=200, init=None,
 _K_METHODS = ('structural_recon', 'kneed_lambda', 'kneed_recon')
 
 
-def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
+def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=500, init=None,
                       l1_ratio=0, recon_threshold=None, k_method='structural_recon',
                       kneed_S=1.0, **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
@@ -259,7 +259,7 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
     k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
     recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
                       error (used by 'structural_recon' and as a floor for 'kneed_lambda').
-                      Default None uses 0.2 (20% error).
+                      Default None uses 0.4 (40% error).
     k_method        : str — K* selection strategy. One of:
 
                       'structural_recon' (default)
@@ -298,7 +298,7 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=200, init=None,
                                             l1_ratio=l1_ratio, **factorizer_kwargs)
 
     if k_method == 'structural_recon':
-        rt = recon_threshold if recon_threshold is not None else 0.2
+        rt = recon_threshold if recon_threshold is not None else 0.4
         recon_errs = _partial_recon_errors(X, img_f, neu_f)
         k_frac  = _select_k_single(lams, min_k=1)
         k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
@@ -505,7 +505,7 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
 
 def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         stimulus_threshold=0.0, neuron_weights=None,
-                        random_state=0, max_iter=200, init=None, l1_ratio=0,
+                        random_state=0, max_iter=500, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
                         k_method='structural_recon', kneed_S=1.0,
@@ -775,7 +775,7 @@ def collect_layer_dicts(model, loader, device=None, only_correct=True,
 
 def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
-        random_state=0, max_iter=200, init=None, l1_ratio=0, k_fixed=None,
+        random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         cache_dir=None, conv_pool_method='avg', recon_threshold=None,
         k_method='structural_recon', kneed_S=1.0,
         verbose=0, **factorizer_kwargs):

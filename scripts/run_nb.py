@@ -12,9 +12,12 @@ matplotlib.use('Agg')
 
 def run_notebook(path):
     nb = nbformat.read(path, as_version=4)
-    # Set working directory to repo root so relative paths work
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.chdir(repo_root)
+    # CWD = notebook dir so relative paths (../data/ etc.) resolve correctly
+    os.chdir(os.path.dirname(os.path.abspath(path)))
+    # Make sure `src` package is importable
+    if repo_root not in sys.path:
+        sys.path.insert(0, repo_root)
 
     ns = {'__file__': os.path.abspath(path)}
     for i, cell in enumerate(nb.cells):
