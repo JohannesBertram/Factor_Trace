@@ -62,6 +62,8 @@ def extract_tree_nodes(root_node):
             'layer_type':           node['layer_type'],
             'factor_idx':           node['factor_idx'],
             'img_factors':          node['img_factors'],
+            'neural_factors':       node['neural_factors'],
+            'W':                    node['W'],
             'lambdas':              node['lambdas'],
             'stimulus_weights_in':  node['stimulus_weights_in'],
             'path':                 node['path'],

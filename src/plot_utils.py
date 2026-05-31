@@ -527,7 +527,7 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         # Layout: row 0 height=1 (lambda), row 1 height=4 (content)
         n_cols = n_top + 3  # heatmap | histogram | wavg | n_top stimuli
         fig = plt.figure(figsize=(2.6 * n_cols, 6.5))
-        gs  = fig.add_gridspec(2, n_cols, height_ratios=[1, 4],
+        gs  = fig.add_gridspec(2, n_cols, height_ratios=[1, 2],
                                hspace=0.4, wspace=0.35)
 
         # ── Row 0: lambda bar ────────────────────────────────────────────────
@@ -576,6 +576,7 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         wavg = (coefs[:, None] * flat).sum(0) / (coefs.sum() + 1e-12)
         wavg_img = _display_normalize(wavg.reshape(imgs.shape[1:]))
         _show_image(ax_wavg, wavg_img)
+        ax_wavg.set_anchor('N')
         ax_wavg.set_title('weighted avg', fontsize=9)
 
         # ── Row 1, cols 3+: top stimuli ──────────────────────────────────────
@@ -583,6 +584,7 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         for ti, si in enumerate(top_idx):
             ax_t = fig.add_subplot(gs[1, 3 + ti])
             _show_image(ax_t, imgs[si])
+            ax_t.set_anchor('N')
             lbl = cname(targets[si])
             if digit_targets is not None:
                 lbl += f'\nd={int(digit_targets[si])}'

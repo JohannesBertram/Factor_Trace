@@ -37,6 +37,9 @@ def _hungarian_align(A, B):
     perm       : (K_A,) int — perm[i] is the column of B matched to column i of A
     aligned_B  : (n_features, K_A) reordered B
     """
+    # Trim to common feature length if seeds produced differently-sized arbors.
+    min_feat = min(A.shape[0], B.shape[0])
+    A, B = A[:min_feat], B[:min_feat]
     S = _cos_sim(A.T, B.T)        # (K_A, K_B)
     row_ind, col_ind = linear_sum_assignment(-S)
     aligned_B = B[:, col_ind]
