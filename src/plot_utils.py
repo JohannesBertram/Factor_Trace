@@ -524,14 +524,16 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         lam_frac = float(lambdas[k]) / (float(lambdas.sum()) + 1e-12)
         coefs = img_factors[:, k]
 
-        # Layout: row 0 height=1 (lambda), row 1 height=4 (content)
-        n_cols = n_top + 3  # heatmap | histogram | wavg | n_top stimuli
-        fig = plt.figure(figsize=(2.6 * n_cols, 6.5))
-        gs  = fig.add_gridspec(2, n_cols, height_ratios=[1, 2],
-                               hspace=0.4, wspace=0.35)
+        # Layout: row 0 (lambda | connection map | stimulus weights),
+        #         row 1 (weighted avg | top-n stimuli)
+        fig = plt.figure(figsize=(2.6 * (n_top + 3), 6.5))
+        gs  = fig.add_gridspec(2, 1, height_ratios=[1, 2], hspace=0.4)
 
-        # ── Row 0: lambda bar ────────────────────────────────────────────────
-        ax_lam = fig.add_subplot(gs[0, :])
+        # Row 0: three panels with width ratios 1 : 2 : 2
+        gs0 = gs[0].subgridspec(1, 3, width_ratios=[1, 2, 2], wspace=0.35)
+
+        # ── Row 0, col 0: lambda bar ─────────────────────────────────────────
+        ax_lam = fig.add_subplot(gs0[0])
         bar_colors = ['#e15759' if ki == k else '#aec7e8' for ki in range(K)]
         ax_lam.bar(range(K), lambdas, color=bar_colors, edgecolor='k', linewidth=0.5)
         ax_lam.set_xticks(range(K))
@@ -542,8 +544,8 @@ def plot_factor_overview_panel(node, images, targets, class_names,
             fontsize=10, fontweight='bold',
         )
 
-        # ── Row 1, col 0: neural factor heatmap ─────────────────────────────
-        ax_hm = fig.add_subplot(gs[1, 0])
+        # ── Row 0, col 1: neural factor heatmap ─────────────────────────────
+        ax_hm = fig.add_subplot(gs0[1])
         hm = _neural_heatmap_array(node, k)
         vmax = np.abs(hm).max() or 1.0
         ax_hm.imshow(hm, aspect='auto', cmap='YlOrRd', vmin=0, vmax=vmax,
@@ -553,25 +555,29 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         ax_hm.set_title('connection map', fontsize=9)
         ax_hm.tick_params(labelsize=6)
 
-        # ── Row 1, col 1: stimulus weight distribution ───────────────────────
-        ax_hist = fig.add_subplot(gs[1, 1])
+        # ── Row 0, col 2: stimulus weight distribution ───────────────────────
+        ax_hist = fig.add_subplot(gs0[2])
         vals_by_group = _group_vals(k)
+        coefs_sum = coefs.sum() + 1e-12
         for gid in group_ids:
-            v = vals_by_group[gid]
+            v = vals_by_group[gid] / coefs_sum
             if len(v) == 0:
                 continue
             ax_hist.hist(v, bins=25, alpha=0.55,
                          color=group_colors[gid],
                          label=group_labels[gid],
                          density=True)
-        ax_hist.set_xlabel('img_factor weight', fontsize=8)
+        ax_hist.set_xlabel('normalised weight', fontsize=8)
         ax_hist.set_ylabel('density', fontsize=8)
         ax_hist.set_title('stimulus weights', fontsize=9)
         ax_hist.legend(fontsize=6, ncol=2)
         ax_hist.tick_params(labelsize=7)
 
-        # ── Row 1, col 2: weighted-average image ─────────────────────────────
-        ax_wavg = fig.add_subplot(gs[1, 2])
+        # Row 1: weighted avg + top-n stimuli
+        gs1 = gs[1].subgridspec(1, n_top + 1, wspace=0.35)
+
+        # ── Row 1, col 0: weighted-average image ─────────────────────────────
+        ax_wavg = fig.add_subplot(gs1[0])
         flat = imgs.reshape(len(imgs), -1)
         wavg = (coefs[:, None] * flat).sum(0) / (coefs.sum() + 1e-12)
         wavg_img = _display_normalize(wavg.reshape(imgs.shape[1:]))
@@ -579,10 +585,10 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         ax_wavg.set_anchor('N')
         ax_wavg.set_title('weighted avg', fontsize=9)
 
-        # ── Row 1, cols 3+: top stimuli ──────────────────────────────────────
+        # ── Row 1, cols 1+: top stimuli ──────────────────────────────────────
         top_idx = np.argsort(coefs)[::-1][:n_top]
         for ti, si in enumerate(top_idx):
-            ax_t = fig.add_subplot(gs[1, 3 + ti])
+            ax_t = fig.add_subplot(gs1[1 + ti])
             _show_image(ax_t, imgs[si])
             ax_t.set_anchor('N')
             lbl = cname(targets[si])
