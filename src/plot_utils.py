@@ -430,10 +430,9 @@ def _digit_colors():
 
 
 def _class_color_map(classes):
-    """Return {class_id: rgba} using tab10."""
-    cmap = matplotlib.colormaps['tab10']
-    n = max(len(classes) - 1, 1)
-    return {c: cmap(i / n) for i, c in enumerate(classes)}
+    """Return {class_id: rgba} using categorical tab10 (≤10) or tab20 (>10) colors."""
+    palette = matplotlib.colormaps['tab20' if len(classes) > 10 else 'tab10'].colors
+    return {c: palette[i % len(palette)] for i, c in enumerate(classes)}
 
 
 def _show_image(ax, img):
@@ -555,22 +554,32 @@ def plot_factor_overview_panel(node, images, targets, class_names,
         ax_hm.set_title('connection map', fontsize=9)
         ax_hm.tick_params(labelsize=6)
 
-        # ── Row 0, col 2: stimulus weight distribution ───────────────────────
+        # ── Row 0, col 2: mean activation per class (bar plot) ──────────────
         ax_hist = fig.add_subplot(gs0[2])
         vals_by_group = _group_vals(k)
         coefs_sum = coefs.sum() + 1e-12
+        bar_means, bar_stds, bar_cols, bar_lbls = [], [], [], []
         for gid in group_ids:
             v = vals_by_group[gid] / coefs_sum
-            if len(v) == 0:
-                continue
-            ax_hist.hist(v, bins=25, alpha=0.55,
-                         color=group_colors[gid],
-                         label=group_labels[gid],
-                         density=True)
-        ax_hist.set_xlabel('normalised weight', fontsize=8)
-        ax_hist.set_ylabel('density', fontsize=8)
+            bar_means.append(float(v.mean()) if len(v) > 0 else 0.0)
+            bar_stds.append(float(v.std())  if len(v) > 1 else 0.0)
+            bar_cols.append(group_colors[gid])
+            bar_lbls.append(group_labels[gid])
+        bar_means = np.array(bar_means)
+        bar_stds  = np.array(bar_stds)
+        max_mean  = float(bar_means.max()) if bar_means.max() > 0 else 1.0
+        # clip upper error bars so they never exceed max_mean
+        yerr_upper = np.minimum(bar_stds, max_mean - bar_means)
+        x_pos = np.arange(len(group_ids))
+        ax_hist.bar(x_pos, bar_means, color=bar_cols, edgecolor='k',
+                    linewidth=0.4, alpha=0.8)
+        ax_hist.errorbar(x_pos, bar_means, yerr=[np.zeros_like(bar_stds), yerr_upper],
+                         fmt='none', ecolor='black', elinewidth=1.2, capsize=3)
+        ax_hist.set_xticks(x_pos)
+        ax_hist.set_xticklabels(bar_lbls, fontsize=6, rotation=45, ha='right')
+        ax_hist.set_ylim(0, max_mean)
+        ax_hist.set_ylabel('mean norm. weight', fontsize=8)
         ax_hist.set_title('stimulus weights', fontsize=9)
-        ax_hist.legend(fontsize=6, ncol=2)
         ax_hist.tick_params(labelsize=7)
 
         # Row 1: weighted avg + top-n stimuli
@@ -894,30 +903,39 @@ def plot_pruning_results(pruning_data, class_names, methods, fractions,
     return figs
 
 
-# ── Plot 7 — Embedding comparison (MDS / PCA) ─────────────────────────────────
+# ── Plot 7 — Embedding comparison (PCA / MDS) ─────────────────────────────────
 
 def plot_embedding_comparison(fingerprints, activations_last, labels, class_names,
-                               digit_targets=None, condition_labels=None, title=''):
+                               digit_targets=None, condition_labels=None,
+                               far_ood_conditions=None, activations_all=None, title=''):
     """
-    3-panel figure: MDS(fingerprints) | PCA(fingerprints) | PCA(last-layer activations).
+    3- or 4-panel figure comparing BFT fingerprints and network activations.
 
-    Panel 0: MDS on pairwise cosine distance of fingerprints (current default).
-    Panel 1: PCA on fingerprints — same data, different projection.
-    Panel 2: PCA on raw last-layer activations — different representation.
+    Panel order:
+      PCA(fingerprints) | PCA(last-layer activations) | [PCA(all-layer activations)] | MDS(fingerprints)
 
-    This design isolates the projection-method effect (0 vs 1) from the
-    representation effect (1 vs 2), making comparisons fair.
+    The optional 4th panel (PCA over all layers concatenated) appears only when
+    `activations_all` is provided.  Panels 0–2 use the same method (PCA) on different
+    representations; the final MDS panel is a nonlinear cross-check.
+
+    Coloring is driven by class label throughout.  Circle markers are used for all
+    in-distribution and near-OOD samples; distinct shapes are used only for the
+    far-OOD conditions listed in `far_ood_conditions`.
 
     Parameters
     ----------
-    fingerprints      : (N, d_fp) fingerprint matrix (from extract_fingerprint_matrix)
-    activations_last  : (N, d_act) last-layer activation matrix
-    labels            : (N,) int task-class labels
-    class_names       : list[str] or dict {int: str}
-    digit_targets     : (N,) int digit labels; enables per-digit colouring
-    condition_labels  : (N,) str/int — condition per sample (e.g. 'ID', 'near-OOD');
-                        if provided, uses different markers per condition
-    title             : optional suptitle
+    fingerprints       : (N, d_fp) fingerprint matrix (from extract_fingerprint_matrix)
+    activations_last   : (N, d_act) last-layer activation matrix
+    labels             : (N,) int task-class labels
+    class_names        : list[str] or dict {int: str}
+    digit_targets      : (N,) int digit labels; enables per-digit colouring
+    condition_labels   : (N,) str/int — condition per sample (e.g. 'ID', 'OOD-CIFAR100',
+                         'gaussian_noise')
+    far_ood_conditions : list/set of condition names that should be rendered with distinct
+                         marker shapes instead of circles (all others get circles)
+    activations_all    : (N, d_all) optional — all-layer activations concatenated; when
+                         provided a third PCA panel is inserted before the MDS panel
+    title              : optional suptitle
 
     Returns
     -------
@@ -927,76 +945,112 @@ def plot_embedding_comparison(fingerprints, activations_last, labels, class_name
 
     cname = _cname_fn(class_names)
 
-    # MDS on cosine distance
+    # PCA on fingerprints (panel 0)
+    pca_fp = PCA(n_components=2, random_state=42)
+    emb_pca_fp = pca_fp.fit_transform(fingerprints)
+    var_fp = pca_fp.explained_variance_ratio_[:2].sum()
+
+    # PCA on last-layer activations (panel 1)
+    pca_act = PCA(n_components=2, random_state=42)
+    emb_pca_act = pca_act.fit_transform(activations_last)
+    var_act = pca_act.explained_variance_ratio_[:2].sum()
+
+    # PCA on all-layer activations (panel 2, optional)
+    if activations_all is not None:
+        pca_all = PCA(n_components=2, random_state=42)
+        emb_pca_all = pca_all.fit_transform(activations_all)
+        var_all = pca_all.explained_variance_ratio_[:2].sum()
+
+    # MDS on cosine distance of fingerprints (last panel)
     fp_norm = _sk_normalize(fingerprints, norm='l2')
     dist_mat = np.clip(1.0 - fp_norm @ fp_norm.T, 0, None)
     mds = MDS(n_components=2, dissimilarity='precomputed', random_state=42,
               n_init=4, max_iter=300)
     emb_mds = mds.fit_transform(dist_mat)
 
-    # PCA on fingerprints
-    pca_fp  = PCA(n_components=2, random_state=42)
-    emb_pca_fp = pca_fp.fit_transform(fingerprints)
-    var_fp  = pca_fp.explained_variance_ratio_[:2].sum()
-
-    # PCA on last-layer activations
-    pca_act = PCA(n_components=2, random_state=42)
-    emb_pca_act = pca_act.fit_transform(activations_last)
-    var_act = pca_act.explained_variance_ratio_[:2].sum()
-
-    # Colour setup
+    # Color setup — driven by class label
     unique_labels = sorted(np.unique(labels).tolist())
     if digit_targets is not None:
-        dcmap = _digit_colors()
-        colors = np.array([dcmap.get(int(d), (0.5, 0.5, 0.5, 1.0))
-                           for d in digit_targets])
+        dcmap_ = _digit_colors()
+        point_colors = np.array([dcmap_.get(int(d), (0.5, 0.5, 0.5, 1.0))
+                                  for d in digit_targets])
     else:
-        ccmap  = _class_color_map(unique_labels)
-        colors = np.array([ccmap[int(l)] for l in labels])
+        ccmap_ = _class_color_map(unique_labels)
+        point_colors = np.array([ccmap_[int(l)] for l in labels])
 
-    # Marker setup for conditions
-    marker_list = ['o', 's', '^', 'D', 'v', '<', '>', 'p', 'h', '*']
+    # Marker setup — circles for ID/near-OOD, shapes for far-OOD only
+    far_ood_set = set(far_ood_conditions) if far_ood_conditions is not None else set()
+    ood_shapes = ['^', 'D', 'P', 'X', 's', 'v', '<', '>', 'p', 'h']
     if condition_labels is not None:
-        cond_arr  = np.asarray(condition_labels)
-        unique_c  = list(dict.fromkeys(condition_labels))
-        cond2mark = {c: marker_list[i % len(marker_list)] for i, c in enumerate(unique_c)}
+        cond_arr = np.asarray(condition_labels)
+        seen = set(); far_ood_ordered = []
+        for c in condition_labels:
+            if c in far_ood_set and c not in seen:
+                far_ood_ordered.append(c); seen.add(c)
+        cond2mark = {c: ood_shapes[i % len(ood_shapes)]
+                     for i, c in enumerate(far_ood_ordered)}
     else:
         cond_arr = None
+        far_ood_ordered = []
+        cond2mark = {}
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
-    panel_info = [
-        (emb_mds,     'MDS (fingerprints)\ncosine distance'),
-        (emb_pca_fp,  f'PCA (fingerprints)\n{100*var_fp:.1f}% variance'),
-        (emb_pca_act, f'PCA (last-layer activations)\n{100*var_act:.1f}% variance'),
-    ]
+    n_panels = 4 if activations_all is not None else 3
+    fig_width = 20 if n_panels == 4 else 15
+    fig, axes = plt.subplots(1, n_panels, figsize=(fig_width, 4.5))
+    if activations_all is not None:
+        panel_info = [
+            (emb_pca_fp,  f'PCA — BFT fingerprints\n{100*var_fp:.1f}% var'),
+            (emb_pca_act, f'PCA — last-layer activations\n{100*var_act:.1f}% var'),
+            (emb_pca_all, f'PCA — all-layer activations\n{100*var_all:.1f}% var'),
+            (emb_mds,     'MDS — BFT fingerprints\n(cosine distance)'),
+        ]
+    else:
+        panel_info = [
+            (emb_pca_fp,  f'PCA — BFT fingerprints\n{100*var_fp:.1f}% var'),
+            (emb_pca_act, f'PCA — last-layer activations\n{100*var_act:.1f}% var'),
+            (emb_mds,     'MDS — BFT fingerprints\n(cosine distance)'),
+        ]
 
     for ax, (emb, ttl) in zip(axes, panel_info):
         if cond_arr is not None:
-            for cond in unique_c:
+            # non-far-OOD samples: circles colored by class
+            non_ood_mask = np.array([c not in far_ood_set for c in cond_arr])
+            if non_ood_mask.any():
+                ax.scatter(emb[non_ood_mask, 0], emb[non_ood_mask, 1],
+                           c=point_colors[non_ood_mask], marker='o',
+                           s=18, alpha=0.7, linewidths=0)
+            # far-OOD samples: distinct shapes colored by class
+            for cond in far_ood_ordered:
                 mask = (cond_arr == cond)
                 ax.scatter(emb[mask, 0], emb[mask, 1],
-                           c=colors[mask], marker=cond2mark[cond],
-                           s=18, alpha=0.7, label=str(cond), linewidths=0)
+                           c=point_colors[mask], marker=cond2mark[cond],
+                           s=35, alpha=0.85, linewidths=0.4, edgecolors='k')
         else:
-            ax.scatter(emb[:, 0], emb[:, 1], c=colors, s=18, alpha=0.7, linewidths=0)
+            ax.scatter(emb[:, 0], emb[:, 1], c=point_colors,
+                       marker='o', s=18, alpha=0.7, linewidths=0)
         ax.set(title=ttl, xlabel='dim 1', ylabel='dim 2')
         ax.tick_params(labelsize=7)
 
-    # Class / digit legend on first axis
+    # Class/digit color legend on panel 0
     if digit_targets is not None:
-        dcmap_ = _digit_colors()
-        for d in sorted(dcmap_.keys()):
-            axes[0].scatter([], [], color=dcmap_[d],
-                            label=f"{'E' if d % 2 == 0 else 'O'}{d}", s=14)
+        dcmap_leg = _digit_colors()
+        for d in sorted(dcmap_leg.keys()):
+            axes[0].scatter([], [], color=dcmap_leg[d],
+                            label=f"{'E' if d % 2 == 0 else 'O'}{d}", s=14, marker='o')
     else:
-        ccmap_ = _class_color_map(unique_labels)
+        ccmap_leg = _class_color_map(unique_labels)
         for c in unique_labels:
-            axes[0].scatter([], [], color=ccmap_[c], label=cname(c), s=14)
+            axes[0].scatter([], [], color=ccmap_leg[c], label=cname(c), s=14, marker='o')
     axes[0].legend(fontsize=6, ncol=2, markerscale=2)
 
-    # Condition legend on last axis
-    if cond_arr is not None:
-        axes[2].legend(fontsize=7, markerscale=1.5)
+    # Far-OOD shape legend on last panel (MDS)
+    if far_ood_ordered:
+        for cond in far_ood_ordered:
+            mask = (cond_arr == cond)
+            rep_color = tuple(point_colors[mask][0]) if mask.any() else (0.5, 0.5, 0.5, 1.0)
+            axes[-1].scatter([], [], color=rep_color, marker=cond2mark[cond],
+                             label=str(cond), s=30, edgecolors='k', linewidths=0.4)
+        axes[-1].legend(fontsize=7, markerscale=1.5, title='far-OOD')
 
     if title:
         fig.suptitle(title, fontsize=11, fontweight='bold', y=1.02)

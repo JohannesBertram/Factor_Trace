@@ -421,7 +421,7 @@ def _nnls_project(neural_factors, pos_joint):
     K     = neural_factors.shape[1]
     img_f = np.zeros((n_new, K))
     for s in range(n_new):
-        img_f[s], _ = scipy_nnls(neural_factors, pos_joint[s], maxiter=100)
+        img_f[s], _ = scipy_nnls(neural_factors, pos_joint[s], maxiter=300)
     return img_f
 
 
