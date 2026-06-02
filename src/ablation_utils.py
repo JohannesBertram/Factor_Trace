@@ -58,13 +58,18 @@ def path_from_child(root_node, child_node):
 
 # ── Importance extraction ─────────────────────────────────────────────────────
 
-def extract_importance_scores(path_nodes):
+def extract_importance_scores(path_nodes, selectivity_weights=None):
     """
     Extract per-weight importance from neural_factors along a traced path.
 
     Parameters
     ----------
     path_nodes : list[dict] — ordered output-layer first (from path_from_child)
+    selectivity_weights : array of shape (K,) or None
+        When provided, the root node's importance is computed as a weighted sum
+        across all K factors (weights clipped to ≥0 and normalised to sum=1).
+        Inner nodes always use fi=0 regardless of this parameter.
+        If None, falls back to the single-factor (k_star) behaviour.
 
     Returns
     -------
@@ -79,19 +84,45 @@ def extract_importance_scores(path_nodes):
     path_nodes[1]['factor_idx'] — i.e. which root factor this path follows.
     For all deeper nodes, inner BFT always branches on factor 0, so column 0 is used.
     A safety clamp handles any edge case where fi >= node's actual k.
+
+    Inhibitory factors (neg_neural_factors) are added to the excitatory score so
+    that weights acting through the inhibitory pathway are not systematically
+    under-ranked.
     """
     scores = {}
     for idx, node in enumerate(path_nodes):
         l_idx  = node['layer_idx']
         ltype  = node.get('layer_type', 'fc')
         W      = node['W']
-        if idx == 0 and len(path_nodes) > 1:
-            fi = path_nodes[1].get('factor_idx', 0)
+        nf     = node['neural_factors']          # (n_out*n_in_flat, K_pos)
+        K      = nf.shape[1]
+
+        # --- excitatory importance -------------------------------------------
+        if idx == 0 and selectivity_weights is not None:
+            # Weighted sum across all K root factors
+            w = np.clip(np.asarray(selectivity_weights, dtype=float)[:K], 0, None)
+            w = w / (w.sum() + 1e-8)
+            flat = nf @ w                        # (n_out*n_in_flat,)
         else:
-            fi = 0
-        k  = node['neural_factors'].shape[1]
-        fi = min(fi, k - 1)
-        flat = node['neural_factors'][:, fi]  # (n_out * n_in_flat,)
+            if idx == 0 and len(path_nodes) > 1:
+                fi = path_nodes[1].get('factor_idx', 0)
+            else:
+                fi = 0
+            fi = min(fi, K - 1)
+            flat = nf[:, fi]                     # (n_out*n_in_flat,)
+
+        # --- inhibitory importance (add, not replace) ------------------------
+        neg_nf = node.get('neg_neural_factors')
+        if neg_nf is not None and neg_nf.shape[0] == flat.shape[0]:
+            if idx == 0 and selectivity_weights is not None:
+                K_neg = neg_nf.shape[1]
+                w_neg = np.clip(np.asarray(selectivity_weights, dtype=float)[:K_neg], 0, None)
+                w_neg = w_neg / (w_neg.sum() + 1e-8)
+                flat = flat + neg_nf @ w_neg
+            else:
+                fi_neg = min(fi, neg_nf.shape[1] - 1)
+                flat = flat + neg_nf[:, fi_neg]
+
         if ltype == 'conv':
             C_out, C_in, kH, kW = W.shape
             imp = flat.reshape(C_out, C_in * kH * kW)
@@ -259,6 +290,37 @@ def taylor_scores(model, loader, label_transform, device, target_class):
     return scores
 
 
+# ── Score normalisation ───────────────────────────────────────────────────────
+
+def normalize_scores_per_layer(scores):
+    """
+    Min-max normalise importance scores within each layer to [0, 1].
+
+    Use this before `run_ablation_sweep` with method='algo_bottom' to prevent
+    wide early layers (with many near-zero NMF values) from dominating the
+    low-importance pool at the expense of narrower output layers.
+
+    Parameters
+    ----------
+    scores : dict {(layer_idx, i, j): float}
+
+    Returns
+    -------
+    normalised : dict {(layer_idx, i, j): float}
+    """
+    by_layer = {}
+    for key in scores:
+        by_layer.setdefault(key[0], []).append(key)
+    result = {}
+    for l_idx, keys in by_layer.items():
+        vals = np.array([scores[k] for k in keys])
+        lo, hi = float(vals.min()), float(vals.max())
+        rng = hi - lo
+        for k in keys:
+            result[k] = float((scores[k] - lo) / rng) if rng > 0 else 0.0
+    return result
+
+
 # ── Ablation sweep ────────────────────────────────────────────────────────────
 
 def select_class_circuit(root_node, targets, class_d):
@@ -319,7 +381,8 @@ def select_class_circuit(root_node, targets, class_d):
     else:
         path_nodes = [root_node]
 
-    importance_scores = extract_importance_scores(path_nodes)
+    importance_scores = extract_importance_scores(path_nodes,
+                                                   selectivity_weights=np.array(selectivities))
 
     info = {
         'k_star': k_star,

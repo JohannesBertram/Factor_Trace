@@ -54,6 +54,7 @@ from .ablation_utils import (
     assign_factors_to_classes,
     path_from_child,
     extract_importance_scores,
+    normalize_scores_per_layer,
     all_weight_keys,
     ablate_model,
     per_class_accuracy,
