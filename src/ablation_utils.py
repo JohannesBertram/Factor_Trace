@@ -15,7 +15,7 @@ def assign_factors_to_classes(root_node, all_targets, n_classes):
 
     Parameters
     ----------
-    root_node   : bft root (has 'children' list)
+    root_node   : BFTNode or BFTResult — bft root
     all_targets : (n_samples,) int array of class labels
     n_classes   : number of classes
 
@@ -23,13 +23,16 @@ def assign_factors_to_classes(root_node, all_targets, n_classes):
     -------
     class_to_child : dict {class_d: child_node}
     """
-    children = root_node['children']
+    from .types import BFTResult
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+    children = root_node.children
     assigned = {}
     used = set()
     for d in range(n_classes):
         mask = (all_targets == d)
         scores = [
-            float(child['img_factors'][mask, 0].mean()) if i not in used else -np.inf
+            float(child.img_factors[mask, 0].mean()) if i not in used else -np.inf
             for i, child in enumerate(children)
         ]
         best = int(np.argmax(scores))
@@ -46,12 +49,12 @@ def path_from_child(root_node, child_node):
 
     Returns
     -------
-    nodes : list[dict] ordered output-layer first
+    nodes : list[BFTNode] ordered output-layer first
     """
     nodes = [root_node, child_node]
     cur = child_node
-    while cur['children']:
-        cur = cur['children'][0]
+    while cur.children:
+        cur = cur.children[0]
         nodes.append(cur)
     return nodes
 
@@ -91,10 +94,10 @@ def extract_importance_scores(path_nodes, selectivity_weights=None):
     """
     scores = {}
     for idx, node in enumerate(path_nodes):
-        l_idx  = node['layer_idx']
-        ltype  = node.get('layer_type', 'fc')
-        W      = node['W']
-        nf     = node['neural_factors']          # (n_out*n_in_flat, K_pos)
+        l_idx  = node.layer_idx
+        ltype  = node.layer_type
+        W      = node.weight
+        nf     = node.connection_factors         # (n_out*n_in_flat, K_pos)
         K      = nf.shape[1]
 
         # --- excitatory importance -------------------------------------------
@@ -105,14 +108,14 @@ def extract_importance_scores(path_nodes, selectivity_weights=None):
             flat = nf @ w                        # (n_out*n_in_flat,)
         else:
             if idx == 0 and len(path_nodes) > 1:
-                fi = path_nodes[1].get('factor_idx', 0)
+                fi = path_nodes[1].factor_idx
             else:
                 fi = 0
             fi = min(fi, K - 1)
             flat = nf[:, fi]                     # (n_out*n_in_flat,)
 
         # --- inhibitory importance (add, not replace) ------------------------
-        neg_nf = node.get('neg_neural_factors')
+        neg_nf = node.neg_connection_factors
         if neg_nf is not None and neg_nf.shape[0] == flat.shape[0]:
             if idx == 0 and selectivity_weights is not None:
                 K_neg = neg_nf.shape[1]
@@ -347,7 +350,10 @@ def select_class_circuit(root_node, targets, class_d):
     info : dict with keys 'k_star', 'selectivity', 'all_selectivities',
            'is_selective', 'warning' (str or None)
     """
-    img_factors = root_node['img_factors']  # (N, K)
+    from .types import BFTResult
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+    img_factors = root_node.img_factors         # (N, K)
     K = img_factors.shape[1]
     tgt = np.asarray(targets)
     mask_d = (tgt == class_d)
@@ -367,10 +373,10 @@ def select_class_circuit(root_node, targets, class_d):
     )
 
     # Find the child of root that followed factor k_star
-    children = root_node.get('children', [])
+    children = root_node.children
     child = None
     for c in children:
-        if c.get('factor_idx', -1) == k_star:
+        if c.factor_idx == k_star:
             child = c
             break
     if child is None and children:

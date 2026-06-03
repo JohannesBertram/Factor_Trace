@@ -22,6 +22,24 @@ from .bft import (
     compute_attn_joint_arbors,
     _compute_trace_transition,
 )
+from .types import BFTNode, BFTResult, FingerprintResult
+
+
+class _NodeMeta(dict):
+    """Metadata dict with attribute access support.
+
+    Allows both ``node['key']`` and ``node.key`` access so that the dicts
+    returned by extract_tree_nodes() are compatible with functions expecting
+    BFTNode attribute access (e.g. plot_utils functions).
+    """
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f"'_NodeMeta' has no key {key!r}")
+
+    def __setattr__(self, key, value):
+        self[key] = value
 
 
 # ── 1. Tree extraction ────────────────────────────────────────────────────────
@@ -30,45 +48,49 @@ def extract_tree_nodes(root_node):
     """Walk the full BFT tree (BFS) and return a flat list of node metadata dicts.
 
     Each returned dict contains:
-        node_id             : tuple  — unique path-based ID; root = ()
-        parent_id           : tuple or None
-        layer_idx           : int    — 0 = input-side layer (leaves), max = output (root)
-        layer_name          : str
-        layer_type          : 'fc' | 'conv' | 'attn'
-        factor_idx          : int    — which factor of the parent was followed here
-        img_factors         : (N, K) — per-stimulus NMF loadings at this node
-        lambdas             : (K,)   — factor importances
-        stimulus_weights_in : (N,)   — importance weights propagated from parent layer
-        path                : list[int]
+        node_id              : tuple  — unique path-based ID; root = ()
+        parent_id            : tuple or None
+        layer_idx            : int    — 0 = input-side layer (leaves), max = output (root)
+        layer_name           : str
+        layer_type           : 'fc' | 'conv' | 'attn'
+        factor_idx           : int    — which factor of the parent was followed here
+        img_factors          : (N, K) — per-stimulus NMF loadings at this node
+        connection_factors   : (n_features, K) — arbor-space NMF components
+        weight               : layer weight matrix
+        lambdas              : (K,)   — factor importances
+        stimulus_weights     : (N,)   — importance weights propagated from parent layer
+        path                 : tuple
 
     Parameters
     ----------
-    root_node : dict — root node returned by bft()
+    root_node : BFTNode or BFTResult — root node or full result from bft()
 
     Returns
     -------
     list[dict]  BFS order (root first, leaves last)
     """
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
     nodes = []
     queue = [(root_node, None)]
     while queue:
         node, parent_id = queue.pop(0)
-        nid = tuple(node['path'])
-        nodes.append({
-            'node_id':              nid,
-            'parent_id':            parent_id,
-            'layer_idx':            node['layer_idx'],
-            'layer_name':           node['layer_name'],
-            'layer_type':           node['layer_type'],
-            'factor_idx':           node['factor_idx'],
-            'img_factors':          node['img_factors'],
-            'neural_factors':       node['neural_factors'],
-            'W':                    node['W'],
-            'lambdas':              node['lambdas'],
-            'stimulus_weights_in':  node['stimulus_weights_in'],
-            'path':                 node['path'],
-        })
-        for child in node['children']:
+        nid = node.path
+        nodes.append(_NodeMeta({
+            'node_id':             nid,
+            'parent_id':           parent_id,
+            'layer_idx':           node.layer_idx,
+            'layer_name':          node.layer_name,
+            'layer_type':          node.layer_type,
+            'factor_idx':          node.factor_idx,
+            'img_factors':         node.img_factors,
+            'connection_factors':  node.connection_factors,
+            'weight':              node.weight,
+            'lambdas':             node.lambdas,
+            'stimulus_weights':    node.stimulus_weights,
+            'path':                node.path,
+        }))
+        for child in node.children:
             queue.append((child, nid))
     return nodes
 
@@ -80,7 +102,7 @@ def compute_node_activations(tree_nodes, stimulus_indices):
 
     Uses img_factors[stimulus_indices, 0] (primary factor loading) for every node.
     This is consistent across original BFT trees and trees produced by
-    project_stimuli_onto_tree(), making the values directly comparable.
+    project_onto_bft(), making the values directly comparable.
 
     Parameters
     ----------
@@ -234,43 +256,45 @@ def extract_factor_tree_nodes(root_node):
     node, making all leaf factors visible in tree diagrams.
 
     Connectivity:
-        Root factors  (path=[]):  parent_id = None
+        Root factors  (path=()):  parent_id = None
         Other factors (path=P):   parent_id = (P[:-1], P[-1])
             — i.e. the specific factor at the parent path that spawned this branch.
 
     Parameters
     ----------
-    root_node : dict — BFT root returned by bft()
+    root_node : BFTNode or BFTResult — BFT root returned by bft()
 
     Returns
     -------
     list[dict] with keys: node_id, parent_id, layer_idx, layer_name, layer_type,
-        path, factor_k, img_factors, lambdas, stimulus_weights_in
+        path, factor_k, img_factors, lambdas, stimulus_weights
     """
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
     path_nodes = {}
     queue = [root_node]
     while queue:
         node = queue.pop(0)
-        path_nodes[tuple(node['path'])] = node
-        queue.extend(node['children'])
+        path_nodes[node.path] = node
+        queue.extend(node.children)
 
     factor_nodes = []
     for pt, node in path_nodes.items():
-        K = node['img_factors'].shape[1]
+        K = node.img_factors.shape[1]
         parent_id = None if len(pt) == 0 else (pt[:-1], pt[-1])
         for k in range(K):
-            factor_nodes.append({
-                'node_id':             (pt, k),
-                'parent_id':           parent_id,
-                'layer_idx':           node['layer_idx'],
-                'layer_name':          node['layer_name'],
-                'layer_type':          node['layer_type'],
-                'path':                node['path'],
-                'factor_k':            k,
-                'img_factors':         node['img_factors'],
-                'lambdas':             node['lambdas'],
-                'stimulus_weights_in': node['stimulus_weights_in'],
-            })
+            factor_nodes.append(_NodeMeta({
+                'node_id':          (pt, k),
+                'parent_id':        parent_id,
+                'layer_idx':        node.layer_idx,
+                'layer_name':       node.layer_name,
+                'layer_type':       node.layer_type,
+                'path':             node.path,
+                'factor_k':         k,
+                'img_factors':      node.img_factors,
+                'lambdas':          node.lambdas,
+                'stimulus_weights': node.stimulus_weights,
+            }))
     return factor_nodes
 
 
@@ -295,7 +319,7 @@ def compute_factor_activations(factor_nodes, stimulus_indices):
     }
 
 
-# ── 6. Factor fingerprints ────────────────────────────────────────────────────
+# ── 5. Factor fingerprints ────────────────────────────────────────────────────
 
 def extract_factor_fingerprint(root_node, stimulus_index):
     """Concatenate img_factors[s, :] for every node in the BFT tree (BFS order).
@@ -304,19 +328,21 @@ def extract_factor_fingerprint(root_node, stimulus_index):
 
     Parameters
     ----------
-    root_node      : dict  — BFT root returned by bft()
+    root_node      : BFTNode or BFTResult — BFT root returned by bft()
     stimulus_index : int   — index into the N-sample axis
 
     Returns
     -------
     np.ndarray  shape (fingerprint_dim,)
     """
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
     parts = []
     queue = [root_node]
     while queue:
         node = queue.pop(0)
-        parts.append(node['img_factors'][stimulus_index, :])
-        queue.extend(node['children'])
+        parts.append(node.img_factors[stimulus_index, :])
+        queue.extend(node.children)
     return np.concatenate(parts)
 
 
@@ -325,7 +351,7 @@ def extract_fingerprint_matrix(root_node, stimulus_indices):
 
     Parameters
     ----------
-    root_node        : dict  — BFT root returned by bft()
+    root_node        : BFTNode or BFTResult — BFT root returned by bft()
     stimulus_indices : array-like of int
 
     Returns
@@ -352,27 +378,77 @@ def compute_stimulus_similarity(fingerprint_matrix):
     return cosine_similarity(fingerprint_matrix)
 
 
-# ── 7. Tree traversal helpers ────────────────────────────────────────────────
+def compute_fingerprints(bft_result, indices=None, normalize=True):
+    """Compute factor fingerprints for a set of stimuli from a BFT result.
+
+    Represents each stimulus as a concatenated vector of its NMF loadings
+    (img_factors) across all nodes in the BFT tree (BFS order), then computes
+    pairwise cosine similarity.
+
+    Parameters
+    ----------
+    bft_result : BFTResult or BFTNode — output of bft()
+    indices    : array-like of int or None — which samples to include;
+                 None uses all N samples from bft_result
+    normalize  : bool — L2-normalize rows before computing cosine similarity
+                 (default True; set False to keep raw loadings in the matrix)
+
+    Returns
+    -------
+    FingerprintResult with:
+        .matrix     (N, D) — per-stimulus concatenated factor loadings
+        .similarity (N, N) — pairwise cosine similarity
+        .indices    (N,)   — which sample indices were used
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    if isinstance(bft_result, BFTResult):
+        root = bft_result.root
+        n_total = bft_result.n_samples
+    else:
+        root = bft_result
+        n_total = root.img_factors.shape[0]
+
+    if indices is None:
+        indices = np.arange(n_total)
+    indices = np.asarray(indices)
+
+    matrix = extract_fingerprint_matrix(root, indices)
+
+    if normalize:
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        matrix_norm = matrix / (norms + 1e-12)
+    else:
+        matrix_norm = matrix
+
+    similarity = cosine_similarity(matrix_norm)
+
+    return FingerprintResult(matrix=matrix, similarity=similarity, indices=indices)
+
+
+# ── 6. Tree traversal helpers ────────────────────────────────────────────────
 
 def nodes_at_layer(root_node, target_layer_idx):
     """Return all BFT nodes whose layer_idx equals target_layer_idx.
 
     Parameters
     ----------
-    root_node        : dict — BFT root returned by bft()
+    root_node        : BFTNode or BFTResult — BFT root returned by bft()
     target_layer_idx : int — 0 = input-side (leaves), max = output (root)
 
     Returns
     -------
-    list[dict]  matching nodes in BFS order
+    list[BFTNode]  matching nodes in BFS order
     """
     from collections import deque
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
     result, queue = [], deque([root_node])
     while queue:
         n = queue.popleft()
-        if n['layer_idx'] == target_layer_idx:
+        if n.layer_idx == target_layer_idx:
             result.append(n)
-        queue.extend(n['children'])
+        queue.extend(n.children)
     return result
 
 
@@ -385,7 +461,7 @@ def top_stimuli_factor_activations(factor_nodes, source_path_node, factor_k, top
     Parameters
     ----------
     factor_nodes     : list[dict]  from extract_factor_tree_nodes()
-    source_path_node : BFT path node dict whose img_factors column is used for ranking
+    source_path_node : BFTNode whose img_factors column is used for ranking
     factor_k         : int — which factor column to rank by
     top_n            : int — number of top stimuli to include
 
@@ -394,34 +470,34 @@ def top_stimuli_factor_activations(factor_nodes, source_path_node, factor_k, top
     acts    : dict {node_id: float}  — mean factor activation per node for top stimuli
     top_idx : np.ndarray             — indices of the top_n stimuli
     """
-    loadings = source_path_node['img_factors'][:, factor_k]
+    loadings = source_path_node.img_factors[:, factor_k]
     top_idx  = np.argsort(loadings)[::-1][:top_n]
     acts     = compute_factor_activations(factor_nodes, top_idx)
     return acts, top_idx
 
 
-# ── 8. OOD / adversarial projection ──────────────────────────────────────────
+# ── 7. OOD / adversarial projection ──────────────────────────────────────────
 
-def _nnls_project(neural_factors, pos_joint):
-    """Solve NNLS per row of pos_joint against the fixed neural_factors basis.
+def _nnls_project(connection_factors, pos_joint):
+    """Solve NNLS per row of pos_joint against the fixed connection_factors basis.
 
-    Solves:  min_{x >= 0}  ||neural_factors @ x − pos_joint[s]||²
+    Solves:  min_{x >= 0}  ||connection_factors @ x − pos_joint[s]||²
     for each row s.
 
     Parameters
     ----------
-    neural_factors : (n_features, K)  — fixed NMF basis from bft()
-    pos_joint      : (n_new, n_features)  — clipped-positive joint arbor for new stimuli
+    connection_factors : (n_features, K)  — fixed NMF basis from bft()
+    pos_joint          : (n_new, n_features)  — clipped-positive joint arbor for new stimuli
 
     Returns
     -------
     np.ndarray  (n_new, K)
     """
     n_new = pos_joint.shape[0]
-    K     = neural_factors.shape[1]
+    K     = connection_factors.shape[1]
     img_f = np.zeros((n_new, K))
     for s in range(n_new):
-        img_f[s], _ = scipy_nnls(neural_factors, pos_joint[s], maxiter=300)
+        img_f[s], _ = scipy_nnls(connection_factors, pos_joint[s], maxiter=300)
     return img_f
 
 
@@ -430,7 +506,7 @@ def _joint_for_node_weighted(node, new_input, stimulus_weights):
 
     Parameters
     ----------
-    node             : BFT node dict (contains 'W', 'layer_type', 'stimulus_threshold')
+    node             : BFTNode (contains weight, layer_type, stimulus_threshold)
     new_input        : For 'fc' / 'conv': numpy array of activations.
                        For 'attn': dict with keys 'x_tokens' (N,T,d_model)
                                    and 'attn_weights' (N,T).
@@ -440,9 +516,9 @@ def _joint_for_node_weighted(node, new_input, stimulus_weights):
     -------
     np.ndarray  (n_new, n_out * n_in)  raw (signed) joint arbor
     """
-    ltype = node['layer_type']
-    W     = node['W']
-    st    = node.get('stimulus_threshold', 0.0)
+    ltype = node.layer_type
+    W     = node.weight
+    st    = node.stimulus_threshold
 
     if ltype == 'conv':
         return compute_conv_joint_arbors(W, new_input,
@@ -476,18 +552,13 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
     the joint arbor is built with the inherited stimulus weights — putting NNLS in
     the same weighted space as the NMF factors stored there — before solving:
 
-        min_{x >= 0}  ||neural_factors @ x − weighted_pos_joint[s]||²
-
-    This corrects the mismatch in the previous approach where inner-layer NNLS
-    used unweighted arbors while the stored neural_factors were trained on
-    stimulus-weighted ones.
+        min_{x >= 0}  ||connection_factors @ x − weighted_pos_joint[s]||²
 
     Parameters
     ----------
-    root_node        : dict  — BFT tree root from bft()
+    root_node        : BFTNode or BFTResult — BFT tree root from bft()
     new_layer_inputs : list  — one entry per layer in FORWARD order (index 0 =
-                       input-side layer, matching the layer_inputs_list argument
-                       to bft()).
+                       input-side layer).
 
                        FC / conv layers: numpy array (n_new, n_in) or
                            (n_new, C_in, H, W).
@@ -497,37 +568,82 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
 
     Returns
     -------
-    dict  — deep copy of the BFT tree with 'img_factors' (and 'neg_img_factors'
-            if present) replaced by backward-weighted NNLS projections for the
-            new stimuli, and 'stimulus_weights_in' set to the propagated weights.
+    BFTNode  — deep copy of the BFT tree with img_factors (and neg_img_factors
+               if present) replaced by backward-weighted NNLS projections for the
+               new stimuli, and stimulus_weights set to the propagated weights.
     """
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+
     new_root = copy.deepcopy(root_node)
 
-    root_input = new_layer_inputs[root_node['layer_idx']]
+    root_input = new_layer_inputs[root_node.layer_idx]
     n_new = (root_input['x_tokens'].shape[0]
              if isinstance(root_input, dict) else root_input.shape[0])
 
     def _project(node, stimulus_weights):
-        l_idx     = node['layer_idx']
+        l_idx     = node.layer_idx
         new_input = new_layer_inputs[l_idx]
 
         raw_joint = _joint_for_node_weighted(node, new_input, stimulus_weights)
         pos_joint = np.clip(raw_joint,  0, None)
         neg_joint = np.clip(-raw_joint, 0, None)
 
-        node['img_factors'] = _nnls_project(node['neural_factors'], pos_joint)
+        node.img_factors = _nnls_project(node.connection_factors, pos_joint)
 
-        if node.get('neg_neural_factors') is not None:
-            node['neg_img_factors'] = _nnls_project(node['neg_neural_factors'], neg_joint)
+        if node.neg_connection_factors is not None:
+            node.neg_img_factors = _nnls_project(node.neg_connection_factors, neg_joint)
 
-        node['stimulus_weights_in'] = stimulus_weights.copy()
+        node.stimulus_weights = stimulus_weights.copy()
 
-        weighting = node.get('weighting', 'img_selectivity')
-        for child in node['children']:
-            fi = child['factor_idx']
-            sw_fi, _ = _compute_trace_transition(weighting, node['img_factors'],
-                                                  node['lambdas'], fi)
+        for child in node.children:
+            fi = child.factor_idx
+            sw_fi, _ = _compute_trace_transition(node.weighting, node.img_factors,
+                                                  node.lambdas, fi)
             _project(child, sw_fi)
 
     _project(new_root, np.ones(n_new))
     return new_root
+
+
+def project_onto_bft(bft_result, new_layer_inputs,
+                     images=None, targets=None, confidences=None):
+    """Project new stimuli onto fixed BFT factors and return a new BFTResult.
+
+    Wraps project_stimuli_onto_tree, returning a BFTResult with the same tree
+    structure (same connection_factors) but new img_factors computed via NNLS.
+    Pass this result to compute_fingerprints() just like the original result.
+
+    Parameters
+    ----------
+    bft_result       : BFTResult — original BFT result (provides the factor structure)
+    new_layer_inputs : list — per-layer inputs for the new stimuli, forward order.
+                       FC/conv: (n_new, ...) arrays.  Attn: dicts with 'x_tokens'
+                       and 'attn_weights'.
+    images           : (n_new, ...) or None — images for the new stimuli
+    targets          : (n_new,) or None — class labels for the new stimuli
+    confidences      : (n_new,) or None — model confidences for the new stimuli
+
+    Returns
+    -------
+    BFTResult — projected tree with new stimulus metadata
+    """
+    projected_root = project_stimuli_onto_tree(bft_result, new_layer_inputs)
+
+    root_input = new_layer_inputs[bft_result.root.layer_idx]
+    n_new = (root_input['x_tokens'].shape[0]
+             if isinstance(root_input, dict) else root_input.shape[0])
+
+    if images is None:
+        images = np.zeros((n_new, 1), dtype=np.float32)
+    if targets is None:
+        targets = np.zeros(n_new, dtype=np.int64)
+    if confidences is None:
+        confidences = np.zeros(n_new, dtype=np.float32)
+
+    return BFTResult(
+        root=projected_root,
+        images=np.asarray(images),
+        targets=np.asarray(targets),
+        confidences=np.asarray(confidences),
+    )

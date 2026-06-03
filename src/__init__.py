@@ -1,3 +1,4 @@
+from .types import BFTNode, BFTResult, FingerprintResult
 from .models import SimpleMLP, SmallCNN, PatchEmbedder, TransformerBlock, TinyViT
 from .training import correct, label_transform_even_odd, train_epoch, evaluate
 from .data_utils import (get_mnist_loaders, get_cifar10_loaders, get_imagenet_loaders,
@@ -44,7 +45,9 @@ from .stimulus_utils import (
     extract_factor_fingerprint,
     extract_fingerprint_matrix,
     compute_stimulus_similarity,
+    compute_fingerprints,
     project_stimuli_onto_tree,
+    project_onto_bft,
     extract_factor_tree_nodes,
     compute_factor_activations,
     nodes_at_layer,

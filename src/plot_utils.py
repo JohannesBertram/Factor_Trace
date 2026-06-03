@@ -456,10 +456,10 @@ def _cname_fn(class_names):
 
 
 def _neural_heatmap_array(node, k):
-    """Reshape neural_factors[:, k] to 2D (n_out, n_in_flat) using W shape."""
-    nf = node['neural_factors'][:, k]
-    W  = node['W']
-    ltype = node.get('layer_type', 'fc')
+    """Reshape connection_factors[:, k] to 2D (n_out, n_in_flat) using weight shape."""
+    nf = node.connection_factors[:, k]
+    W  = node.weight
+    ltype = node.layer_type
     if ltype == 'conv':
         C_out = W.shape[0]
         return nf.reshape(C_out, nf.shape[0] // C_out)
@@ -492,11 +492,11 @@ def plot_factor_overview_panel(node, images, targets, class_names,
     -------
     list[Figure]  — one figure per factor k
     """
-    img_factors    = node['img_factors']     # (N, K)
-    neural_factors = node['neural_factors']  # (n_flat, K)
-    lambdas        = node['lambdas']         # (K,)
+    img_factors    = node.img_factors
+    neural_factors = node.connection_factors
+    lambdas        = node.lambdas
     K = img_factors.shape[1]
-    layer_name = node.get('layer_name', f"L{node.get('layer_idx', '?')}")
+    layer_name = node.layer_name
 
     imgs = _display_normalize(images)
     cname = _cname_fn(class_names)
@@ -627,11 +627,11 @@ def plot_input_layer_factors(node, images, arch='fc', image_shape=None):
     -------
     list[Figure]  — one figure per factor k
     """
-    neural_factors = node['neural_factors']  # (n_flat, K)
-    img_factors    = node['img_factors']     # (N, K)
+    neural_factors = node.connection_factors
+    img_factors    = node.img_factors
     K = neural_factors.shape[1]
-    W = node['W']
-    layer_name = node.get('layer_name', f"L{node.get('layer_idx', '?')}")
+    W = node.weight
+    layer_name = node.layer_name
     imgs = _display_normalize(images)
 
     if image_shape is None:
@@ -754,8 +754,8 @@ def plot_factor_gallery(node, images, targets, class_names, k, n=10):
     -------
     Figure
     """
-    coefs = node['img_factors'][:, k]
-    layer_name = node.get('layer_name', f"L{node.get('layer_idx', '?')}")
+    coefs = node.img_factors[:, k]
+    layer_name = node.layer_name
     imgs  = _display_normalize(images)
     cname = _cname_fn(class_names)
     n     = min(n, len(coefs))

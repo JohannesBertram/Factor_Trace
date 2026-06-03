@@ -15,8 +15,8 @@ Public entry point
     bft(model, loader, ...)
         Primary interface. Pass any nn.Module and a DataLoader; layer data is
         collected automatically via forward hooks on all Conv2d and Linear
-        sub-modules, then BFT is run. The returned root node includes
-        'images', 'targets', and 'confidences' metadata.
+        sub-modules, then BFT is run. The returned BFTResult includes
+        images, targets, and confidences metadata.
 
     bft(layer_dicts, ...)
         Advanced / backward-compat mode. Pass a pre-collected list of dicts,
@@ -38,8 +38,6 @@ collect_layer_dicts(model, loader, device, only_correct=True)
     collected activations separately from running BFT.
 """
 
-import os
-import pickle
 import time
 import numpy as np
 import scipy.sparse as sp
@@ -50,11 +48,7 @@ from sklearn.decomposition import MiniBatchNMF
 from threadpoolctl import threadpool_limits
 from torch.utils.data import DataLoader
 
-try:
-    from kneed import KneeLocator as _KneeLocator
-    _KNEED_AVAILABLE = True
-except ImportError:
-    _KNEED_AVAILABLE = False
+from .types import BFTNode, BFTResult
 
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
@@ -138,7 +132,7 @@ def _partial_recon_errors(X, W, H):
     """Relative Frobenius reconstruction error for K=1..kmax using a k_max NMF fit.
 
     W : (N, kmax)        — sqrt(lambda)-scaled img_factors, sorted descending
-    H : (features, kmax) — sqrt(lambda)-scaled neural_factors, sorted descending
+    H : (features, kmax) — sqrt(lambda)-scaled connection_factors, sorted descending
     Returns recon_errors : (kmax,) where recon_errors[k] = ||X - X_{k+1}||_F / ||X||_F
     """
     X_norm_sq = float(np.dot(X.ravel(), X.ravel()))
@@ -181,43 +175,6 @@ def _select_k_single(lambdas, min_k=1):
     return max(len(lambdas) - 1, min_k)
 
 
-def _select_k_kneed(values, min_k=1, S=1.0, curve='convex', direction='decreasing'):
-    """K* via kneed's KneeLocator applied to a 1-D curve.
-
-    Parameters
-    ----------
-    values    : (kmax,) 1-D array — e.g. sorted lambdas (descending) or
-                recon errors (descending).  Index k → rank K = k+1.
-    min_k     : int — lower bound on the returned K.
-    S         : float — KneeLocator sensitivity.  Higher values prefer a
-                knee closer to the beginning of the curve (fewer components).
-                Passed directly to KneeLocator(S=...).
-    curve     : str — 'convex' or 'concave'. Use 'convex' for a decreasing
-                lambda scree plot; 'concave' is rarely needed here.
-    direction : str — 'decreasing' or 'increasing'. Lambdas and recon errors
-                are both decreasing sequences.
-
-    Returns
-    -------
-    int — selected K* (>= min_k).  Falls back to len(values) when no knee
-    is detected (flat curve or kneed not installed).
-    """
-    if not _KNEED_AVAILABLE:
-        raise ImportError(
-            "kneed is required for k_method='kneed_*'. "
-            "Install it with:  pip install kneed"
-        )
-    n = len(values)
-    if n < 2:
-        return max(1, min_k)
-    x = list(range(1, n + 1))
-    kl = _KneeLocator(x, list(values), curve=curve, direction=direction, S=S)
-    knee = kl.knee
-    if knee is None:
-        return max(n, min_k)
-    return max(int(knee), min_k)
-
-
 # ── NMF pipeline ──────────────────────────────────────────────────────────────
 
 def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
@@ -225,13 +182,13 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
     """Fit MiniBatchNMF (f32), normalise, sort by importance, and rescale by sqrt(lambda).
 
     The sqrt(lambda) rescaling distributes importance equally between the
-    image factors (W) and neural factors (H) so that their dot product
+    image factors (W) and connection factors (H) so that their dot product
     reconstructs X with unit-norm columns carrying equal weight.
 
-    Returns (img_factors, neural_factors, lambdas).
-      img_factors    : (n_samples, n_components)
-      neural_factors : (n_neurons, n_components)
-      lambdas        : (n_components,) descending
+    Returns (img_factors, connection_factors, lambdas).
+      img_factors         : (n_samples, n_components)
+      connection_factors  : (n_connections, n_components)
+      lambdas             : (n_components,) descending
     """
     W, H, _ = run_nmf_minibatch(X, n_components, random_state=random_state,
                                  max_iter=max_iter, init=init,
@@ -242,89 +199,54 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
     return W * scale, H * scale, lambdas
 
 
-_K_METHODS = ('structural_recon', 'kneed_lambda', 'kneed_recon')
-
-
 def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=500, init=None,
-                      l1_ratio=0, recon_threshold=None, k_method='structural_recon',
-                      kneed_S=1.0, **factorizer_kwargs):
+                      l1_ratio=0, recon_threshold=None, **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
 
     A single NMF fit is performed at k_max; components are pruned to K* so
     re-fitting at every candidate rank is avoided.
+
+    K* is selected via the structural_recon heuristic: take the max of the
+    consecutive-ratio lambda drop (>= 1.5×) and the reconstruction-error floor.
 
     Parameters
     ----------
     X               : (n_samples, n_features) non-negative matrix
     k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
     recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
-                      error (used by 'structural_recon' and as a floor for 'kneed_lambda').
-                      Default None uses 0.4 (40% error).
-    k_method        : str — K* selection strategy. One of:
-
-                      'structural_recon' (default)
-                          Legacy heuristic: take the max of the consecutive-ratio
-                          lambda drop (>= 1.5×) and the reconstruction-error floor.
-
-                      'kneed_lambda'
-                          Apply kneed's KneeLocator to the sorted lambda (scree) curve.
-                          Finds the elbow of the explained-importance curve.
-                          Requires ``pip install kneed``.
-
-                      'kneed_recon'
-                          Apply kneed's KneeLocator to the relative reconstruction-error
-                          curve. Finds the elbow of the error vs. rank curve.
-                          Requires ``pip install kneed``.
-
-    kneed_S         : float — KneeLocator sensitivity; only used when k_method starts
-                      with 'kneed_'. Higher values prefer fewer components. Default 1.0.
+                      error. Default None uses 0.4 (40% error).
 
     Returns
     -------
-    img_factors    : (n_samples, k_star)
-    neural_factors : (n_features, k_star)
-    lambdas        : (k_star,) descending
-    k_star         : int — automatically selected rank
+    img_factors        : (n_samples, k_star)
+    connection_factors : (n_features, k_star)
+    lambdas            : (k_star,) descending
+    k_star             : int — automatically selected rank
     """
-    if k_method not in _K_METHODS:
-        raise ValueError(f"k_method must be one of {_K_METHODS}, got {k_method!r}")
-
     if k_max is None:
         k_max = min(min(X.shape) - 1, 20)
     k_max = max(int(k_max), 2)
 
-    img_f, neu_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
+    img_f, con_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
                                             max_iter=max_iter, init=init,
                                             l1_ratio=l1_ratio, **factorizer_kwargs)
 
-    if k_method == 'structural_recon':
-        rt = recon_threshold if recon_threshold is not None else 0.4
-        recon_errs = _partial_recon_errors(X, img_f, neu_f)
-        k_frac  = _select_k_single(lams, min_k=1)
-        k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
-        k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
+    rt = recon_threshold if recon_threshold is not None else 0.4
+    recon_errs = _partial_recon_errors(X, img_f, con_f)
+    k_frac  = _select_k_single(lams, min_k=1)
+    k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
+    k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
 
-    elif k_method == 'kneed_lambda':
-        k_star = _select_k_kneed(lams, min_k=1, S=kneed_S,
-                                  curve='convex', direction='decreasing')
-        k_star = min(k_star, len(lams))
-
-    elif k_method == 'kneed_recon':
-        recon_errs = _partial_recon_errors(X, img_f, neu_f)
-        k_star = _select_k_kneed(recon_errs, min_k=1, S=kneed_S,
-                                  curve='convex', direction='decreasing')
-        k_star = min(k_star, len(lams))
-
-    return img_f[:, :k_star], neu_f[:, :k_star], lams[:k_star], k_star
+    return img_f[:, :k_star], con_f[:, :k_star], lams[:k_star], k_star
 
 
 # ── BFT core ──────────────────────────────────────────────────────────────────
 
 def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-8,
-                                    stimulus_threshold=0.0, neuron_weights=None):
+                                    stimulus_threshold=0.0, connection_weights=None):
     """Compute the normalised, stimulus-weighted joint arbor matrix for an FC layer.
 
-    A neuron's *arbor* for a given stimulus is the element-wise product of its
+    A connection's *arbor* for a given stimulus is the element-wise product of its
     weight row and the (normalised) input activation: W[i] * act_norm[s].
     This quantity represents the synaptic contribution of each input dimension
     to neuron i's pre-activation on stimulus s.
@@ -341,7 +263,7 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
     stimulus_threshold  : fraction in [0, 1); samples in the lowest
                           stimulus_threshold quantile of weights are zeroed.
                           E.g. 0.1 zeros the bottom 10% of weights.
-    neuron_weights      : (n_out,) per-output-neuron importance from the layer
+    connection_weights  : (n_out,) per-output-neuron importance from the layer
                           above; each neuron i's arbor is scaled by this scalar.
                           None = all neurons equally weighted.
 
@@ -359,10 +281,10 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
         act_norm = act_input / (norms + eps)
 
     # Build each neuron's arbor: W[i] * act_norm gives the synaptic contribution
-    # of every input dimension to neuron i's pre-activation, scaled by neuron_weights
-    # when an importance signal from the layer above is available.
-    if neuron_weights is not None:
-        arbors = [act_norm * W[i] * neuron_weights[i] for i in range(W.shape[0])]
+    # of every input dimension to neuron i's pre-activation, scaled by
+    # connection_weights when an importance signal from the layer above is available.
+    if connection_weights is not None:
+        arbors = [act_norm * W[i] * connection_weights[i] for i in range(W.shape[0])]
     else:
         arbors = [act_norm * W[i] for i in range(W.shape[0])]
 
@@ -386,7 +308,7 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
 
 
 def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-8,
-                               stimulus_threshold=0.0, neuron_weights=None,
+                               stimulus_threshold=0.0, connection_weights=None,
                                pool_method='avg'):
     """Compute the normalised, stimulus-weighted joint arbor matrix for a Conv2d layer.
 
@@ -397,18 +319,18 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
 
     Parameters
     ----------
-    weight          : (C_out, C_in, kH, kW) conv weight tensor as numpy array
-    input_fmap      : (N, C_in, H, W) input feature map as numpy array
+    weight           : (C_out, C_in, kH, kW) conv weight tensor as numpy array
+    input_fmap       : (N, C_in, H, W) input feature map as numpy array
     stimulus_weights : (N,) per-sample importance; uniform if None
-    eps             : stabiliser for L2 norm division (internal only)
+    eps              : stabiliser for L2 norm division (internal only)
     stimulus_threshold : fraction in [0, 1) — zeros the lowest-weight stimuli
-    neuron_weights  : (C_out,) per-output-channel importance from the layer above;
-                      each output channel c's arbor block is scaled by neuron_weights[c].
-                      None = all channels equally weighted.
-    pool_method     : str — how to reduce the spatial dimension of extracted patches:
-                      'avg'    mean over all spatial positions (default)
-                      'max'    max over all spatial positions
-                      'center' single center spatial position only
+    connection_weights : (C_out,) per-output-channel importance from the layer above;
+                         each output channel c's arbor block is scaled by
+                         connection_weights[c]. None = all channels equally weighted.
+    pool_method      : str — how to reduce the spatial dimension of extracted patches:
+                       'avg'    mean over all spatial positions (default)
+                       'max'    max over all spatial positions
+                       'center' single center spatial position only
 
     Returns
     -------
@@ -446,8 +368,8 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
         act_norm = pooled / (norms + eps)
 
     # Build each output channel's arbor.
-    if neuron_weights is not None:
-        arbors = [act_norm * W_flat[c] * neuron_weights[c] for c in range(C_out)]
+    if connection_weights is not None:
+        arbors = [act_norm * W_flat[c] * connection_weights[c] for c in range(C_out)]
     else:
         arbors = [act_norm * W_flat[c] for c in range(C_out)]
 
@@ -464,7 +386,7 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
 
 
 def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=None,
-                               eps=1e-8, stimulus_threshold=0.0, neuron_weights=None):
+                               eps=1e-8, stimulus_threshold=0.0, connection_weights=None):
     """Compute the normalised, stimulus-weighted joint arbor matrix for an attention layer.
 
     Attention mixes token representations using data-dependent weights (the softmax scores),
@@ -488,7 +410,7 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
     stimulus_weights  : (N,) per-sample importance propagated from the layer above.
     eps               : stabiliser for L2 norm division (internal only)
     stimulus_threshold : fraction in [0, 1) — zeros the lowest-weight stimuli.
-    neuron_weights    : (d_v,) per-output-dimension importance from the layer above.
+    connection_weights : (d_v,) per-output-dimension importance from the layer above.
 
     Returns
     -------
@@ -500,15 +422,14 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
     return compute_joint_arbors_normalized(W_V, x_eff, stimulus_weights,
                                            eps=eps,
                                            stimulus_threshold=stimulus_threshold,
-                                           neuron_weights=neuron_weights)
+                                           connection_weights=connection_weights)
 
 
 def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
-                        stimulus_threshold=0.0, neuron_weights=None,
+                        stimulus_threshold=0.0, connection_weights=None,
                         random_state=0, max_iter=500, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
-                        k_method='structural_recon', kneed_S=1.0,
                         verbose=0, _layer_tag='', **factorizer_kwargs):
     """One BFT step: build joint arbors for a layer and factorise with NMF.
 
@@ -522,7 +443,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     k_max               : upper bound on NMF rank; None uses auto default.
                           Ignored when k_fixed is set.
     stimulus_threshold  : passed through to the arbor-computation function
-    neuron_weights      : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
+    connection_weights  : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
     random_state, max_iter, init, l1_ratio : passed through to run_nmf_minibatch
     layer_type          : 'fc' (default), 'conv', or 'attn' — selects the arbor function
     conv_pool_method    : spatial pooling for conv arbors: 'avg', 'max', 'center'
@@ -532,19 +453,19 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
 
     Returns
     -------
-    img_factors        : (n_samples, K*)
-    neural_factors     : (n_out * n_in, K*) — for conv: (C_out * C_in * kH * kW, K*);
-                         for attn: (d_v * d_model, K*)
-    lambdas            : (K*,) descending
-    joint_arbor        : positive joint matrix (pre-NMF)
-    neg_img_factors    : (n_samples, K*) or None
-    neg_neural_factors : same shape as neural_factors, or None
-    neg_lambdas        : (K*,) or None
+    img_factors            : (n_samples, K*)
+    connection_factors     : (n_out * n_in, K*) — for conv: (C_out * C_in * kH * kW, K*);
+                             for attn: (d_v * d_model, K*)
+    lambdas                : (K*,) descending
+    pos_joint              : positive joint matrix (pre-NMF)
+    neg_img_factors        : (n_samples, K*) or None
+    neg_connection_factors : same shape as connection_factors, or None
+    neg_lambdas            : (K*,) or None
     """
     if layer_type == 'conv':
         raw_joint = compute_conv_joint_arbors(W, act_input, stimulus_weights,
                                               stimulus_threshold=stimulus_threshold,
-                                              neuron_weights=neuron_weights,
+                                              connection_weights=connection_weights,
                                               pool_method=conv_pool_method)
     elif layer_type == 'attn':
         if attn_weights is None:
@@ -555,11 +476,11 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         raw_joint = compute_attn_joint_arbors(W, act_input, attn_weights,
                                               stimulus_weights=stimulus_weights,
                                               stimulus_threshold=stimulus_threshold,
-                                              neuron_weights=neuron_weights)
+                                              connection_weights=connection_weights)
     else:
         raw_joint = compute_joint_arbors_normalized(W, act_input, stimulus_weights,
                                                     stimulus_threshold=stimulus_threshold,
-                                                    neuron_weights=neuron_weights)
+                                                    connection_weights=connection_weights)
 
     # Split signed arbors into excitatory and inhibitory parts: NMF requires
     # non-negative inputs, so the two polarities are factorised separately.
@@ -575,15 +496,15 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     if k_fixed is not None:
         k = max(int(k_fixed), 1)
         k = min(k, min(pos_joint.shape) - 1)
-        img_f, neu_f, lams = full_nmf_pipeline(
+        img_f, con_f, lams = full_nmf_pipeline(
             pos_joint, k, random_state=random_state, max_iter=max_iter,
             init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
         )
     else:
-        img_f, neu_f, lams, _ = auto_nmf_pipeline(
+        img_f, con_f, lams, _ = auto_nmf_pipeline(
             pos_joint, k_max=k_max,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-            recon_threshold=recon_threshold, k_method=k_method, kneed_S=kneed_S,
+            recon_threshold=recon_threshold,
             **factorizer_kwargs,
         )
     if verbose >= 2:
@@ -594,23 +515,23 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
         k_neg = k_fixed if k_fixed is not None else None
         if k_neg is not None:
             k_neg = max(1, min(int(k_neg), min(neg_joint.shape) - 1))
-            neg_img_f, neg_neu_f, neg_lams = full_nmf_pipeline(
+            neg_img_f, neg_con_f, neg_lams = full_nmf_pipeline(
                 neg_joint, k_neg, random_state=random_state, max_iter=max_iter,
                 init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
             )
         else:
-            neg_img_f, neg_neu_f, neg_lams, _ = auto_nmf_pipeline(
+            neg_img_f, neg_con_f, neg_lams, _ = auto_nmf_pipeline(
                 neg_joint, k_max=k_max,
                 random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-                recon_threshold=recon_threshold, k_method=k_method, kneed_S=kneed_S,
+                recon_threshold=recon_threshold,
                 **factorizer_kwargs,
             )
         if verbose >= 2:
             print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
     else:
-        neg_img_f = neg_neu_f = neg_lams = None
+        neg_img_f = neg_con_f = neg_lams = None
 
-    return img_f, neu_f, lams, pos_joint, neg_img_f, neg_neu_f, neg_lams
+    return img_f, con_f, lams, pos_joint, neg_img_f, neg_con_f, neg_lams
 
 
 _EPS = 1e-12
@@ -619,7 +540,7 @@ _WEIGHTING_OPTIONS = ('img_selectivity', 'img_factor')
 
 
 def _compute_trace_transition(weighting, img_f, lams, fi):
-    """Compute (stimulus_weights, neuron_weights) to pass into the next lower layer.
+    """Compute (stimulus_weights, connection_weights) to pass into the next lower layer.
 
     Parameters
     ----------
@@ -631,7 +552,7 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
     Returns
     -------
     sw : (n_samples,) stimulus weights for layer L-1's NMF
-    nw : None (neither mode produces neuron weights)
+    cw : None (neither mode produces connection weights)
     """
     if weighting == 'img_selectivity':
         weighted = img_f * lams[np.newaxis, :]        # (n_samples, K)
@@ -773,11 +694,32 @@ def collect_layer_dicts(model, loader, device=None, only_correct=True,
 
 # ── BFT public entry point ────────────────────────────────────────────────────
 
+def _dict_to_bft_node(d: dict) -> BFTNode:
+    """Convert an internal node dict to a BFTNode dataclass."""
+    return BFTNode(
+        layer_idx=d['layer_idx'],
+        layer_name=d.get('layer_name', ''),
+        layer_type=d.get('layer_type', 'fc'),
+        path=tuple(d.get('path', ())),
+        weight=d['W'],
+        img_factors=d['img_factors'],
+        connection_factors=d['connection_factors'],
+        lambdas=d['lambdas'],
+        stimulus_weights=d.get('stimulus_weights_in', np.ones(d['img_factors'].shape[0])),
+        neg_img_factors=d.get('neg_img_factors'),
+        neg_connection_factors=d.get('neg_connection_factors'),
+        neg_lambdas=d.get('neg_lambdas'),
+        weighting=d.get('weighting', 'img_selectivity'),
+        stimulus_threshold=d.get('stimulus_threshold', 0.0),
+        attn_weights=d.get('attn_weights'),
+        children=[_dict_to_bft_node(c) for c in d.get('children', [])],
+    )
+
+
 def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
-        cache_dir=None, conv_pool_method='avg', recon_threshold=None,
-        k_method='structural_recon', kneed_S=1.0,
+        conv_pool_method='avg', recon_threshold=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
@@ -788,17 +730,17 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     Calling conventions
     -------------------
     Primary (recommended):
-        root = bft(model, loader, ...)
+        result = bft(model, loader, ...)
         Automatically collects layer data via forward hooks, then runs the trace.
-        root['images'] and root['targets'] expose the collected sample metadata.
+        result.images and result.targets expose the collected sample metadata.
 
     Layer-dict mode (advanced / pre-collected):
-        root = bft(layer_dicts, ...)
+        result = bft(layer_dicts, ...)
         layer_dicts is a list of dicts, one per layer in forward order.
         See module docstring for the dict schema.
 
     Legacy model-protocol mode (SimpleMLP):
-        root = bft(model, layer_inputs_list, ...)
+        result = bft(model, layer_inputs_list, ...)
         model must expose linear_layer_indices() and model.layers[i].weight.
 
     Parameters
@@ -812,27 +754,17 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     stimulus_threshold  : fraction in [0, 1) — zeros the lowest-weight stimuli
     weighting           : 'img_selectivity' (default) or 'img_factor'
     random_state        : int — NMF random seed
-    max_iter            : int — NMF iteration cap (default 200 for MiniBatchNMF)
+    max_iter            : int — NMF iteration cap (default 500 for MiniBatchNMF)
     init                : str or None — NMF initialisation
     l1_ratio            : float — NMF L1/L2 regularisation mix (0 = L2, 1 = L1)
     k_fixed             : list[int or None] or None — per-layer fixed NMF rank
-    cache_dir           : str or None — directory for per-path on-disk caching
     conv_pool_method    : 'avg', 'max', or 'center' — spatial pooling for conv layers
     recon_threshold     : float or None — max acceptable relative Frobenius error
-    k_method            : str — K* selection strategy passed to auto_nmf_pipeline.
-                          One of 'structural_recon' (default), 'kneed_lambda',
-                          'kneed_recon'. See auto_nmf_pipeline for details.
-    kneed_S             : float — KneeLocator sensitivity; only used when k_method
-                          starts with 'kneed_'. Default 1.0.
     verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
     Returns
     -------
-    root : dict — last-layer node with keys:
-        layer_idx, layer_type, W, joint_arbor, img_factors, neural_factors, lambdas,
-        neg_img_factors, neg_neural_factors, neg_lambdas,
-        stimulus_weights_in, neuron_weights_in, path, children
-        [primary mode only] images, targets, confidences
+    BFTResult — contains root BFTNode tree plus images, targets, confidences metadata.
     """
     # ── Resolve inputs from the three calling conventions ─────────────────────
     images_meta = targets_meta = confidences_meta = None
@@ -881,22 +813,11 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
 
     n_samples = inputs[0].shape[0]
 
-    def _cache_path(path_seq):
-        seq_str = '-'.join(str(b) for b in path_seq) if path_seq else 'root'
-        return os.path.join(cache_dir, f'bft_path_{seq_str}.pkl')
-
-    def _trace_node(l_idx, stimulus_weights, neuron_weights, path):
+    def _trace_node(l_idx, stimulus_weights, connection_weights, path):
         W         = weights[l_idx]
         act_input = inputs[l_idx]
         ltype     = types[l_idx]
-        li        = linear_idxs[l_idx]
         attn_w    = attn_weights_list[l_idx]
-
-        if cache_dir is not None and l_idx == 0:
-            cp = _cache_path(path)
-            if os.path.exists(cp):
-                with open(cp, 'rb') as fh:
-                    return pickle.load(fh)
 
         layer_tag = f' L{l_idx + 1} {names[l_idx]!r} ({ltype})'
         if verbose >= 1:
@@ -905,14 +826,13 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
                   f'path={path_str}')
 
         _t_layer = time.perf_counter()
-        img_f, neu_f, lams, joint, neg_img_f, neg_neu_f, neg_lams = trace_single_layer(
+        img_f, con_f, lams, joint, neg_img_f, neg_con_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
-            stimulus_threshold=stimulus_threshold, neuron_weights=neuron_weights,
+            stimulus_threshold=stimulus_threshold, connection_weights=connection_weights,
             random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w, recon_threshold=recon_threshold,
-            k_method=k_method, kneed_S=kneed_S,
             verbose=verbose, _layer_tag=layer_tag,
             **factorizer_kwargs,
         )
@@ -931,40 +851,42 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             'factor_idx': path[-1] if path else 0,
             'active_samples': n_active,
             'W': W,
-            'joint_arbor': joint, 'img_factors': img_f,
-            'neural_factors': neu_f, 'lambdas': lams,
+            'img_factors': img_f,
+            'connection_factors': con_f,
+            'lambdas': lams,
             'neg_img_factors': neg_img_f,
-            'neg_neural_factors': neg_neu_f,
+            'neg_connection_factors': neg_con_f,
             'neg_lambdas': neg_lams,
             'stimulus_weights_in': stimulus_weights.copy(),
-            'neuron_weights_in': neuron_weights.copy() if neuron_weights is not None else None,
             'weighting': weighting,
             'stimulus_threshold': stimulus_threshold,
             'path': path, 'children': [],
         }
         if ltype == 'attn' and attn_w is not None:
             node['attn_weights'] = attn_w
-        if li is not None:
-            node['linear_idx'] = li
 
         if l_idx > 0:
             for fi in range(min(nb_list[l_idx], len(lams))):
-                sw_fi, nw_fi = _compute_trace_transition(weighting, img_f, lams, fi)
-                node['children'].append(_trace_node(l_idx - 1, sw_fi, nw_fi, path + [fi]))
-
-        if cache_dir is not None and l_idx == 0:
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(_cache_path(path), 'wb') as fh:
-                pickle.dump(node, fh)
+                sw_fi, cw_fi = _compute_trace_transition(weighting, img_f, lams, fi)
+                node['children'].append(_trace_node(l_idx - 1, sw_fi, cw_fi, path + [fi]))
 
         return node
 
-    root = _trace_node(n_layers - 1, np.ones(n_samples), None, [])
+    root_dict = _trace_node(n_layers - 1, np.ones(n_samples), None, [])
 
-    # Attach sample metadata to the root node when collected in primary mode.
-    if images_meta is not None:
-        root['images']      = images_meta
-        root['targets']     = targets_meta
-        root['confidences'] = confidences_meta
+    # Convert dict tree to BFTNode dataclasses.
+    root_node = _dict_to_bft_node(root_dict)
 
-    return root
+    # Use metadata from primary mode; fall back to empty arrays for other modes.
+    if images_meta is None:
+        n = n_samples
+        images_meta      = np.zeros((n, 1), dtype=np.float32)
+        targets_meta     = np.zeros(n, dtype=np.int64)
+        confidences_meta = np.zeros(n, dtype=np.float32)
+
+    return BFTResult(
+        root=root_node,
+        images=images_meta,
+        targets=targets_meta,
+        confidences=confidences_meta,
+    )
