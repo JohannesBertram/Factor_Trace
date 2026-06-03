@@ -87,7 +87,8 @@ def run_nmf_minibatch(X, n_components, random_state=0, max_iter=500,
     resolved_init = init if init is not None else _safe_init(n_components, n_s, n_f)
     nmf = MiniBatchNMF(n_components=n_components, init=resolved_init,
                        random_state=random_state, max_iter=max_iter,
-                       batch_size=batch_size, l1_ratio=l1_ratio, **kwargs)
+                       batch_size=batch_size, l1_ratio=l1_ratio,
+                       tol=1e-3, max_no_improvement=5, **kwargs)
     if n_jobs is not None:
         with threadpool_limits(limits=n_jobs):
             W = nmf.fit_transform(X32)
