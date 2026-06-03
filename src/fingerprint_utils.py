@@ -18,6 +18,7 @@ from .bft import (
     compute_conv_joint_arbors,
     compute_attn_joint_arbors,
     _compute_trace_transition,
+    _collect_layer_dicts,
 )
 from .types import BFTNode, BFTResult, FingerprintResult
 
@@ -240,41 +241,37 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
     return new_root
 
 
-def project_onto_bft(bft_result, new_layer_inputs,
-                     images=None, targets=None, confidences=None):
+def project_onto_bft(bft_result, model, data, *,
+                     only_correct=False, device=None, layer_filter=None):
     """Project new stimuli onto fixed BFT factors and return a new BFTResult.
 
-    Wraps project_stimuli_onto_tree, returning a BFTResult with the same tree
-    structure (same connection_factors) but new img_factors from NNLS.
+    Mirrors the primary BFT interface: collects layer activations from the model
+    and dataloader, then projects via NNLS onto the fixed factors in bft_result.
 
     Parameters
     ----------
-    bft_result       : BFTResult
-    new_layer_inputs : list — per-layer inputs for the new stimuli, forward order.
-    images           : (n_new, ...) or None
-    targets          : (n_new,) or None
-    confidences      : (n_new,) or None
+    bft_result   : BFTResult — fixed tree from a prior bft() call
+    model        : nn.Module
+    data         : DataLoader — yields (images, labels) batches
+    only_correct : bool — keep only correctly classified samples (default False)
+    device       : torch device or None
+    layer_filter : callable(name, mod) -> bool or None — passed to _collect_layer_dicts;
+                   use this for architectures with parallel branches (e.g. SqueezeNet)
+                   to select only the sequential spine layers
 
     Returns
     -------
-    BFTResult
+    BFTResult — same tree structure (same connection_factors) but new img_factors.
     """
+    raw = _collect_layer_dicts(model, data, device=device, only_correct=only_correct,
+                               layer_filter=layer_filter)
+    new_layer_inputs = [d['input_fmap'] for d in raw['layer_data']]
+
     projected_root = project_stimuli_onto_tree(bft_result, new_layer_inputs)
-
-    root_input = new_layer_inputs[bft_result.root.layer_idx]
-    n_new = (root_input['x_tokens'].shape[0]
-             if isinstance(root_input, dict) else root_input.shape[0])
-
-    if images is None:
-        images = np.zeros((n_new, 1), dtype=np.float32)
-    if targets is None:
-        targets = np.zeros(n_new, dtype=np.int64)
-    if confidences is None:
-        confidences = np.zeros(n_new, dtype=np.float32)
 
     return BFTResult(
         root=projected_root,
-        images=np.asarray(images),
-        targets=np.asarray(targets),
-        confidences=np.asarray(confidences),
+        images=raw['images'],
+        targets=raw['targets'],
+        confidences=raw['confidences'],
     )
