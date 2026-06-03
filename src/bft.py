@@ -40,7 +40,6 @@ collect_layer_dicts(model, loader, device, only_correct=True)
 
 import time
 import numpy as np
-import scipy.sparse as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -53,41 +52,39 @@ from .types import BFTNode, BFTResult
 
 # ── NMF building blocks ───────────────────────────────────────────────────────
 
-def _safe_init(n_components, n_samples, n_features, sparse_input=False):
+def _safe_init(n_components, n_samples, n_features):
     """Pick a safe NMF init string given matrix dimensions.
 
-    nndsvda/nndsvd both require n_components <= min(n_samples, n_features).
-    For sparse inputs nndsvd is preferred (nndsvda incurs an extra dense pass).
+    nndsvda requires n_components <= min(n_samples, n_features).
     Falls back to 'random' when the constraint is violated (small layers).
     """
     if n_components > min(n_samples, n_features):
         return 'random'
-    return 'nndsvd' if sparse_input else 'nndsvda'
+    return 'nndsvda'
 
 
 def run_nmf_minibatch(X, n_components, random_state=0, max_iter=500,
-                      batch_size=1024, init=None, l1_ratio=0,
-                      sparse_threshold=None, n_jobs=None, **kwargs):
-    """MiniBatchNMF (online MU) in float32; optionally with CSR sparse input.
+                      batch_size=None, init=None, l1_ratio=0,
+                      n_jobs=None, **kwargs):
+    """MiniBatchNMF (online MU) in float32.
 
     Parameters
     ----------
-    X                : (n_samples, n_features) non-negative matrix
-    batch_size       : rows per mini-batch; 1024 works well for n_samples ~10k
-    l1_ratio         : float in [0, 1] — regularisation mix (0 = L2, 1 = L1).
-                       Passed directly to MiniBatchNMF.
-    sparse_threshold : convert X to CSR when exact-zero fraction >= this value
-    n_jobs           : BLAS thread count (via threadpoolctl); None = OS default.
-                       MiniBatchNMF has no native n_jobs; parallelism is in BLAS.
+    X          : (n_samples, n_features) non-negative matrix
+    batch_size : rows per mini-batch; defaults to max(64, min(1024, n_samples//4)),
+                 which keeps ~4 batches per epoch across all typical input sizes.
+    l1_ratio   : float in [0, 1] — regularisation mix (0 = L2, 1 = L1).
+                 Passed directly to MiniBatchNMF.
+    n_jobs     : BLAS thread count (via threadpoolctl); None = OS default.
+                 Mini-batches are processed sequentially — n_jobs does NOT
+                 parallelise batches; it only widens the BLAS thread pool
+                 for matrix multiplications inside each step.
     """
     X32 = X.astype(np.float32, copy=False)
     n_s, n_f = X32.shape
-    use_sparse = (sparse_threshold is not None and
-                  float(np.mean(X32 == 0)) >= sparse_threshold)
-    if use_sparse:
-        X32 = sp.csr_matrix(X32)
-    resolved_init = init if init is not None else _safe_init(n_components, n_s, n_f,
-                                                              sparse_input=use_sparse)
+    if batch_size is None:
+        batch_size = max(64, min(1024, n_s // 4))
+    resolved_init = init if init is not None else _safe_init(n_components, n_s, n_f)
     nmf = MiniBatchNMF(n_components=n_components, init=resolved_init,
                        random_state=random_state, max_iter=max_iter,
                        batch_size=batch_size, l1_ratio=l1_ratio, **kwargs)
