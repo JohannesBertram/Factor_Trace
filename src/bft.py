@@ -888,3 +888,27 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         targets=targets_meta,
         confidences=confidences_meta,
     )
+
+
+def nodes_at_layer(root_node, target_layer_idx):
+    """Return all BFT nodes whose layer_idx equals target_layer_idx.
+
+    Parameters
+    ----------
+    root_node        : BFTNode or BFTResult
+    target_layer_idx : int — 0 = input-side leaves, max = output root
+
+    Returns
+    -------
+    list[BFTNode]  in BFS order
+    """
+    from collections import deque
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+    result, queue = [], deque([root_node])
+    while queue:
+        n = queue.popleft()
+        if n.layer_idx == target_layer_idx:
+            result.append(n)
+        queue.extend(n.children)
+    return result

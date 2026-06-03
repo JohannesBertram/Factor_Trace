@@ -9,7 +9,8 @@ from .bft import (run_nmf_minibatch,
                   full_nmf_pipeline, auto_nmf_pipeline,
                   compute_joint_arbors_normalized,
                   compute_conv_joint_arbors, compute_attn_joint_arbors,
-                  trace_single_layer, collect_layer_dicts, bft)
+                  trace_single_layer, collect_layer_dicts, bft,
+                  nodes_at_layer)
 from .neuron_analysis import (
     compute_synaptic_arbors,
     pca_decoding,
@@ -26,7 +27,10 @@ from .plot_utils import (plot_nmf_component, plot_factor_graph, plot_nmf_scree,
                          plot_scaffold_graph,
                          plot_factor_overview_panel, plot_input_layer_factors,
                          plot_factor_gallery, plot_pruning_results,
-                         plot_embedding_comparison)
+                         plot_embedding_comparison,
+                         extract_tree_nodes, compute_node_activations,
+                         plot_factor_tree, extract_factor_tree_nodes,
+                         compute_factor_activations, top_stimuli_factor_activations)
 from .checkpoint import (
     save_experiment,
     load_experiment,
@@ -38,20 +42,13 @@ from .checkpoint import (
 )
 from .scaffold_utils import (bft_node_vals, build_scaffold_edges,
                              scaffold_loading_from_edges, scaffold_layer_sizes_from_edges)
-from .stimulus_utils import (
-    extract_tree_nodes,
-    compute_node_activations,
-    plot_factor_tree,
+from .fingerprint_utils import (
     extract_factor_fingerprint,
     extract_fingerprint_matrix,
     compute_stimulus_similarity,
     compute_fingerprints,
     project_stimuli_onto_tree,
     project_onto_bft,
-    extract_factor_tree_nodes,
-    compute_factor_activations,
-    nodes_at_layer,
-    top_stimuli_factor_activations,
 )
 from .ablation_utils import (
     assign_factors_to_classes,

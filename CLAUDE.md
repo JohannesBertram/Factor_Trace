@@ -36,10 +36,13 @@ Weight_Interpretability/
 │   │                        #   collect_layer_data
 │   ├── bft.py               # BFT core: run_nmf, full_nmf_pipeline, auto_nmf_pipeline,
 │   │                        #   compute_joint_arbors_normalized, compute_conv/attn_joint_arbors,
-│   │                        #   trace_single_layer, bft (main entry point)
+│   │                        #   trace_single_layer, bft (main entry point), nodes_at_layer
 │   ├── r1d.py               # Rank-1 decomposition: run_r1d, run_r1d_sparse, r1d, r1d_sparse
 │   ├── scaffold_utils.py    # bft_node_vals, build_scaffold_edges, scaffold_loading_from_edges
-│   ├── stimulus_utils.py    # OOD projection, factor fingerprints, factor tree visualisation
+│   ├── fingerprint_utils.py # Factor fingerprints and NNLS projection:
+│   │                        #   extract_factor_fingerprint, extract_fingerprint_matrix,
+│   │                        #   compute_stimulus_similarity, compute_fingerprints,
+│   │                        #   project_stimuli_onto_tree, project_onto_bft
 │   ├── ablation_utils.py    # assign_factors_to_classes, ablate_model, run_ablation_sweep,
 │   │                        #   taylor_scores, magnitude_scores, per_class_accuracy
 │   ├── checkpoint.py        # save_experiment, load_experiment, MODEL/TRANSFORM/DATASET_REGISTRY
@@ -83,14 +86,14 @@ from src import *   # or selective imports
 | `models.py` | `SimpleMLP`, `SmallCNN` |
 | `training.py` | `train_epoch`, `evaluate`, `correct`, `label_transform_even_odd` |
 | `data_utils.py` | `get_mnist_loaders`, `get_cifar10_loaders`, `collect_activations`, `collect_layer_inputs`, `collect_layer_inputs_generic`, `collect_layer_data` |
-| `bft.py` | `bft`, `full_nmf_pipeline`, `auto_nmf_pipeline`, `run_nmf`, `run_nmf_minibatch`, `normalize_factors`, `sort_by_lambda`, `compute_joint_arbors_normalized`, `compute_conv_joint_arbors`, `compute_attn_joint_arbors`, `trace_single_layer` |
+| `bft.py` | `bft`, `full_nmf_pipeline`, `auto_nmf_pipeline`, `run_nmf`, `run_nmf_minibatch`, `normalize_factors`, `sort_by_lambda`, `compute_joint_arbors_normalized`, `compute_conv_joint_arbors`, `compute_attn_joint_arbors`, `trace_single_layer`, `nodes_at_layer` |
 | `r1d.py` | `run_r1d`, `run_r1d_sparse`, `run_r1d_sparse2`, `r1d`, `r1d_sparse`, `rec_err_curve` |
 | `scaffold_utils.py` | `bft_node_vals`, `build_scaffold_edges`, `scaffold_loading_from_edges`, `scaffold_layer_sizes_from_edges` |
-| `stimulus_utils.py` | `extract_tree_nodes`, `compute_node_activations`, `plot_factor_tree`, `extract_factor_fingerprint`, `extract_fingerprint_matrix`, `compute_stimulus_similarity`, `project_stimuli_onto_tree`, `top_stimuli_factor_activations` |
+| `fingerprint_utils.py` | `extract_factor_fingerprint`, `extract_fingerprint_matrix`, `compute_stimulus_similarity`, `compute_fingerprints`, `project_stimuli_onto_tree`, `project_onto_bft` |
 | `ablation_utils.py` | `assign_factors_to_classes`, `ablate_model`, `run_ablation_sweep`, `taylor_scores`, `magnitude_scores`, `act_magnitude_scores`, `per_class_accuracy`, `path_from_child`, `extract_importance_scores`, `all_weight_keys` |
 | `checkpoint.py` | `save_experiment`, `load_experiment`, `get_transform`, `get_loaders_from_config`, `MODEL_REGISTRY`, `TRANSFORM_REGISTRY`, `DATASET_REGISTRY` |
 | `neuron_analysis.py` | `compute_synaptic_arbors`, `pca_decoding`, `plot_mean_arbors`, `single_neuron_report` |
-| `plot_utils.py` | `plot_nmf_component`, `plot_factor_graph`, `plot_scaffold_graph`, `plot_nmf_scree` |
+| `plot_utils.py` | `plot_nmf_component`, `plot_factor_graph`, `plot_scaffold_graph`, `plot_nmf_scree`, `extract_tree_nodes`, `compute_node_activations`, `plot_factor_tree`, `extract_factor_tree_nodes`, `compute_factor_activations`, `top_stimuli_factor_activations` |
 
 ### BFT calling conventions
 

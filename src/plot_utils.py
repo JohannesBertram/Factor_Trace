@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 import networkx as nx
 from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
@@ -1056,3 +1058,271 @@ def plot_embedding_comparison(fingerprints, activations_last, labels, class_name
         fig.suptitle(title, fontsize=11, fontweight='bold', y=1.02)
     fig.tight_layout()
     return fig
+
+
+# ── BFT tree visualisation ────────────────────────────────────────────────────
+
+class _NodeMeta(dict):
+    """Metadata dict with attribute access — makes extract_tree_nodes() dicts
+    compatible with functions expecting BFTNode attribute access."""
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(f"'_NodeMeta' has no key {key!r}")
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+
+def extract_tree_nodes(root_node):
+    """Walk the BFT tree (BFS) and return a flat list of node metadata dicts.
+
+    Parameters
+    ----------
+    root_node : BFTNode or BFTResult
+
+    Returns
+    -------
+    list[dict]  BFS order (root first, leaves last).  Each dict has:
+        node_id, parent_id, layer_idx, layer_name, layer_type, factor_idx,
+        img_factors, connection_factors, weight, lambdas, stimulus_weights, path
+    """
+    from .types import BFTResult
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+    nodes = []
+    queue = [(root_node, None)]
+    while queue:
+        node, parent_id = queue.pop(0)
+        nid = node.path
+        nodes.append(_NodeMeta({
+            'node_id':             nid,
+            'parent_id':           parent_id,
+            'layer_idx':           node.layer_idx,
+            'layer_name':          node.layer_name,
+            'layer_type':          node.layer_type,
+            'factor_idx':          node.factor_idx,
+            'img_factors':         node.img_factors,
+            'connection_factors':  node.connection_factors,
+            'weight':              node.weight,
+            'lambdas':             node.lambdas,
+            'stimulus_weights':    node.stimulus_weights,
+            'path':                node.path,
+        }))
+        for child in node.children:
+            queue.append((child, nid))
+    return nodes
+
+
+def compute_node_activations(tree_nodes, stimulus_indices):
+    """Compute a scalar per-node activation for a set of stimuli.
+
+    Uses img_factors[stimulus_indices, 0] (primary factor loading).
+
+    Parameters
+    ----------
+    tree_nodes       : list[dict]  from extract_tree_nodes()
+    stimulus_indices : array-like of int
+
+    Returns
+    -------
+    dict  {node_id: float}
+    """
+    s_idx = np.asarray(stimulus_indices)
+    return {
+        e['node_id']: float(e['img_factors'][s_idx, 0].mean())
+        for e in tree_nodes
+    }
+
+
+def _hierarchical_layout(tree_nodes):
+    """Compute (x, y) positions for drawing a BFT tree.
+
+    Root at top (y = max layer_idx); leaves at bottom (y = 0).
+    """
+    by_id       = {e['node_id']: e for e in tree_nodes}
+    children_of = {e['node_id']: [] for e in tree_nodes}
+    for e in tree_nodes:
+        if e['parent_id'] is not None:
+            children_of[e['parent_id']].append(e['node_id'])
+
+    positions    = {}
+    leaf_counter = [0]
+
+    def _assign(nid):
+        children = children_of[nid]
+        if not children:
+            x = float(leaf_counter[0])
+            leaf_counter[0] += 1
+        else:
+            for c in children:
+                _assign(c)
+            x = float(np.mean([positions[c][0] for c in children]))
+        y = float(by_id[nid]['layer_idx'])
+        positions[nid] = (x, y)
+
+    for e in tree_nodes:
+        if e['parent_id'] is None:
+            _assign(e['node_id'])
+    return positions
+
+
+def plot_factor_tree(
+    tree_nodes,
+    node_activations,
+    ax=None,
+    cmap='viridis',
+    node_size=1400,
+    font_size=7,
+    title=None,
+):
+    """Draw the BFT factor tree coloured by per-node stimulus activations.
+
+    Parameters
+    ----------
+    tree_nodes       : list[dict]  from extract_tree_nodes()
+    node_activations : dict  {node_id: float}  from compute_node_activations()
+    ax               : matplotlib Axes or None
+    cmap, node_size, font_size, title : styling options
+
+    Returns
+    -------
+    fig, ax
+    """
+    G = nx.DiGraph()
+    for e in tree_nodes:
+        G.add_node(e['node_id'])
+        if e['parent_id'] is not None:
+            G.add_edge(e['parent_id'], e['node_id'])
+
+    pos  = _hierarchical_layout(tree_nodes)
+    vals = np.array([node_activations[e['node_id']] for e in tree_nodes])
+    vmin, vmax = float(vals.min()), float(vals.max())
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+    norm     = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    colormap = cm.get_cmap(cmap)
+    node_colors = [colormap(norm(node_activations[nid])) for nid in G.nodes()]
+
+    labels = {}
+    for e in tree_nodes:
+        nid   = e['node_id']
+        lname = e['layer_name']
+        if 'factor_k' in e:
+            labels[nid] = f"L{e['layer_idx']}\nf{e['factor_k']}"
+        else:
+            depth = len(e['path'])
+            if depth == 0:
+                labels[nid] = f"L{e['layer_idx']}\n{lname}"
+            else:
+                labels[nid] = f"L{e['layer_idx']}\nf{e['factor_idx']}"
+
+    n_nodes = len(tree_nodes)
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(max(6.0, n_nodes * 0.9), 4.0))
+    else:
+        fig = ax.get_figure()
+
+    nx.draw_networkx(
+        G, pos=pos, ax=ax,
+        node_color=node_colors,
+        node_size=node_size,
+        labels=labels,
+        font_size=font_size,
+        font_color='white',
+        edge_color='#555555',
+        arrows=True,
+        arrowsize=15,
+    )
+
+    sm = cm.ScalarMappable(cmap=colormap, norm=norm)
+    sm.set_array([])
+    fig.colorbar(sm, ax=ax, label='Activation', shrink=0.6)
+    ax.set_axis_off()
+    if title:
+        ax.set_title(title)
+
+    return fig, ax
+
+
+def extract_factor_tree_nodes(root_node):
+    """Expand BFT tree into factor-level nodes — one node per (path, factor_k).
+
+    Parameters
+    ----------
+    root_node : BFTNode or BFTResult
+
+    Returns
+    -------
+    list[dict]  keys: node_id, parent_id, layer_idx, layer_name, layer_type,
+                path, factor_k, img_factors, lambdas, stimulus_weights
+    """
+    from .types import BFTResult
+    if isinstance(root_node, BFTResult):
+        root_node = root_node.root
+    path_nodes = {}
+    queue = [root_node]
+    while queue:
+        node = queue.pop(0)
+        path_nodes[node.path] = node
+        queue.extend(node.children)
+
+    factor_nodes = []
+    for pt, node in path_nodes.items():
+        K = node.img_factors.shape[1]
+        parent_id = None if len(pt) == 0 else (pt[:-1], pt[-1])
+        for k in range(K):
+            factor_nodes.append(_NodeMeta({
+                'node_id':          (pt, k),
+                'parent_id':        parent_id,
+                'layer_idx':        node.layer_idx,
+                'layer_name':       node.layer_name,
+                'layer_type':       node.layer_type,
+                'path':             node.path,
+                'factor_k':         k,
+                'img_factors':      node.img_factors,
+                'lambdas':          node.lambdas,
+                'stimulus_weights': node.stimulus_weights,
+            }))
+    return factor_nodes
+
+
+def compute_factor_activations(factor_nodes, stimulus_indices):
+    """Compute per-node activation for a factor-level tree.
+
+    Parameters
+    ----------
+    factor_nodes     : list[dict]  from extract_factor_tree_nodes()
+    stimulus_indices : array-like of int
+
+    Returns
+    -------
+    dict  {node_id: float}
+    """
+    s_idx = np.asarray(stimulus_indices)
+    return {
+        e['node_id']: float(e['img_factors'][s_idx, e['factor_k']].mean())
+        for e in factor_nodes
+    }
+
+
+def top_stimuli_factor_activations(factor_nodes, source_path_node, factor_k, top_n):
+    """Select top-N stimuli for a factor and compute factor-level tree activations.
+
+    Parameters
+    ----------
+    factor_nodes     : list[dict]  from extract_factor_tree_nodes()
+    source_path_node : BFTNode whose img_factors column is used for ranking
+    factor_k         : int
+    top_n            : int
+
+    Returns
+    -------
+    acts    : dict {node_id: float}
+    top_idx : np.ndarray
+    """
+    loadings = source_path_node.img_factors[:, factor_k]
+    top_idx  = np.argsort(loadings)[::-1][:top_n]
+    acts     = compute_factor_activations(factor_nodes, top_idx)
+    return acts, top_idx
