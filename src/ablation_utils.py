@@ -61,7 +61,7 @@ def path_from_child(root_node, child_node):
 
 # ── Importance extraction ─────────────────────────────────────────────────────
 
-def extract_importance_scores(path_nodes, selectivity_weights=None):
+def extract_importance_scores(path_nodes, selectivity_weights=None, neg_selectivity_weights=None):
     """
     Extract per-weight importance from neural_factors along a traced path.
 
@@ -119,7 +119,10 @@ def extract_importance_scores(path_nodes, selectivity_weights=None):
         if neg_nf is not None and neg_nf.shape[0] == flat.shape[0]:
             if idx == 0 and selectivity_weights is not None:
                 K_neg = neg_nf.shape[1]
-                w_neg = np.clip(np.asarray(selectivity_weights, dtype=float)[:K_neg], 0, None)
+                if neg_selectivity_weights is not None:
+                    w_neg = np.clip(np.asarray(neg_selectivity_weights, dtype=float)[:K_neg], 0, None)
+                else:
+                    w_neg = np.ones(K_neg, dtype=float)
                 w_neg = w_neg / (w_neg.sum() + 1e-8)
                 flat = flat + neg_nf @ w_neg
             else:
@@ -387,8 +390,20 @@ def select_class_circuit(root_node, targets, class_d):
     else:
         path_nodes = [root_node]
 
-    importance_scores = extract_importance_scores(path_nodes,
-                                                   selectivity_weights=np.array(selectivities))
+    neg_selectivities = None
+    neg_img_f = root_node.neg_img_factors
+    if neg_img_f is not None:
+        neg_selectivities = [
+            (float(neg_img_f[mask_d, k].mean()) if mask_d.any() else 0.0)
+            / ((float(neg_img_f[mask_o, k].mean()) if mask_o.any() else 0.0) + 1e-6)
+            for k in range(neg_img_f.shape[1])
+        ]
+
+    importance_scores = extract_importance_scores(
+        path_nodes,
+        selectivity_weights=np.array(selectivities),
+        neg_selectivity_weights=np.array(neg_selectivities) if neg_selectivities is not None else None,
+    )
 
     info = {
         'k_star': k_star,
