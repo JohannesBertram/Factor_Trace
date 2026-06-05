@@ -1,4 +1,4 @@
-from .types import BFTNode, BFTResult, FingerprintResult
+from .types import BFTNode, BFTResult, FingerprintResult, AblationResult
 from .models import SimpleMLP, SmallCNN, PatchEmbedder, TransformerBlock, TinyViT
 from .training import correct, label_transform_even_odd, train_epoch, evaluate
 from .data_utils import (get_mnist_loaders, get_cifar10_loaders, get_imagenet_loaders,
@@ -27,6 +27,7 @@ from .plot_utils import (plot_nmf_component, plot_factor_graph, plot_nmf_scree,
                          plot_scaffold_graph, plot_scaffold,
                          plot_factor_overview_panel, plot_input_layer_factors,
                          plot_factor_gallery, plot_pruning_results,
+                         plot_pruning_by_layer_depth,
                          plot_embedding_comparison,
                          extract_tree_nodes, compute_node_activations,
                          plot_factor_tree, extract_factor_tree_nodes,
@@ -55,6 +56,7 @@ from .ablation_utils import (
     path_from_child,
     extract_importance_scores,
     normalize_scores_per_layer,
+    filter_scores_by_layer,
     all_weight_keys,
     ablate_model,
     per_class_accuracy,
@@ -63,6 +65,8 @@ from .ablation_utils import (
     taylor_scores,
     run_ablation_sweep,
     select_class_circuit,
+    ablation_sweep,
+    ablation_layer_sweep,
 )
 from .robustness_utils import (
     compute_nmf_stability,

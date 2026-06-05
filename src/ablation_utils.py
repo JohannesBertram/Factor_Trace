@@ -1,4 +1,5 @@
 import copy
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -415,10 +416,26 @@ def select_class_circuit(root_node, targets, class_d):
     return importance_scores, info
 
 
+def filter_scores_by_layer(scores, layer_indices):
+    """Return a new scores dict restricted to the given layer indices.
+
+    Parameters
+    ----------
+    scores        : dict {(layer_idx, i, j): float}
+    layer_indices : iterable of int
+
+    Returns
+    -------
+    filtered : dict {(layer_idx, i, j): float}
+    """
+    s = set(layer_indices)
+    return {k: v for k, v in scores.items() if k[0] in s}
+
+
 def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
                        test_loader, label_transform, device,
                        method='algo_top', n_random_repeats=10,
-                       layer_inputs_list=None):
+                       layer_indices=None):
     """
     For each fraction f in ablation_fractions, zero the top f fraction of
     weights ranked by `importance_scores` (or randomly), then evaluate per-class
@@ -432,15 +449,18 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
     test_loader        : DataLoader
     label_transform    : callable or None
     device             : torch device
-    method             : 'algo_top' | 'algo_bottom' | 'random' | (ignored for
-                         magnitude/taylor — caller pre-computes importance_scores)
+    method             : 'algo_top' | 'algo_bottom' | 'random'
     n_random_repeats   : number of random draws to average when method='random'
-    layer_inputs_list  : unused placeholder (kept for API consistency)
+    layer_indices      : list[int] or None — if set, only weights in these layers
+                         are candidates for ablation
 
     Returns
     -------
     results : dict {fraction: {class_d: accuracy}}
     """
+    if layer_indices is not None:
+        importance_scores = filter_scores_by_layer(importance_scores, layer_indices)
+
     keys = list(importance_scores.keys())
     vals = np.array([importance_scores[k] for k in keys])
 
@@ -469,3 +489,162 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
             ablated = ablate_model(model_orig, ranked[:n_ablate])
             results[f] = per_class_accuracy(ablated, test_loader, label_transform, device)
     return results
+
+
+# ── High-level entrypoints ────────────────────────────────────────────────────
+
+def ablation_sweep(
+    model, bft_result, test_loader, *,
+    target_class,
+    fractions=(0.05, 0.10, 0.20, 0.30, 0.50),
+    layer_indices=None,
+    methods=('bft_top', 'bft_bottom', 'magnitude', 'random'),
+    label_transform=None,
+    device=None,
+    n_random_repeats=10,
+    normalize_bft=True,
+    verbose=0,
+):
+    """Single entrypoint for a pruning experiment on one target class.
+
+    Computes importance scores from BFT and magnitude baselines, then runs
+    run_ablation_sweep for each method and returns an AblationResult.
+
+    Parameters
+    ----------
+    model         : nn.Module (SimpleMLP)
+    bft_result    : BFTResult from bft()
+    test_loader   : DataLoader — evaluation set
+    target_class  : int — which class circuit to extract
+    fractions     : pruning fractions to sweep
+    layer_indices : list[int] or None — restrict pruning to these layer indices
+                    (0 = input-side layer, n_layers-1 = output layer).
+                    None means all layers.
+    methods       : subset of ('bft_top', 'bft_bottom', 'magnitude', 'random')
+    label_transform : callable or None
+    device        : torch device or None
+    n_random_repeats : repeats for the 'random' method
+    normalize_bft : if True, min-max normalise BFT scores per layer before
+                    using them for 'bft_bottom' (prevents wide early layers from
+                    dominating the low-importance pool)
+    verbose       : 0 = silent, 1 = print method progress
+
+    Returns
+    -------
+    AblationResult
+    """
+    from .types import BFTResult, AblationResult
+
+    if isinstance(bft_result, BFTResult):
+        targets = bft_result.targets
+    else:
+        raise TypeError('bft_result must be a BFTResult')
+
+    if device is None:
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device('cpu')
+
+    # Compute importance scores
+    bft_sc, bft_info = select_class_circuit(bft_result, targets, target_class)
+    if bft_info['warning'] and verbose:
+        print(f'[ablation_sweep] {bft_info["warning"]}')
+
+    bft_sc_norm = normalize_scores_per_layer(bft_sc) if normalize_bft else bft_sc
+    mag_sc = magnitude_scores(model)
+
+    _score_map = {
+        'bft_top':   (bft_sc,      'algo_top'),
+        'bft_bottom': (bft_sc_norm, 'algo_bottom'),
+        'magnitude': (mag_sc,      'algo_top'),
+        'random':    (mag_sc,      'random'),
+    }
+
+    baseline = per_class_accuracy(model, test_loader, label_transform, device)
+
+    results = {}
+    for method in methods:
+        if method not in _score_map:
+            raise ValueError(f'Unknown method: {method!r}. '
+                             f'Choose from {list(_score_map)}.')
+        scores, run_method = _score_map[method]
+        if verbose:
+            print(f'[ablation_sweep] method={method}  layers={layer_indices}')
+        results[method] = run_ablation_sweep(
+            model, scores, list(fractions),
+            test_loader, label_transform, device,
+            method=run_method,
+            n_random_repeats=n_random_repeats,
+            layer_indices=layer_indices,
+        )
+
+    all_layer_indices = (layer_indices if layer_indices is not None
+                         else sorted({k[0] for k in bft_sc}))
+
+    return AblationResult(
+        results=results,
+        baseline=baseline,
+        target_class=target_class,
+        layer_indices=all_layer_indices,
+        bft_info=bft_info,
+    )
+
+
+def ablation_layer_sweep(
+    model, bft_result, test_loader, *,
+    target_class,
+    fractions=(0.10, 0.20, 0.30),
+    methods=('bft_top', 'bft_bottom', 'magnitude', 'random'),
+    label_transform=None,
+    device=None,
+    n_random_repeats=10,
+    normalize_bft=True,
+    verbose=0,
+):
+    """Sweep over layer depth: run ablation_sweep for last 1, 2, …, L layers.
+
+    At depth d, the pruning set contains the last d layers (output-side first).
+    For a 3-layer network: depth=1 prunes only layer 2, depth=2 prunes layers
+    1 and 2, depth=3 prunes all layers.
+
+    Parameters
+    ----------
+    (same as ablation_sweep, minus layer_indices)
+
+    Returns
+    -------
+    dict {depth: AblationResult}
+        depth 1 = last layer only, depth n_layers = all layers
+    """
+    from .types import BFTResult
+
+    if not isinstance(bft_result, BFTResult):
+        raise TypeError('bft_result must be a BFTResult')
+
+    # Compute BFT scores once to determine which layer indices exist
+    targets = bft_result.targets
+    bft_sc, _ = select_class_circuit(bft_result, targets, target_class)
+    all_layers = sorted({k[0] for k in bft_sc})
+    n_layers = len(all_layers)
+
+    layer_sweep = {}
+    for depth in range(1, n_layers + 1):
+        # last `depth` layers (output-side)
+        layer_indices = all_layers[-depth:]
+        if verbose:
+            print(f'[ablation_layer_sweep] depth={depth}  layers={layer_indices}')
+        layer_sweep[depth] = ablation_sweep(
+            model, bft_result, test_loader,
+            target_class=target_class,
+            fractions=fractions,
+            layer_indices=layer_indices,
+            methods=methods,
+            label_transform=label_transform,
+            device=device,
+            n_random_repeats=n_random_repeats,
+            normalize_bft=normalize_bft,
+            verbose=max(0, verbose - 1),
+        )
+
+    return layer_sweep

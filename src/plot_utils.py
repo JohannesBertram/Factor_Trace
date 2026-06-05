@@ -1184,6 +1184,141 @@ def plot_pruning_results(pruning_data, class_names, methods, fractions,
     return figs
 
 
+# ── Plot 6b — Pruning by layer depth ─────────────────────────────────────────
+
+def plot_pruning_by_layer_depth(
+    layer_sweep, fractions, target_class, class_names, methods,
+    method_colors=None, method_labels=None, fraction_alphas=None,
+):
+    """Layer-depth pruning plot from ablation_layer_sweep() output.
+
+    X-axis: pruning depth (1 = last layer only, 2 = last 2 layers, …).
+    Y-axis: accuracy.
+    2 panels: target class (left), mean bystander (right).
+    One curve per (method × fraction); fractions of the same method share color
+    and are distinguished by alpha (smallest → lightest).
+
+    Parameters
+    ----------
+    layer_sweep     : dict {depth: AblationResult} from ablation_layer_sweep()
+    fractions       : list[float] — which fractions to show
+    target_class    : int
+    class_names     : list or dict {int: str}
+    methods         : list[str]
+    method_colors   : optional dict {method: color}
+    method_labels   : optional dict {method: label}
+    fraction_alphas : optional dict {fraction: alpha}
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+    """
+    _default_colors = {
+        'bft_top':    '#e15759',
+        'bft_bottom': '#f28e2b',
+        'magnitude':  '#76b7b2',
+        'random':     '#333333',
+    }
+    _default_labels = {
+        'bft_top':    'BFT most important',
+        'bft_bottom': 'BFT least important',
+        'magnitude':  'Magnitude',
+        'random':     'Random',
+    }
+    mc = {**_default_colors, **(method_colors or {})}
+    ml = {**_default_labels, **(method_labels or {})}
+
+    cname = _cname_fn(class_names)
+    fracs = sorted(fractions)
+    depths = sorted(layer_sweep.keys())
+
+    # Default alphas: evenly spaced from 0.35 to 1.0
+    if fraction_alphas is None:
+        n = len(fracs)
+        alphas_list = [0.35 + 0.65 * i / max(n - 1, 1) for i in range(n)]
+        fraction_alphas = {f: a for f, a in zip(fracs, alphas_list)}
+
+    # Determine all classes from the baseline of the first result
+    first_result = layer_sweep[depths[0]]
+    all_classes = sorted(first_result.baseline.keys())
+    bystander_classes = [c for c in all_classes if c != target_class]
+
+    fig, (ax_tgt, ax_bys) = plt.subplots(1, 2, figsize=(12, 4.5), sharey=False)
+
+    # Baseline: unablated accuracy (constant across depths; use depth=1 result)
+    baseline_tgt = first_result.baseline.get(target_class, None)
+    baseline_bys = (float(np.mean([first_result.baseline[c] for c in bystander_classes]))
+                    if bystander_classes else None)
+
+    for method in methods:
+        color = mc.get(method, '#888888')
+        label_base = ml.get(method, method)
+        lstyle = '--' if method in ('bft_bottom',) else '-'
+        dashes = (4, 2) if method == 'random' else None
+
+        for frac in fracs:
+            alpha = fraction_alphas.get(frac, 1.0)
+            xs, ys_tgt, ys_bys = [], [], []
+            for depth in depths:
+                result = layer_sweep[depth]
+                method_results = result.results.get(method, {})
+                acc = method_results.get(frac, {})
+                if not isinstance(acc, dict) or target_class not in acc:
+                    continue
+                xs.append(depth)
+                ys_tgt.append(acc[target_class])
+                if bystander_classes:
+                    bys_vals = [acc[c] for c in bystander_classes if c in acc]
+                    ys_bys.append(float(np.mean(bys_vals)) if bys_vals else np.nan)
+
+            if not xs:
+                continue
+
+            kw = dict(color=color, alpha=alpha, linestyle=lstyle,
+                      marker='o', markersize=4, linewidth=1.5)
+            if dashes:
+                kw['dashes'] = dashes
+
+            # Only label the darkest (last) fraction per method
+            kw_tgt = dict(kw)
+            if frac == fracs[-1]:
+                kw_tgt['label'] = label_base
+            ax_tgt.plot(xs, ys_tgt, **kw_tgt)
+            if ys_bys:
+                ax_bys.plot(xs, ys_bys, **kw)
+
+    # Baseline dashed lines
+    if baseline_tgt is not None:
+        ax_tgt.axhline(baseline_tgt, color='black', linestyle=':', linewidth=1.0,
+                       label='baseline (no pruning)', alpha=0.6)
+    if baseline_bys is not None:
+        ax_bys.axhline(baseline_bys, color='black', linestyle=':', linewidth=1.0,
+                       alpha=0.6)
+
+    # Fraction legend as subtitle
+    frac_str = '  |  '.join(f'α={fraction_alphas[f]:.2f} → {f*100:.0f}%' for f in fracs)
+
+    for ax, ttl in [(ax_tgt, f'Target: {cname(target_class)}'),
+                    (ax_bys, 'Mean bystander accuracy')]:
+        ax.set_xlabel('pruning depth (layers from output)', fontsize=9)
+        ax.set_ylabel('accuracy', fontsize=9)
+        ax.set_title(ttl, fontsize=10)
+        ax.set_xticks(depths)
+        ax.set_xlim(min(depths) - 0.3, max(depths) + 0.3)
+        ax.set_ylim(-0.02, 1.05)
+        ax.grid(True, alpha=0.25)
+        ax.tick_params(labelsize=8)
+
+    ax_tgt.legend(fontsize=8)
+    fig.suptitle(
+        f'Pruning by layer depth — target class "{cname(target_class)}"\n'
+        f'Fraction levels: {frac_str}',
+        fontsize=10, y=1.03,
+    )
+    fig.tight_layout()
+    return fig
+
+
 # ── Plot 7 — Embedding comparison (PCA / MDS) ─────────────────────────────────
 
 def plot_embedding_comparison(fingerprints, activations_last, labels, class_names,

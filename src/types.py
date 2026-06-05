@@ -89,6 +89,27 @@ class BFTResult:
 
 
 @dataclass
+class AblationResult:
+    """Output of ablation_sweep() / ablation_layer_sweep().
+
+    Fields
+    ------
+    results       : {method: {fraction: {class_id: accuracy}}} — per-class accuracy
+                    after ablating each fraction of weights ranked by each method
+    baseline      : {class_id: accuracy} — unablated model accuracy
+    target_class  : int — which class the circuit was extracted for
+    layer_indices : list[int] — which layer_idx values were included in pruning
+                    (None means all layers)
+    bft_info      : dict from select_class_circuit: k_star, selectivity, warning, etc.
+    """
+    results:       dict
+    baseline:      dict
+    target_class:  int
+    layer_indices: list
+    bft_info:      dict
+
+
+@dataclass
 class FingerprintResult:
     """Per-stimulus representation derived from a BFT trace.
 
