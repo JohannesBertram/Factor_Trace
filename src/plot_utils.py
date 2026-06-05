@@ -232,19 +232,37 @@ def plot_neuron_nmf_scatter(img_factors, targets, classes,
     return fig
 
 
-def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=None):
+def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=None, *,
+                        normalize='global', magnitude_transform=None,
+                        max_nodes_per_layer=None, figsize=(6, 5), node_size=150,
+                        node_cmap='PuRd', pos_edge_cmap='PuRd', neg_edge_cmap='Blues',
+                        show_labels=True, show_neg=True, title=None, ax=None):
     """
     Scaffold graph with precomputed edge matrices.
 
-    Positive edges (from positive weight×input products) are drawn in PuRd.
-    Negative edges (from negative weight×input products) are drawn in Blues.
+    Positive edges are drawn in pos_edge_cmap; negative (inhibitory) edges in neg_edge_cmap.
 
     Parameters
     ----------
-    loading           : (n_neurons_total,) non-negative node loadings
-    edge_matrices     : list of (n_target, n_source) arrays, one per layer boundary
-    layer_sizes       : list of int — neurons per layer
-    neg_edge_matrices : optional list of (n_target, n_source) arrays for negative edges
+    loading              : (n_neurons_total,) non-negative node loadings
+    edge_matrices        : list of (n_target, n_source) arrays, one per layer boundary
+    layer_sizes          : list of int — neurons per layer
+    neg_edge_matrices    : optional list of (n_target, n_source) arrays for negative edges
+    normalize            : 'global' (default) — single max across all nodes/edges preserving
+                           absolute scale; 'layer' — per-layer max-norm for within-layer contrast
+    magnitude_transform  : None | 'sqrt' | 'cbrt' | 'log' — monotone squeeze applied after
+                           normalization for better contrast with sparse distributions
+    max_nodes_per_layer  : int | None — if set, only the top-K neurons per layer by loading
+                           are shown; others are zeroed (layout preserved)
+    figsize              : (width, height) in inches
+    node_size            : marker size for nodes
+    node_cmap            : matplotlib colormap name for node colors
+    pos_edge_cmap        : matplotlib colormap name for positive edges
+    neg_edge_cmap        : matplotlib colormap name for negative (inhibitory) edges
+    show_labels          : whether to draw layer-relative neuron index labels
+    show_neg             : whether to draw negative edges
+    title                : optional axes title
+    ax                   : existing Axes to draw into; if None a new figure is created
     """
     n = sum(layer_sizes)
     node_pos = np.zeros((n, 2))
@@ -253,16 +271,6 @@ def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=N
     height = max(layer_sizes)
     tot = 0
     tots = []
-
-    # Normalize each layer's loadings independently so all nodes are coloured
-    # regardless of scale differences between layers (e.g. raw activations vs
-    # λ-weighted NMF coefficients which can be 100× larger).
-    norm_load = np.zeros_like(loading, dtype=float)
-    layer_start = 0
-    for lsz in layer_sizes:
-        seg = loading[layer_start:layer_start + lsz]
-        norm_load[layer_start:layer_start + lsz] = seg / (seg.max() + 1e-12)
-        layer_start += lsz
 
     for lii, lsz in enumerate(layer_sizes):
         gap = height / lsz
@@ -276,58 +284,329 @@ def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=N
         tots.append(tot)
         tot += lsz
 
-    # Normalize each layer boundary independently so L1→L2 and L2→L3 edges
-    # are on comparable scales rather than dominated by the larger boundary.
-    for bi in range(len(tots) - 1):
-        rs, re = tots[bi], tots[bi + 1]
-        cs, ce = tots[bi + 1], (tots[bi + 2] if bi + 2 < len(tots) else n)
-        block_max = max(A_pos[rs:re, cs:ce].max(), A_neg[rs:re, cs:ce].max())
-        if block_max > 0:
-            scale = 3.0 / block_max
-            A_pos[rs:re, cs:ce] *= scale
-            A_neg[rs:re, cs:ce] *= scale
+    # Optionally hide low-loading neurons beyond top-K per layer
+    loading = np.array(loading, dtype=float)
+    if max_nodes_per_layer is not None:
+        layer_start = 0
+        for li, lsz in enumerate(layer_sizes):
+            seg = loading[layer_start:layer_start + lsz]
+            if lsz > max_nodes_per_layer:
+                threshold = np.sort(seg)[-max_nodes_per_layer]
+                mask_off = np.where(seg < threshold)[0] + layer_start
+                loading[mask_off] = 0.0
+                for idx in mask_off:
+                    A_pos[idx, :] = 0.0
+                    A_pos[:, idx] = 0.0
+                    A_neg[idx, :] = 0.0
+                    A_neg[:, idx] = 0.0
+            layer_start += lsz
 
-    node_cmap = matplotlib.colormaps['PuRd']
+    # Normalize node loadings
+    if normalize == 'global':
+        norm_load = loading / (loading.max() + 1e-12)
+    else:  # 'layer'
+        norm_load = np.zeros_like(loading, dtype=float)
+        layer_start = 0
+        for lsz in layer_sizes:
+            seg = loading[layer_start:layer_start + lsz]
+            norm_load[layer_start:layer_start + lsz] = seg / (seg.max() + 1e-12)
+            layer_start += lsz
+
+    # Normalize edges
+    if normalize == 'global':
+        global_max = max(A_pos.max(), A_neg.max())
+        if global_max > 0:
+            A_pos *= 3.0 / global_max
+            A_neg *= 3.0 / global_max
+    else:  # 'layer' — per boundary
+        for bi in range(len(tots) - 1):
+            rs, re = tots[bi], tots[bi + 1]
+            cs, ce = tots[bi + 1], (tots[bi + 2] if bi + 2 < len(tots) else n)
+            block_max = max(A_pos[rs:re, cs:ce].max(), A_neg[rs:re, cs:ce].max())
+            if block_max > 0:
+                scale = 3.0 / block_max
+                A_pos[rs:re, cs:ce] *= scale
+                A_neg[rs:re, cs:ce] *= scale
+
+    # Apply optional non-linear monotone squeeze
+    def _transform(x):
+        if magnitude_transform is None:
+            return x
+        if magnitude_transform == 'sqrt':
+            return np.sqrt(np.clip(x, 0, None))
+        if magnitude_transform == 'cbrt':
+            return np.cbrt(x)
+        if magnitude_transform == 'log':
+            return np.log1p(np.clip(x, 0, None) * 9) / np.log1p(9)
+        raise ValueError(f"Unknown magnitude_transform: {magnitude_transform!r}")
+
+    norm_load = _transform(norm_load)
+    A_pos = _transform(A_pos)
+    A_neg = _transform(A_neg)
+
+    ncmap_nodes = matplotlib.colormaps[node_cmap]
     node_norm = matplotlib.colors.Normalize(vmin=0, vmax=1)
-    node_colors = [node_cmap(node_norm(v)) for v in norm_load]
+    node_colors = [ncmap_nodes(node_norm(v)) for v in norm_load]
     nodelist = list(range(n))
 
-    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
+    # Layer-relative labels (e.g. neuron 4 in layer 2, not global index 12)
+    labels = {}
+    layer_start = 0
+    for lsz in layer_sizes:
+        for j in range(lsz):
+            labels[layer_start + j] = j
+        layer_start += lsz
 
-    # Positive edges (PuRd)
+    return_fig = ax is None
+    if return_fig:
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    # Positive edges
     G_pos = nx.Graph(A_pos)
     pos_widths = nx.get_edge_attributes(G_pos, 'weight')
     if pos_widths:
         pw = list(pos_widths.values())
-        ecmap = matplotlib.colormaps['PuRd']
-        enorm = matplotlib.colors.Normalize(vmin=min(pw), vmax=max(pw))
+        ecmap = matplotlib.colormaps[pos_edge_cmap]
+        enorm = matplotlib.colors.Normalize(vmin=0, vmax=max(pw))
         nx.draw_networkx_edges(G_pos, node_pos, ax=ax,
                                edgelist=list(pos_widths.keys()),
                                width=pw,
                                edge_color=[ecmap(enorm(w)) for w in pw],
                                alpha=0.8)
 
-    # Negative edges (Blues)
-    if neg_edge_matrices is not None:
+    # Negative (inhibitory) edges
+    if show_neg and neg_edge_matrices is not None:
         G_neg = nx.Graph(A_neg)
         neg_widths = nx.get_edge_attributes(G_neg, 'weight')
         if neg_widths:
             nw = list(neg_widths.values())
-            ncmap = matplotlib.colormaps['Blues']
-            nnorm = matplotlib.colors.Normalize(vmin=min(nw), vmax=max(nw))
+            ncmap_edges = matplotlib.colormaps[neg_edge_cmap]
+            nnorm = matplotlib.colors.Normalize(vmin=0, vmax=max(nw))
             nx.draw_networkx_edges(G_neg, node_pos, ax=ax,
                                    edgelist=list(neg_widths.keys()),
                                    width=nw,
-                                   edge_color=[ncmap(nnorm(w)) for w in nw],
+                                   edge_color=[ncmap_edges(nnorm(w)) for w in nw],
                                    alpha=0.8)
 
     # Nodes and labels drawn last so they appear on top of edges
-    nx.draw_networkx_nodes(G_pos, node_pos, ax=ax, nodelist=nodelist, node_size=150,
+    nx.draw_networkx_nodes(G_pos, node_pos, ax=ax, nodelist=nodelist,
+                           node_size=node_size,
                            node_color=node_colors, linewidths=0.5, edgecolors='k', alpha=1)
-    nx.draw_networkx_labels(G_pos, pos=node_pos, ax=ax,
-                            labels={nd: nd for nd in nodelist},
-                            font_color='white', font_size=7)
-    return fig
+    if show_labels:
+        nx.draw_networkx_labels(G_pos, pos=node_pos, ax=ax,
+                                labels=labels, font_color='white', font_size=7)
+    ax.axis('off')
+    if title is not None:
+        ax.set_title(title)
+
+    if return_fig:
+        return fig
+    return None
+
+
+def _collect_scaffold_activations(model, dataloader, layer_names, device=None):
+    """Run a forward pass and return pre-activation inputs for the specified module names.
+
+    Returns dict {layer_name: (N, ...) ndarray}.
+    """
+    import torch
+    from torch.utils.data import DataLoader as TorchDataLoader
+
+    if device is None:
+        try:
+            device = next(model.parameters()).device
+        except StopIteration:
+            device = torch.device('cpu')
+
+    named = [(name, mod) for name, mod in model.named_modules() if name in layer_names]
+    store = {name: [] for name, _ in named}
+
+    def make_hook(name):
+        def h(mod, inp):
+            store[name].append(inp[0].detach().cpu().numpy())
+        return h
+
+    hooks = [mod.register_forward_pre_hook(make_hook(name)) for name, mod in named]
+
+    if not isinstance(dataloader, TorchDataLoader):
+        from torch.utils.data import DataLoader as DL
+        dataloader = DL(dataloader, batch_size=256, shuffle=False)
+
+    model.eval()
+    with torch.no_grad():
+        for x, *_ in dataloader:
+            model(x.to(device))
+
+    for h in hooks:
+        h.remove()
+
+    return {name: np.concatenate(chunks, axis=0) for name, chunks in store.items()}
+
+
+def _scaffold_for_path(spine_forward, activations_dict):
+    """Compute factor-weighted activations and edge matrices for one BFT path.
+
+    Parameters
+    ----------
+    spine_forward   : list[BFTNode] in input→output (forward) order
+    activations_dict: {layer_name: (N, ...) ndarray} from _collect_scaffold_activations
+
+    Returns
+    -------
+    loading         : (n_neurons_total,) non-negative node activity vector
+    edge_matrices   : list of (n_out, n_in) positive edge arrays
+    neg_edge_matrices: list of (n_out, n_in) inhibitory edge arrays
+    layer_sizes     : list of int
+    """
+    w_acts = []
+    edge_matrices = []
+    neg_edge_matrices = []
+    E_last_raw = None
+
+    for node in spine_forward:
+        fi = node.path[-1] if node.path else 0
+        alpha = node.img_factors[:, fi].astype(float)
+        alpha = alpha / (alpha.sum() + 1e-12)
+
+        acts = activations_dict[node.layer_name]  # (N, n_in) or (N, C_in, H, W)
+        N = acts.shape[0]
+
+        if acts.ndim == 2:
+            # FC layer: (N, n_in)
+            w_h = alpha @ acts  # (n_in,)
+        else:
+            # Conv layer: (N, C_in, H, W) — spatial mean per channel
+            acts_flat = acts.reshape(N, acts.shape[1], -1).mean(-1)  # (N, C_in)
+            w_h = alpha @ acts_flat  # (C_in,)
+
+        w_acts.append(np.clip(w_h, 0, None))
+
+        W = node.weight
+        if W.ndim == 4:
+            # Conv: aggregate spatial kernel dims → (C_out, C_in)
+            W_2d = W.sum((-2, -1))
+        else:
+            W_2d = W.reshape(W.shape[0], -1)
+
+        E_raw = W_2d * w_h[np.newaxis, :]  # (n_out, n_in)
+        E_last_raw = E_raw
+        edge_matrices.append(np.clip(E_raw, 0, None))
+        neg_edge_matrices.append(np.clip(-E_raw, 0, None))
+
+    # Handle conv→FC boundary: if consecutive edge matrices have mismatched n_in vs n_out,
+    # aggregate the larger dimension (same logic as build_scaffold_edges).
+    for i in range(1, len(edge_matrices)):
+        prev_out = edge_matrices[i - 1].shape[0]
+        curr_in = edge_matrices[i].shape[1]
+        if curr_in != prev_out and curr_in % prev_out == 0:
+            spatial = curr_in // prev_out
+            edge_matrices[i] = edge_matrices[i].reshape(
+                edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
+            neg_edge_matrices[i] = neg_edge_matrices[i].reshape(
+                neg_edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
+
+    # Output position: sum of weighted inputs into each output neuron
+    out_act = np.clip(E_last_raw.sum(axis=1), 0, None)  # (n_out_last,)
+
+    loading = np.concatenate(w_acts + [out_act])
+
+    # Layer sizes: [n_in_of_E0, n_out_of_E0, n_out_of_E1, ..., n_out_of_E_{L-1}]
+    layer_sizes = [edge_matrices[0].shape[1]]
+    for E in edge_matrices:
+        layer_sizes.append(E.shape[0])
+
+    return loading, edge_matrices, neg_edge_matrices, layer_sizes
+
+
+def plot_scaffold(result, model, dataloader, *, paths=None,
+                  normalize='global', magnitude_transform=None,
+                  max_nodes_per_layer=None, figsize=(6, 5), node_size=150,
+                  node_cmap='PuRd', pos_edge_cmap='PuRd', neg_edge_cmap='Blues',
+                  show_labels=True, show_neg=True, device=None):
+    """Scaffold visualization driven by real forward-pass activity.
+
+    Runs a single forward pass through *model* on *dataloader*, then for each
+    requested path through the BFT factor tree computes factor-selective node
+    activations and joint-arbor edge weights and returns one figure per path.
+
+    Parameters
+    ----------
+    result      : BFTResult — output of bft()
+    model       : nn.Module — the trained model
+    dataloader  : DataLoader or Dataset — the stimulus set used for BFT
+    paths       : None (all leaf paths) or list of path tuples (leaf BFTNode.path values)
+    normalize   : 'global' (default) — preserves absolute activity scale across the network;
+                  'layer' — each layer independently max-normed for within-layer contrast
+    magnitude_transform : None | 'sqrt' | 'cbrt' | 'log' — monotone squeeze for visibility
+    max_nodes_per_layer : int | None — hide all but top-K neurons per layer
+    figsize     : per-figure (width, height) in inches
+    node_size   : node marker size
+    node_cmap   : colormap for node colors
+    pos_edge_cmap : colormap for positive (excitatory) edges
+    neg_edge_cmap : colormap for negative (inhibitory) edges
+    show_labels : draw layer-relative neuron index labels
+    show_neg    : draw inhibitory edges
+    device      : torch device; defaults to model's first parameter device
+
+    Returns
+    -------
+    dict {path_tuple: matplotlib.Figure} — one figure per selected path
+    """
+    all_nodes = result.nodes()
+
+    # Resolve leaf paths
+    leaves = [n for n in all_nodes if not n.children]
+    if paths is None:
+        selected_paths = [leaf.path for leaf in leaves]
+    else:
+        selected_paths = list(paths)
+
+    # Build a lookup: path_tuple → BFTNode
+    node_by_path = {n.path: n for n in all_nodes}
+
+    # Collect all layer_names needed across all paths
+    all_layer_names = set()
+    for leaf_path in selected_paths:
+        # Nodes on this path: all prefixes of leaf_path plus the root ()
+        for depth in range(len(leaf_path) + 1):
+            prefix = leaf_path[:depth]
+            if prefix in node_by_path:
+                all_layer_names.add(node_by_path[prefix].layer_name)
+
+    activations_dict = _collect_scaffold_activations(model, dataloader,
+                                                      all_layer_names, device=device)
+
+    figures = {}
+    for leaf_path in selected_paths:
+        # Reconstruct spine: gather all nodes on root→leaf chain, sort by layer_idx ascending
+        spine_nodes = []
+        for depth in range(len(leaf_path) + 1):
+            prefix = leaf_path[:depth]
+            if prefix in node_by_path:
+                spine_nodes.append(node_by_path[prefix])
+        spine_nodes.sort(key=lambda n: n.layer_idx)
+        # Forward order = input-side first (ascending layer_idx)
+        spine_forward = spine_nodes
+
+        loading, E_pos, E_neg, layer_sizes = _scaffold_for_path(spine_forward, activations_dict)
+
+        fig = plot_scaffold_graph(
+            loading, E_pos, layer_sizes, E_neg,
+            normalize=normalize,
+            magnitude_transform=magnitude_transform,
+            max_nodes_per_layer=max_nodes_per_layer,
+            figsize=figsize,
+            node_size=node_size,
+            node_cmap=node_cmap,
+            pos_edge_cmap=pos_edge_cmap,
+            neg_edge_cmap=neg_edge_cmap,
+            show_labels=show_labels,
+            show_neg=show_neg,
+            title=f'Path {leaf_path}',
+        )
+        figures[leaf_path] = fig
+
+    return figures
 
 
 def plot_factor_graph(fi, neural_factors, model_layers, layer_sizes, linear_layer_indices,

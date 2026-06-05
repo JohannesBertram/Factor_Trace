@@ -24,7 +24,7 @@ from .neuron_analysis import (
 )
 from .plot_utils import (plot_nmf_component, plot_factor_graph, plot_nmf_scree,
                          plot_neuron_nmf_component, plot_neuron_nmf_scatter,
-                         plot_scaffold_graph,
+                         plot_scaffold_graph, plot_scaffold,
                          plot_factor_overview_panel, plot_input_layer_factors,
                          plot_factor_gallery, plot_pruning_results,
                          plot_embedding_comparison,
