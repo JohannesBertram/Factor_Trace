@@ -408,4 +408,18 @@ def get_cifar10_loaders(batch_size=128, root='./data/', augment='baseline'):
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     test_loader  = DataLoader(test_ds,  batch_size=256,         shuffle=False)
+
+
+def imdenorm(img, mean, std):
+    """Reverse normalisation: (C,H,W) float → (H,W,C) float clipped to [0,1].
+
+    Parameters
+    ----------
+    img  : np.ndarray, shape (C, H, W)
+    mean : sequence of C floats — per-channel mean used during normalisation
+    std  : sequence of C floats — per-channel std used during normalisation
+    """
+    m = np.array(mean)[:, None, None]
+    s = np.array(std)[:, None, None]
+    return np.clip((img * s + m).transpose(1, 2, 0), 0.0, 1.0)
     return train_loader, test_loader

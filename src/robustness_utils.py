@@ -11,7 +11,6 @@ Four robustness checks (see plan):
 Plotting helpers:
   plot_nmf_stability_figure()
   plot_k_sensitivity_figure()
-  plot_robustness_summary()
 """
 
 import numpy as np
@@ -247,40 +246,3 @@ def plot_k_sensitivity_figure(sensitivity_result, k_star, title='K sensitivity')
     return fig
 
 
-def plot_robustness_summary(stability_results, k_stars, layer_names,
-                             title='Robustness summary across layers'):
-    """
-    Boxplot grid: one box per layer showing off-diagonal stability values.
-
-    Parameters
-    ----------
-    stability_results : list of (n_seeds, n_seeds) arrays — one per layer
-    k_stars           : list[int] — K used at each layer
-    layer_names       : list[str] — labels for x-axis
-    title             : figure title
-
-    Returns
-    -------
-    Figure
-    """
-    n_layers = len(stability_results)
-    fig, ax = plt.subplots(figsize=(max(6, 2 * n_layers), 4))
-
-    data, xlabels = [], []
-    for i, (sim, k, lname) in enumerate(zip(stability_results, k_stars, layer_names)):
-        mask_off = ~np.eye(sim.shape[0], dtype=bool)
-        data.append(sim[mask_off])
-        xlabels.append(f'{lname}\nK={k}')
-
-    ax.boxplot(data, positions=range(n_layers), widths=0.55,
-               medianprops=dict(color='black', linewidth=1.5))
-    ax.axhline(0.9, ls='--', color='#e15759', lw=1.5, label='threshold 0.90')
-    ax.set_xticks(range(n_layers))
-    ax.set_xticklabels(xlabels, fontsize=8)
-    ax.set_ylabel('off-diagonal cosine similarity', fontsize=9)
-    ax.set_ylim(0, 1.05)
-    ax.legend(fontsize=8)
-    ax.set_title(title, fontsize=10)
-    ax.grid(True, axis='y', alpha=0.25)
-    fig.tight_layout()
-    return fig

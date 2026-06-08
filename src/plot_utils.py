@@ -8,230 +8,6 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import MDS
 
 
-def plot_nmf_scree(results):
-    """
-    Plot explained variance vs n_components.
-
-    Parameters
-    ----------
-    results : dict {k: ev} mapping n_components → explained variance
-
-    Returns
-    -------
-    fig
-    """
-    ks = sorted(results.keys())
-
-    fig, ax = plt.subplots(figsize=(6, 3))
-    for k in ks:
-        ax.scatter(k, results[k], color='gray', alpha=0.5, s=15, zorder=5)
-    ax.plot(ks, [results[k] for k in ks], color='blue', lw=2)
-    ax.set(xlabel='n_components', ylabel='explained variance',
-           title='NMF scree — pick the elbow')
-    ax.set_xticks(ks)
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    return fig
-
-
-def plot_nmf_component(fi, neural_factors, img_factors, layer_sizes,
-                       class_images, class_digits, first_layer_weights,
-                       image_side=28):
-    """
-    Summary plot for one NMF component.
-
-    Panels: (1) grid heatmap of neural loadings by layer,
-            (2) line plot of neural loadings with layer dividers,
-            (3) per-image coefficient sorted by digit class,
-            (4) weighted-average input image,
-            (5) deconvolution: first-layer weights weighted by neural factor.
-
-    Parameters
-    ----------
-    fi                 : component index
-    neural_factors     : (n_neurons, n_components)
-    img_factors        : (n_class_samples, n_components)
-    layer_sizes        : list of int — neurons per layer (e.g. [20, 10, 2])
-    class_images       : (n_class_samples, H, W) or (n_class_samples, C, H, W) images
-    class_digits       : (n_class_samples,) original digit labels for x-axis sorting
-    first_layer_weights: (n_hidden1, n_inputs) weight matrix of the first linear layer
-    image_side         : int — image height in pixels (28 for MNIST)
-    """
-    canvas = np.full((max(layer_sizes), len(layer_sizes) * 2), np.nan)
-    fig, (ax_grid, ax_line, ax_coeff, ax_img, ax_deconv) = plt.subplots(1, 5, figsize=(11, 1))
-
-    tot = 0
-    for lii, lsz in enumerate(layer_sizes):
-        canvas[:lsz, lii * 2] = neural_factors[tot:tot + lsz, fi]
-        ax_line.axvline(tot + lsz - 0.5, ls='--', color='r')
-        tot += lsz
-
-    ax_grid.imshow(canvas, aspect=0.5)
-    ax_grid.set(xticks=[], yticks=[])
-    ax_grid.axis('off')
-
-    ax_line.plot(neural_factors[:, fi], 'bo-', markersize=3)
-    ax_line.set_title(f'component {fi}')
-
-    sort_order = np.argsort(class_digits)
-    ax_coeff.plot(img_factors[sort_order, fi])
-
-    imgs_2d = class_images.reshape(len(class_images), image_side, -1)
-    w_avg = np.sum([c * imgs_2d[i] for i, c in enumerate(img_factors[:, fi])], 0)
-    w_avg /= img_factors[:, fi].sum()
-    ax_img.imshow(w_avg, cmap='gist_ncar')
-    ax_img.set(xticks=[], yticks=[])
-
-    n_first = len(first_layer_weights)
-    deconv = (neural_factors[:n_first, fi][:, None] * first_layer_weights).sum(0)
-    absmax = np.abs(deconv).max()
-    ax_deconv.imshow(deconv.reshape(image_side, -1), vmin=-absmax, vmax=absmax, cmap='seismic')
-    ax_deconv.set(xticks=[], yticks=[])
-
-    return fig
-
-
-def plot_neuron_nmf_component(fi, img_factors, arbor_factors, input_shape,
-                              images, targets, classes,
-                              class_names=None, digit_targets=None):
-    """
-    Visualize one NMF component from a per-neuron synaptic arbor factorization.
-
-    Parameters
-    ----------
-    fi             : component index
-    img_factors    : (n_samples, K) — per-image NMF coefficients
-    arbor_factors  : (n_inputs, K) — per-input-dimension NMF basis vectors
-    input_shape    : int or (H, W) — for reshaping arbor_factors[:, fi] as imshow
-    images         : (n_samples, H, W) — original input images (used for weighted avg)
-    targets        : (n_samples,) task class labels
-    classes        : list of class ids
-    class_names    : optional dict {cl: name}
-    digit_targets  : optional (n_samples,) original digit labels
-
-    Panels
-    ------
-    1. arbor_factors[:, fi] reshaped  — the "receptive field pattern"
-    2. weighted-average input image   — weighted by img_factors[:, fi]
-    3. coefficient distribution per task class (jittered strip + mean)
-    4. coefficient distribution per digit (if digit_targets given)
-    """
-    n_panels = 4 if digit_targets is not None else 3
-    fig, axes = plt.subplots(1, n_panels, figsize=(3 * n_panels, 2.5))
-
-    # panel 1: arbor pattern
-    af = arbor_factors[:, fi]
-    if isinstance(input_shape, (tuple, list)):
-        af_img = af.reshape(input_shape)
-    else:
-        af_img = af.reshape(int(input_shape), -1)
-    absmax = np.abs(af_img).max() or 1
-    axes[0].imshow(af_img, vmin=-absmax, vmax=absmax, cmap='seismic')
-    axes[0].set(title=f'arbor pattern {fi}', xticks=[], yticks=[])
-
-    # panel 2: weighted average image
-    coefs = img_factors[:, fi]
-    imgs_2d = images.reshape(len(images), -1)
-    w_avg = (coefs[:, None] * imgs_2d).sum(0) / (coefs.sum() + 1e-12)
-    img_h, img_w = images.shape[-2], images.shape[-1]
-    axes[1].imshow(w_avg.reshape(img_h, img_w), cmap='gray')
-    axes[1].set(title='weighted avg image', xticks=[], yticks=[])
-
-    cmap = matplotlib.colormaps['tab10']
-
-    def _strip(ax, group_ids, group_names, title):
-        for xi, cl in enumerate(group_ids):
-            mask = (targets if group_ids is classes else digit_targets) == cl
-            y = coefs[mask]
-            x = np.full(len(y), xi) + np.random.default_rng(0).uniform(-0.2, 0.2, len(y))
-            label = group_names.get(cl, str(cl)) if group_names else str(cl)
-            ax.scatter(x, y, s=6, alpha=0.4, color=cmap(xi / max(len(group_ids) - 1, 1)))
-            ax.plot([xi - 0.3, xi + 0.3], [y.mean(), y.mean()], color='k', lw=1.5)
-        ax.set_xticks(range(len(group_ids)))
-        ax.set_xticklabels(
-            [group_names.get(cl, str(cl)) if group_names else str(cl) for cl in group_ids],
-            fontsize=8,
-        )
-        ax.set(title=title, ylabel='coefficient')
-
-    # panel 3: task class distribution
-    _strip(axes[2], classes, class_names or {}, 'by task class')
-
-    # panel 4: digit distribution (optional)
-    if digit_targets is not None:
-        digits = sorted(np.unique(digit_targets).tolist())
-        # temporarily swap targets/group_ids inside _strip via closure tweak
-        _orig_targets = targets
-        # use a local version that reads digit_targets
-        def _strip_digit(ax):
-            for xi, d in enumerate(digits):
-                mask = digit_targets == d
-                y = coefs[mask]
-                x = np.full(len(y), xi) + np.random.default_rng(0).uniform(-0.2, 0.2, len(y))
-                ax.scatter(x, y, s=6, alpha=0.4, color=cmap(xi / max(len(digits) - 1, 1)))
-                ax.plot([xi - 0.3, xi + 0.3], [y.mean(), y.mean()], color='k', lw=1.5)
-            ax.set_xticks(range(len(digits)))
-            ax.set_xticklabels([str(d) for d in digits], fontsize=7)
-            ax.set(title='by digit', ylabel='coefficient')
-        _strip_digit(axes[3])
-
-    fig.suptitle(f'component {fi}')
-    fig.tight_layout()
-    return fig
-
-
-def plot_neuron_nmf_scatter(img_factors, targets, classes,
-                             fi=0, fj=1,
-                             class_names=None, digit_targets=None):
-    """
-    Scatter of NMF component fi vs fj coefficients.
-
-    Left panel coloured by task class; right panel coloured by digit
-    (only shown when digit_targets is provided).
-
-    Parameters
-    ----------
-    img_factors   : (n_samples, K)
-    targets       : (n_samples,) task class labels
-    classes       : list of class ids
-    fi, fj        : component indices to plot on x and y axes
-    class_names   : optional dict {cl: name}
-    digit_targets : optional (n_samples,) digit labels
-    """
-    n_panels = 2 if digit_targets is not None else 1
-    fig, axes = plt.subplots(1, n_panels, figsize=(4 * n_panels, 3.5),
-                             squeeze=False)
-    cmap = matplotlib.colormaps['tab10']
-    x = img_factors[:, fi]
-    y = img_factors[:, fj]
-
-    # left: task class
-    ax = axes[0, 0]
-    for xi, cl in enumerate(classes):
-        mask = targets == cl
-        label = class_names.get(cl, str(cl)) if class_names else str(cl)
-        ax.scatter(x[mask], y[mask], s=8, alpha=0.5,
-                   color=cmap(xi / max(len(classes) - 1, 1)), label=label)
-    ax.set(xlabel=f'component {fi}', ylabel=f'component {fj}',
-           title='task class')
-    ax.legend(markerscale=2)
-
-    # right: digit
-    if digit_targets is not None:
-        digits = sorted(np.unique(digit_targets).tolist())
-        ax2 = axes[0, 1]
-        for xi, d in enumerate(digits):
-            mask = digit_targets == d
-            ax2.scatter(x[mask], y[mask], s=8, alpha=0.5,
-                        color=cmap(xi / max(len(digits) - 1, 1)), label=str(d))
-        ax2.set(xlabel=f'component {fi}', ylabel=f'component {fj}',
-                title='digit')
-        ax2.legend(markerscale=2, ncol=2, fontsize=7)
-
-    fig.tight_layout()
-    return fig
-
-
 def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=None, *,
                         normalize='global', magnitude_transform=None,
                         max_nodes_per_layer=None, figsize=(6, 5), node_size=150,
@@ -403,286 +179,6 @@ def plot_scaffold_graph(loading, edge_matrices, layer_sizes, neg_edge_matrices=N
         return fig
     return None
 
-
-def _collect_scaffold_activations(model, dataloader, layer_names, device=None):
-    """Run a forward pass and return pre-activation inputs for the specified module names.
-
-    Returns dict {layer_name: (N, ...) ndarray}.
-    """
-    import torch
-    from torch.utils.data import DataLoader as TorchDataLoader
-
-    if device is None:
-        try:
-            device = next(model.parameters()).device
-        except StopIteration:
-            device = torch.device('cpu')
-
-    named = [(name, mod) for name, mod in model.named_modules() if name in layer_names]
-    store = {name: [] for name, _ in named}
-
-    def make_hook(name):
-        def h(mod, inp):
-            store[name].append(inp[0].detach().cpu().numpy())
-        return h
-
-    hooks = [mod.register_forward_pre_hook(make_hook(name)) for name, mod in named]
-
-    if not isinstance(dataloader, TorchDataLoader):
-        from torch.utils.data import DataLoader as DL
-        dataloader = DL(dataloader, batch_size=256, shuffle=False)
-
-    model.eval()
-    with torch.no_grad():
-        for x, *_ in dataloader:
-            model(x.to(device))
-
-    for h in hooks:
-        h.remove()
-
-    return {name: np.concatenate(chunks, axis=0) for name, chunks in store.items()}
-
-
-def _scaffold_for_path(spine_forward, activations_dict):
-    """Compute factor-weighted activations and edge matrices for one BFT path.
-
-    Parameters
-    ----------
-    spine_forward   : list[BFTNode] in input→output (forward) order
-    activations_dict: {layer_name: (N, ...) ndarray} from _collect_scaffold_activations
-
-    Returns
-    -------
-    loading         : (n_neurons_total,) non-negative node activity vector
-    edge_matrices   : list of (n_out, n_in) positive edge arrays
-    neg_edge_matrices: list of (n_out, n_in) inhibitory edge arrays
-    layer_sizes     : list of int
-    """
-    w_acts = []
-    edge_matrices = []
-    neg_edge_matrices = []
-    E_last_raw = None
-
-    for node in spine_forward:
-        fi = node.path[-1] if node.path else 0
-        alpha = node.img_factors[:, fi].astype(float)
-        alpha = alpha / (alpha.sum() + 1e-12)
-
-        acts = activations_dict[node.layer_name]  # (N, n_in) or (N, C_in, H, W)
-        N = acts.shape[0]
-
-        if acts.ndim == 2:
-            # FC layer: (N, n_in)
-            w_h = alpha @ acts  # (n_in,)
-        else:
-            # Conv layer: (N, C_in, H, W) — spatial mean per channel
-            acts_flat = acts.reshape(N, acts.shape[1], -1).mean(-1)  # (N, C_in)
-            w_h = alpha @ acts_flat  # (C_in,)
-
-        w_acts.append(np.clip(w_h, 0, None))
-
-        W = node.weight
-        if W.ndim == 4:
-            # Conv: aggregate spatial kernel dims → (C_out, C_in)
-            W_2d = W.sum((-2, -1))
-        else:
-            W_2d = W.reshape(W.shape[0], -1)
-
-        E_raw = W_2d * w_h[np.newaxis, :]  # (n_out, n_in)
-        E_last_raw = E_raw
-        edge_matrices.append(np.clip(E_raw, 0, None))
-        neg_edge_matrices.append(np.clip(-E_raw, 0, None))
-
-    # Handle conv→FC boundary: if consecutive edge matrices have mismatched n_in vs n_out,
-    # aggregate the larger dimension (same logic as build_scaffold_edges).
-    for i in range(1, len(edge_matrices)):
-        prev_out = edge_matrices[i - 1].shape[0]
-        curr_in = edge_matrices[i].shape[1]
-        if curr_in != prev_out and curr_in % prev_out == 0:
-            spatial = curr_in // prev_out
-            edge_matrices[i] = edge_matrices[i].reshape(
-                edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
-            neg_edge_matrices[i] = neg_edge_matrices[i].reshape(
-                neg_edge_matrices[i].shape[0], prev_out, spatial).sum(axis=-1)
-
-    # Output position: sum of weighted inputs into each output neuron
-    out_act = np.clip(E_last_raw.sum(axis=1), 0, None)  # (n_out_last,)
-
-    loading = np.concatenate(w_acts + [out_act])
-
-    # Layer sizes: [n_in_of_E0, n_out_of_E0, n_out_of_E1, ..., n_out_of_E_{L-1}]
-    layer_sizes = [edge_matrices[0].shape[1]]
-    for E in edge_matrices:
-        layer_sizes.append(E.shape[0])
-
-    return loading, edge_matrices, neg_edge_matrices, layer_sizes
-
-
-def plot_scaffold(result, model, dataloader, *, paths=None,
-                  normalize='global', magnitude_transform=None,
-                  max_nodes_per_layer=None, figsize=(6, 5), node_size=150,
-                  node_cmap='PuRd', pos_edge_cmap='PuRd', neg_edge_cmap='Blues',
-                  show_labels=True, show_neg=True, device=None):
-    """Scaffold visualization driven by real forward-pass activity.
-
-    Runs a single forward pass through *model* on *dataloader*, then for each
-    requested path through the BFT factor tree computes factor-selective node
-    activations and joint-arbor edge weights and returns one figure per path.
-
-    Parameters
-    ----------
-    result      : BFTResult — output of bft()
-    model       : nn.Module — the trained model
-    dataloader  : DataLoader or Dataset — the stimulus set used for BFT
-    paths       : None (all leaf paths) or list of path tuples (leaf BFTNode.path values)
-    normalize   : 'global' (default) — preserves absolute activity scale across the network;
-                  'layer' — each layer independently max-normed for within-layer contrast
-    magnitude_transform : None | 'sqrt' | 'cbrt' | 'log' — monotone squeeze for visibility
-    max_nodes_per_layer : int | None — hide all but top-K neurons per layer
-    figsize     : per-figure (width, height) in inches
-    node_size   : node marker size
-    node_cmap   : colormap for node colors
-    pos_edge_cmap : colormap for positive (excitatory) edges
-    neg_edge_cmap : colormap for negative (inhibitory) edges
-    show_labels : draw layer-relative neuron index labels
-    show_neg    : draw inhibitory edges
-    device      : torch device; defaults to model's first parameter device
-
-    Returns
-    -------
-    dict {path_tuple: matplotlib.Figure} — one figure per selected path
-    """
-    all_nodes = result.nodes()
-
-    # Resolve leaf paths
-    leaves = [n for n in all_nodes if not n.children]
-    if paths is None:
-        selected_paths = [leaf.path for leaf in leaves]
-    else:
-        selected_paths = list(paths)
-
-    # Build a lookup: path_tuple → BFTNode
-    node_by_path = {n.path: n for n in all_nodes}
-
-    # Collect all layer_names needed across all paths
-    all_layer_names = set()
-    for leaf_path in selected_paths:
-        # Nodes on this path: all prefixes of leaf_path plus the root ()
-        for depth in range(len(leaf_path) + 1):
-            prefix = leaf_path[:depth]
-            if prefix in node_by_path:
-                all_layer_names.add(node_by_path[prefix].layer_name)
-
-    activations_dict = _collect_scaffold_activations(model, dataloader,
-                                                      all_layer_names, device=device)
-
-    figures = {}
-    for leaf_path in selected_paths:
-        # Reconstruct spine: gather all nodes on root→leaf chain, sort by layer_idx ascending
-        spine_nodes = []
-        for depth in range(len(leaf_path) + 1):
-            prefix = leaf_path[:depth]
-            if prefix in node_by_path:
-                spine_nodes.append(node_by_path[prefix])
-        spine_nodes.sort(key=lambda n: n.layer_idx)
-        # Forward order = input-side first (ascending layer_idx)
-        spine_forward = spine_nodes
-
-        loading, E_pos, E_neg, layer_sizes = _scaffold_for_path(spine_forward, activations_dict)
-
-        fig = plot_scaffold_graph(
-            loading, E_pos, layer_sizes, E_neg,
-            normalize=normalize,
-            magnitude_transform=magnitude_transform,
-            max_nodes_per_layer=max_nodes_per_layer,
-            figsize=figsize,
-            node_size=node_size,
-            node_cmap=node_cmap,
-            pos_edge_cmap=pos_edge_cmap,
-            neg_edge_cmap=neg_edge_cmap,
-            show_labels=show_labels,
-            show_neg=show_neg,
-            title=f'Path {leaf_path}',
-        )
-        figures[leaf_path] = fig
-
-    return figures
-
-
-def plot_factor_graph(fi, neural_factors, model_layers, layer_sizes, linear_layer_indices,
-                      img_factors=None, top_pct=0.05):
-    """
-    Visualize one NMF component as a weighted network graph.
-
-    Nodes represent neurons; edge thickness/colour reflects weight × neural-factor loading.
-    Only positive edge weights are shown.
-
-    Parameters
-    ----------
-    fi                    : component index
-    neural_factors        : (n_neurons, n_components)
-    model_layers          : nn.Sequential (model.layers)
-    layer_sizes           : list of int — neurons per layer
-    linear_layer_indices  : list of int — Sequential indices of Linear layers
-    img_factors           : (n_samples, n_components) optional — when provided, the top
-                            top_pct stimuli by img_factors[:, fi] are selected and their
-                            full NMF reconstruction is averaged to give realistic node
-                            activations (instead of the raw factor vector).
-    top_pct               : float — fraction of stimuli to select (default 0.05 = 5%)
-    """
-    n = len(neural_factors)
-
-    if img_factors is not None:
-        n_top = max(1, int(np.ceil(img_factors.shape[0] * top_pct)))
-        top_idx = np.argsort(img_factors[:, fi])[-n_top:]
-        node_vals = (img_factors[top_idx, :] @ neural_factors.T).mean(axis=0)
-    else:
-        node_vals = neural_factors[:, fi]
-
-    normalized_nf = node_vals / (node_vals.max() + 1e-12)
-
-    pos = np.zeros((n, 2))
-    A = np.zeros((n, n))
-    height = max(layer_sizes)
-    tot = 0
-    tots = []
-
-    for lii, lsz in enumerate(layer_sizes):
-        gap = height / lsz
-        pos[tot:tot + lsz, 1] = np.arange(height - gap / 2, 0, -gap)
-        pos[tot:tot + lsz, 0] = lii
-        if lii > 0:
-            ws = model_layers[linear_layer_indices[lii]].weight.detach().numpy()
-            edge_ws = (ws * normalized_nf[tots[lii - 1]:tot]).T
-            edge_ws[edge_ws < 0] = 0
-            A[tots[lii - 1]:tot, tot:tot + lsz] = edge_ws
-        tots.append(tot)
-        tot += lsz
-
-    A /= A.max() / 3
-    G = nx.Graph(A)
-    widths = nx.get_edge_attributes(G, 'weight')
-
-    edge_cmap = matplotlib.colormaps['PuRd']
-    w_vals = list(widths.values())
-    edge_norm = matplotlib.colors.Normalize(vmin=min(w_vals), vmax=max(w_vals))
-    edge_colors = [edge_cmap(edge_norm(w)) for w in w_vals]
-
-    node_cmap = matplotlib.colormaps['PuRd']
-    node_norm = matplotlib.colors.Normalize(vmin=normalized_nf.min(), vmax=normalized_nf.max())
-    node_colors = [node_cmap(node_norm(v)) for v in normalized_nf]
-
-    fig, ax = plt.subplots(1, 1, figsize=(6, 5))
-    nodelist = list(G.nodes())
-    nx.draw_networkx_nodes(G, pos, ax=ax, nodelist=nodelist, node_size=150,
-                           node_color=node_colors, linewidths=0.5, edgecolors='k', alpha=1)
-    nx.draw_networkx_edges(G, pos, ax=ax, edgelist=list(widths.keys()),
-                           width=w_vals, edge_color=edge_colors, alpha=1)
-    nx.draw_networkx_labels(G, pos=pos, ax=ax,
-                            labels={n: n for n in nodelist},
-                            font_color='white', font_size=7)
-    ax.set_title(f'component {fi}')
-    return fig
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1014,6 +510,75 @@ def plot_input_layer_factors(node, images, arch='fc', image_shape=None):
             figs.append(fig)
 
     return figs
+
+
+# ── Conv spatial activation maps ─────────────────────────────────────────────
+
+def plot_spatial_activation_maps(model, images_np, node, layer_data, device,
+                                  n_images=6, denorm_fn=None, title=None):
+    """4-row grid showing top and bottom stimuli alongside their channel-weighted activation maps.
+
+    Parameters
+    ----------
+    model      : nn.Module — the trained model
+    images_np  : (N, C, H, W) float32 ndarray
+    node       : BFTNode — must be a conv node (layer_type == 'conv')
+    layer_data : list of layer dicts from collect_layer_dicts; node.layer_idx indexes into it
+    device     : torch device
+    n_images   : number of top/bottom stimuli to show (default 6)
+    denorm_fn  : callable(img_chw) -> img_hwc float [0,1], or None for raw display
+    title      : optional figure suptitle; defaults to "<layer_name>: spatial activation maps"
+
+    Returns
+    -------
+    Figure  — 4-row grid: top images / top maps / bottom images / bottom maps
+    """
+    import torch
+
+    scores  = node.img_factors[:, 0]
+    top_idx = np.argsort(scores)[::-1][:n_images]
+    bot_idx = np.argsort(scores)[:n_images]
+
+    ld = layer_data[node.layer_idx]
+    C_out, C_in, kH, kW = ld['weight'].shape
+    con_f = node.connection_factors
+    ch_importance = np.maximum(con_f[:, 0].reshape(C_out, C_in * kH * kW).sum(1), 0)
+    if ch_importance.sum() > 0:
+        ch_importance /= ch_importance.sum()
+
+    def _get_maps(sel_idx):
+        fmaps = {}
+        tmod = dict(model.named_modules())[node.layer_name]
+        hook = tmod.register_forward_hook(
+            lambda m, i, o: fmaps.update({'out': o.detach().cpu()}))
+        model.eval()
+        with torch.no_grad():
+            model(torch.from_numpy(images_np[sel_idx]).float().to(device))
+        hook.remove()
+        fmap = fmaps['out'].numpy()
+        return np.maximum((fmap * ch_importance[None, :, None, None]).sum(1), 0)
+
+    top_maps = _get_maps(top_idx)
+    bot_maps = _get_maps(bot_idx)
+
+    n = len(top_idx)
+    fig, axes = plt.subplots(4, n, figsize=(2.2 * n, 8))
+    for col in range(n):
+        top_img = denorm_fn(images_np[top_idx[col]]) if denorm_fn else images_np[top_idx[col]]
+        bot_img = denorm_fn(images_np[bot_idx[col]]) if denorm_fn else images_np[bot_idx[col]]
+        _show_image(axes[0, col], top_img)
+        axes[1, col].imshow(top_maps[col], cmap='hot')
+        axes[1, col].axis('off')
+        _show_image(axes[2, col], bot_img)
+        axes[3, col].imshow(bot_maps[col], cmap='hot')
+        axes[3, col].axis('off')
+
+    for row, lbl in enumerate(['Top image', 'Top map', 'Bot image', 'Bot map']):
+        axes[row, 0].set_ylabel(lbl, fontsize=9)
+
+    fig.suptitle(title or f'{node.layer_name}: spatial activation maps', fontsize=10)
+    fig.tight_layout()
+    return fig
 
 
 # ── Plot 4 — Per-factor image gallery ─────────────────────────────────────────
@@ -1472,6 +1037,58 @@ def plot_embedding_comparison(fingerprints, activations_last, labels, class_name
         fig.suptitle(title, fontsize=11, fontweight='bold', y=1.02)
     fig.tight_layout()
     return fig
+
+
+# ── Fingerprint similarity heatmap ───────────────────────────────────────────
+
+def plot_similarity_heatmap(S, block_sizes, block_labels,
+                             cmap='RdBu_r', vmin=-1.0, vmax=1.0,
+                             title='', figsize=(8, 7), ax=None):
+    """Render a blocked cosine-similarity matrix with block boundary lines.
+
+    Parameters
+    ----------
+    S            : (N, N) similarity matrix (e.g. from compute_stimulus_similarity)
+    block_sizes  : list[int] — number of samples per named block; must sum to N.
+                   Pass an empty list to skip boundary lines.
+    block_labels : list[str] — one label per block, used for tick annotations
+    cmap         : matplotlib colormap (default 'RdBu_r')
+    vmin, vmax   : colour scale limits (default -1 to 1 for cosine similarity)
+    title        : axes title
+    figsize      : figure size; ignored when ax is provided
+    ax           : existing Axes to draw into; if None a new figure is created
+
+    Returns
+    -------
+    Figure (new figure) or None (when ax was provided)
+    """
+    return_fig = ax is None
+    if return_fig:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    im = ax.imshow(S, aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
+    plt.colorbar(im, ax=ax, label='Cosine similarity')
+
+    if block_sizes:
+        bl_ends = list(np.cumsum(block_sizes))
+        for b in bl_ends[:-1]:
+            ax.axhline(b - 0.5, color='k', lw=1.5)
+            ax.axvline(b - 0.5, color='k', lw=1.5)
+        centres = np.array([0] + bl_ends[:-1]) + np.array(block_sizes) / 2
+        ax.set_xticks(centres)
+        ax.set_xticklabels(block_labels, rotation=45, ha='right', fontsize=8)
+        ax.set_yticks(centres)
+        ax.set_yticklabels(block_labels, fontsize=8)
+
+    if title:
+        ax.set_title(title, fontsize=10)
+
+    if return_fig:
+        fig.tight_layout()
+        return fig
+    return None
 
 
 # ── BFT tree visualisation ────────────────────────────────────────────────────
