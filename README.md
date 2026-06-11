@@ -1,4 +1,4 @@
-# Weight Interpretability
+# Backward Factor Traces
 
 A library for mechanistic interpretability of neural networks via **Backward Factor Trace (BFT)** — a technique that decomposes a network's computation into interpretable factors by tracing weight-activation products backward through layers using Non-negative Matrix Factorization (NMF).
 
