@@ -1,17 +1,4 @@
-"""
-robustness_utils.py — NMF and BFT robustness analysis.
-
-Four robustness checks (see plan):
-  5a  NMF initialisation robustness  — compute_nmf_stability()
-  5b  Model-seed robustness           — align BFT factors across trained seeds
-                                        (caller runs BFT per seed; use align_factors())
-  5c  K sensitivity                   — compute_k_sensitivity()
-  5d  Dataset-split robustness        — caller splits data; use compute_nmf_stability()
-
-Plotting helpers:
-  plot_nmf_stability_figure()
-  plot_k_sensitivity_figure()
-"""
+"""NMF and BFT robustness analysis."""
 
 import numpy as np
 import matplotlib
@@ -19,8 +6,6 @@ import matplotlib.pyplot as plt
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics.pairwise import cosine_similarity as _cos_sim
 
-
-# ── Core analysis ─────────────────────────────────────────────────────────────
 
 def _hungarian_align(A, B):
     """
@@ -167,8 +152,6 @@ def compute_k_sensitivity(X, k_star, n_seeds=5, max_iter=500, batch_size=1024):
 
     return result, H_star
 
-
-# ── Plotting ──────────────────────────────────────────────────────────────────
 
 def plot_nmf_stability_figure(sim_matrix, title='NMF initialisation stability'):
     """

@@ -53,11 +53,7 @@ from .types import BFTNode, BFTResult
 # ── NMF building blocks ───────────────────────────────────────────────────────
 
 def _safe_init(n_components, n_samples, n_features):
-    """Pick a safe NMF init string given matrix dimensions.
-
-    nndsvda requires n_components <= min(n_samples, n_features).
-    Falls back to 'random' when the constraint is violated (small layers).
-    """
+    """Use nndsvda unless it violates n_components <= min(n_samples, n_features)."""
     if n_components > min(n_samples, n_features):
         return 'random'
     return 'nndsvda'
@@ -269,35 +265,26 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
     -------
     joint_arbor : (n_samples, n_out * n_in), signed — caller clips as needed
     """
-    # L2-normalise each stimulus's input vector: removes per-stimulus energy
-    # differences so NMF recovers pattern structure rather than activation magnitude.
-    # Skip normalisation when stimulus_weights are uniform (no importance gradient).
+    # L2-normalize to remove per-stimulus energy differences so NMF recovers pattern structure.
     if stimulus_weights is not None and np.allclose(stimulus_weights, 1.0):
         act_norm = act_input
     else:
         norms = np.linalg.norm(act_input, axis=1, keepdims=True)
         act_norm = act_input / (norms + eps)
 
-    # Build each neuron's arbor: W[i] * act_norm gives the synaptic contribution
-    # of every input dimension to neuron i's pre-activation, scaled by
-    # connection_weights when an importance signal from the layer above is available.
+    # Scale by connection_weights when available (importance from layer above).
     if connection_weights is not None:
         arbors = [act_norm * W[i] * connection_weights[i] for i in range(W.shape[0])]
     else:
         arbors = [act_norm * W[i] for i in range(W.shape[0])]
 
-    # Stack all neurons' arbors side by side: produces (n_samples, n_out * n_in).
-    # NMF on this joint matrix finds patterns that co-activate multiple neurons,
-    # enabling cross-neuron decomposition rather than per-neuron analysis.
+    # Joint matrix enables NMF to find cross-neuron patterns.
     joint = np.concatenate(arbors, axis=1)
 
-    # Scale each stimulus row by its importance weight propagated from above,
-    # so NMF concentrates on stimuli that are relevant to the traced factor.
     if stimulus_weights is not None:
         joint = joint * stimulus_weights[:, np.newaxis]
 
-    # Zero out the lowest-weight stimuli entirely: removes low-relevance samples
-    # that would otherwise dilute the factor structure.
+    # Zero out lowest-weight stimuli to avoid diluting factor structure.
     if stimulus_threshold > 0.0 and (stimulus_weights is not None) and not np.allclose(stimulus_weights, 1.0):
         cutoff = np.quantile(stimulus_weights, stimulus_threshold)
         joint[stimulus_weights <= cutoff] = 0.0
@@ -338,14 +325,12 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
     C_out, _, kH, kW = weight.shape
     W_flat = weight.reshape(C_out, C_in * kH * kW)   # (C_out, C_in*kH*kW)
 
-    # Extract local patches at every spatial position via im2col.
-    # Padding=(kH//2, kW//2) keeps the output spatial size equal to the input.
+    # Extract patches via im2col with padding to preserve spatial size.
     pad = (kH // 2, kW // 2)
     fmap_t = torch.from_numpy(input_fmap).float()
-    # patches shape: (N, C_in*kH*kW, H*W_in)
     patches = F.unfold(fmap_t, kernel_size=(kH, kW), padding=pad).numpy()
 
-    # Reduce the spatial dimension so each sample is a single vector (N, C_in*kH*kW).
+    # Reduce spatial dimension to (N, C_in*kH*kW).
     if pool_method == 'avg':
         pooled = patches.mean(axis=2)                          # (N, C_in*kH*kW)
     elif pool_method == 'max':
@@ -356,16 +341,13 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
     else:
         raise ValueError(f"Unknown pool_method {pool_method!r}. Use 'avg', 'max', or 'center'.")
 
-    # L2-normalise each stimulus's pooled patch vector: removes per-stimulus energy
-    # differences so NMF recovers spatial pattern structure, not activation magnitude.
-    # Skip when stimulus_weights are uniform (no importance gradient present).
+    # L2-normalize to remove per-stimulus energy differences.
     if stimulus_weights is not None and np.allclose(stimulus_weights, 1.0):
         act_norm = pooled
     else:
         norms = np.linalg.norm(pooled, axis=1, keepdims=True)
         act_norm = pooled / (norms + eps)
 
-    # Build each output channel's arbor.
     if connection_weights is not None:
         arbors = [act_norm * W_flat[c] * connection_weights[c] for c in range(C_out)]
     else:
@@ -414,7 +396,7 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
     -------
     joint_arbor : (N, d_v * d_model), signed — caller clips as needed.
     """
-    # Collapse the token sequence into a single attention-weighted effective input.
+    # Collapse token sequence into attention-weighted effective input.
     x_eff = np.einsum('nt,ntd->nd', attn_weights_cls, x_tokens)  # (N, d_model)
 
     return compute_joint_arbors_normalized(W_V, x_eff, stimulus_weights,
@@ -480,8 +462,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                                                     stimulus_threshold=stimulus_threshold,
                                                     connection_weights=connection_weights)
 
-    # Split signed arbors into excitatory and inhibitory parts: NMF requires
-    # non-negative inputs, so the two polarities are factorised separately.
+    # Split into positive/negative parts for separate NMF factorization.
     pos_joint = np.clip(raw_joint, 0, None)
     neg_joint = np.clip(-raw_joint, 0, None)
 
@@ -624,7 +605,7 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
             out = model(x)
             if isinstance(out, tuple):
                 out = out[0]
-            # Support log-softmax output (negative values) as well as raw logits/probs.
+            # Support log-softmax output (negative values).
             probs = out.exp() if out.min() < 0 else out
             confs = probs.max(1).values
             preds = probs.argmax(1)
@@ -764,11 +745,10 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     -------
     BFTResult — contains root BFTNode tree plus images, targets, confidences metadata.
     """
-    # ── Resolve inputs from the three calling conventions ─────────────────────
     images_meta = targets_meta = confidences_meta = None
 
     if isinstance(model, list) and model and isinstance(model[0], dict):
-        # Layer-dict mode: list of pre-collected dicts.
+        # Layer-dict mode (pre-collected dicts).
         layer_dicts   = model
         weights       = [d['weight']     for d in layer_dicts]
         inputs        = [d['input_fmap'] for d in layer_dicts]
@@ -778,7 +758,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         attn_weights_list = [d.get('attn_weights') for d in layer_dicts]
 
     elif isinstance(data, DataLoader):
-        # Primary mode: collect layer data from the model + loader, then trace.
+        # Primary mode: collect layer data, then trace.
         raw = _collect_layer_dicts(model, data, device=device, only_correct=only_correct)
         images_meta      = raw['images']
         targets_meta     = raw['targets']
@@ -792,7 +772,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         attn_weights_list = [d.get('attn_weights') for d in layer_dicts]
 
     else:
-        # Legacy model-protocol mode: SimpleMLP with linear_layer_indices().
+        # Legacy mode: SimpleMLP with linear_layer_indices().
         layer_inputs_list = data
         linear_idxs       = model.linear_layer_indices()
         weights           = [model.layers[li].weight.detach().cpu().numpy() for li in linear_idxs]
@@ -872,11 +852,10 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
 
     root_dict = _trace_node(n_layers - 1, np.ones(n_samples), None, [])
 
-    # Convert dict tree to BFTNode dataclasses.
     root_node = _dict_to_bft_node(root_dict)
 
-    # Use metadata from primary mode; fall back to empty arrays for other modes.
     if images_meta is None:
+        # Use empty arrays for non-primary modes.
         n = n_samples
         images_meta      = np.zeros((n, 1), dtype=np.float32)
         targets_meta     = np.zeros(n, dtype=np.int64)

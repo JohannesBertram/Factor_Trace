@@ -5,8 +5,6 @@ import numpy as np
 import torch
 
 
-# ── Factor-to-class assignment ────────────────────────────────────────────────
-
 def assign_factors_to_classes(root_node, all_targets, n_classes):
     """
     Assign each of the root node's children to one output class (greedy argmax).
@@ -59,8 +57,6 @@ def path_from_child(root_node, child_node):
         nodes.append(cur)
     return nodes
 
-
-# ── Importance extraction ─────────────────────────────────────────────────────
 
 def extract_importance_scores(path_nodes, selectivity_weights=None, neg_selectivity_weights=None):
     """
@@ -155,8 +151,6 @@ def all_weight_keys(model):
     return keys
 
 
-# ── Model ablation ────────────────────────────────────────────────────────────
-
 def ablate_model(model_orig, weight_keys_to_zero):
     """
     Return a deep copy of model_orig with the specified weights set to 0.
@@ -178,8 +172,6 @@ def ablate_model(model_orig, weight_keys_to_zero):
     model.eval()
     return model
 
-
-# ── Evaluation ────────────────────────────────────────────────────────────────
 
 def per_class_accuracy(model, loader, label_transform, device):
     """
@@ -215,8 +207,6 @@ def per_class_accuracy(model, loader, label_transform, device):
     return {d: correct_counts.get(d, 0) / total_counts[d]
             for d in sorted(total_counts)}
 
-
-# ── Baseline importance scores ────────────────────────────────────────────────
 
 def magnitude_scores(model):
     """Return {(l_idx, i, j): |W[i,j]|} for all weights."""
@@ -297,8 +287,6 @@ def taylor_scores(model, loader, label_transform, device, target_class):
     return scores
 
 
-# ── Score normalisation ───────────────────────────────────────────────────────
-
 def normalize_scores_per_layer(scores):
     """
     Min-max normalise importance scores within each layer to [0, 1].
@@ -327,8 +315,6 @@ def normalize_scores_per_layer(scores):
             result[k] = float((scores[k] - lo) / rng) if rng > 0 else 0.0
     return result
 
-
-# ── Ablation sweep ────────────────────────────────────────────────────────────
 
 def select_class_circuit(root_node, targets, class_d):
     """
@@ -471,7 +457,7 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
     elif method == 'random':
         ranked = None  # handled below
     else:
-        ranked = [keys[i] for i in np.argsort(vals)[::-1]]
+        raise ValueError(f"unknown method {method!r}")
 
     n_total = len(keys)
     results = {}
@@ -490,8 +476,6 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
             results[f] = per_class_accuracy(ablated, test_loader, label_transform, device)
     return results
 
-
-# ── High-level entrypoints ────────────────────────────────────────────────────
 
 def ablation_sweep(
     model, bft_result, test_loader, *,

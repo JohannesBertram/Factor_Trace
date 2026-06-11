@@ -27,10 +27,6 @@ class SimpleMLP(nn.Module):
     def linear_layer_indices(self):
         return [i for i, m in enumerate(self.layers) if isinstance(m, nn.Linear)]
 
-    def activation_layer_indices(self):
-        return [i for i, m in enumerate(self.layers)
-                if not isinstance(m, (nn.Flatten, nn.Linear))]
-
 
 class SmallCNN(nn.Module):
     """Configurable N-conv-block CNN for image classification.
@@ -75,9 +71,6 @@ class SmallCNN(nn.Module):
         x = self.features(x)
         x = self.pool(x)
         return self.classifier(x.flatten(1))
-
-    def count_parameters(self):
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
 
 # ── Vision Transformer (Tiny) ─────────────────────────────────────────────────
