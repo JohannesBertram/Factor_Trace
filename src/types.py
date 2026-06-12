@@ -36,7 +36,7 @@ class BFTNode:
     recon_validation  : dict or None — causal reconstruction validation result
                         (only populated when bft(..., validate=True); None for conv
                         layers and non-primary modes). Keys: loss_ratio_all, real_ce,
-                        recon_ce, n_active, per_factor.
+                        recon_ce, n_eval.
     children          : list[BFTNode] — child nodes toward the input; empty at leaves
     """
     layer_idx: int

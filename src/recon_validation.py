@@ -176,6 +176,12 @@ def validate_node_reconstruction(model, images, targets, node, device,
     Returns None when validation is not applicable (non-fc layer, no model, or the
     layer module cannot be resolved in the model).
 
+    The full reconstruction (all factors) is evaluated on the images that the
+    currently traced path routes into this node: at the root / last layer the
+    incoming trace weights are uniform, so all active samples are used; at every
+    deeper layer only the ``top_m`` images with the largest incoming trace weight
+    (``stimulus_weights_in``) are used.
+
     Parameters
     ----------
     model    : nn.Module — the traced model (primary mode only)
@@ -183,13 +189,14 @@ def validate_node_reconstruction(model, images, targets, node, device,
     targets  : (N,) labels, in BFT sample order
     node     : internal node dict from ``_trace_node``
     device   : torch device
-    top_m    : images per factor for the per-factor fidelity check
+    top_m    : number of top images (by incoming trace weight) used to evaluate
+               fidelity at non-root layers; ignored at the root (all images used)
     real_ce_cache : dict mapping a frozenset of row indices -> real CE, reused
-                    across nodes/factors to avoid recomputing the real forward pass
+                    across nodes to avoid recomputing the real forward pass
 
     Returns
     -------
-    dict with keys loss_ratio_all, real_ce, recon_ce, n_active, per_factor
+    dict with keys loss_ratio_all, real_ce, recon_ce, n_eval
     """
     if model is None or node.get('layer_type') != 'fc':
         return None
@@ -223,37 +230,30 @@ def validate_node_reconstruction(model, images, targets, node, device,
                             hook_module=module, z_recon=z_recon[idx])
         return real, recon
 
-    # All-factors fidelity on the active (non-thresholded) samples.
+    # Select the images the current path routes into this node. At the root the
+    # incoming trace weights are uniform, so all active samples are used; deeper in
+    # the tree only the top-M images by incoming weight (stimulus_weights_in) count.
     active_idx = np.where(active_mask)[0]
     if len(active_idx) == 0:
         return None
-    real_all, recon_all = ce_on(active_idx)
-    loss_ratio_all = recon_all / real_all if real_all > 0 else float('inf')
+    uniform = sw is None or np.allclose(sw, 1.0)
+    if uniform:
+        eval_idx = active_idx
+    else:
+        order = np.argsort(sw)[::-1]
+        order = order[active_mask[order]]                  # keep only active samples
+        eval_idx = order[:top_m]
+    if len(eval_idx) == 0:
+        return None
 
-    # Per-factor fidelity: full reconstruction evaluated on each factor's top-M images.
-    per_factor = []
-    K = img_f.shape[1]
-    for k in range(K):
-        order = np.argsort(img_f[:, k])[::-1]
-        top_idx = order[:top_m]
-        top_idx = top_idx[active_mask[top_idx]]            # keep only active samples
-        if len(top_idx) == 0:
-            continue
-        real_k, recon_k = ce_on(top_idx)
-        per_factor.append({
-            'k': k,
-            'loss_ratio': recon_k / real_k if real_k > 0 else float('inf'),
-            'real_ce': real_k,
-            'recon_ce': recon_k,
-            'top_idx': top_idx,
-        })
+    real_all, recon_all = ce_on(eval_idx)
+    loss_ratio_all = recon_all / real_all if real_all > 0 else float('inf')
 
     return {
         'loss_ratio_all': loss_ratio_all,
         'real_ce': real_all,
         'recon_ce': recon_all,
-        'n_active': int(len(active_idx)),
-        'per_factor': per_factor,
+        'n_eval': int(len(eval_idx)),
     }
 
 
@@ -290,7 +290,6 @@ def summarize_validation(nodes):
             'layer_name': nd.layer_name,
             'path': nd.path,
             'loss_ratio_all': rv['loss_ratio_all'],
-            'per_factor_ratios': [pf['loss_ratio'] for pf in rv['per_factor']],
         })
     if not individual:
         return None

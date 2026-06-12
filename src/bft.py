@@ -765,7 +765,8 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
                           layer's real output; the rest of the model runs normally and
                           the cross-entropy loss ratio (recon / real) is recorded on the
                           node. Only available in primary mode (bft(model, loader)).
-    validate_top_m      : int — images per factor for the per-factor fidelity check
+    validate_top_m      : int — number of top images (by incoming trace weight) used
+                          to evaluate fidelity at non-root layers; ignored at the root
     validate_device     : torch device for validation forward passes (default: model's)
     verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
@@ -893,7 +894,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             del node['act_input'], node['connection_weights']
             if verbose >= 1 and rv is not None:
                 print(f'[BFT{layer_tag}]   recon loss-ratio (all factors) = '
-                      f'{rv["loss_ratio_all"]:.4f}  (n_active={rv["n_active"]})')
+                      f'{rv["loss_ratio_all"]:.4f}  (n_eval={rv["n_eval"]})')
 
         if l_idx > 0:
             for fi in range(min(nb_list[l_idx], len(lams))):
