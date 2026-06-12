@@ -551,7 +551,7 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
 # ── Data collection ───────────────────────────────────────────────────────────
 
 def _collect_layer_dicts(model, loader, device=None, only_correct=True,
-                         layer_filter=None):
+                         layer_filter=None, label_transform=None):
     """Hook Conv2d/Linear sub-modules, run the loader, return layer data.
 
     Parameters
@@ -566,12 +566,21 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
                    (e.g. SqueezeNet Fire modules) where capturing all Conv2d layers
                    would violate BFT's sequential-layer assumption.
                    When None, all Conv2d and Linear layers are captured (default).
+    label_transform : callable(tensor) -> tensor, or None.
+                   When provided, the loader's raw labels are mapped through it to
+                   obtain the targets used for the correctness check and returned as
+                   'targets'; the original raw labels are returned as 'digits'. Use
+                   this when the model is trained on transformed labels (e.g. even/odd)
+                   while the dataset yields raw labels, so the returned sample order
+                   matches what BFT primary mode produces on the transformed loader.
 
     Returns
     -------
     dict with keys:
         'images'      : (N, C, H, W) float32 numpy array
-        'targets'     : (N,) int numpy array of ground-truth labels
+        'targets'     : (N,) int numpy array of labels used for the correctness check
+                        (transformed when label_transform is given, else raw)
+        'digits'      : (N,) int numpy array of original raw labels
         'confidences' : (N,) float32 numpy array — max output probability per sample
         'layer_data'  : list of dicts, one per captured layer in forward order:
             {'name': str, 'type': 'conv'|'fc',
@@ -597,11 +606,12 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
     hooks = [m.register_forward_hook(make_hook(n)) for n, m in named]
     acc_inp = {n: [] for n, _ in named}
     acc_out = {n: [] for n, _ in named}
-    all_imgs, all_tgts, all_confs = [], [], []
+    all_imgs, all_tgts, all_digits, all_confs = [], [], [], []
 
     with torch.no_grad():
-        for x, y in loader:
-            x, y = x.to(device), y.to(device)
+        for x, y_raw in loader:
+            x, y_raw = x.to(device), y_raw.to(device)
+            y = label_transform(y_raw) if label_transform is not None else y_raw
             out = model(x)
             if isinstance(out, tuple):
                 out = out[0]
@@ -615,6 +625,7 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
                 continue
             all_imgs.append(x[ok].cpu())
             all_tgts.append(y[ok].cpu())
+            all_digits.append(y_raw[ok].cpu())
             all_confs.append(confs[ok].cpu())
             for n, _ in named:
                 acc_inp[n].append(store[n]['inp'][ok])
@@ -623,9 +634,10 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
     for h in hooks:
         h.remove()
 
-    imgs  = torch.cat(all_imgs).numpy()
-    tgts  = torch.cat(all_tgts).numpy()
-    confs = torch.cat(all_confs).numpy()
+    imgs   = torch.cat(all_imgs).numpy()
+    tgts   = torch.cat(all_tgts).numpy()
+    digits = torch.cat(all_digits).numpy()
+    confs  = torch.cat(all_confs).numpy()
 
     layer_data = []
     for n, mod in named:
@@ -637,11 +649,12 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
             'input_fmap':  torch.cat(acc_inp[n]).numpy(),
             'output_fmap': torch.cat(acc_out[n]).numpy(),
         })
-    return {'images': imgs, 'targets': tgts, 'confidences': confs, 'layer_data': layer_data}
+    return {'images': imgs, 'targets': tgts, 'digits': digits,
+            'confidences': confs, 'layer_data': layer_data}
 
 
 def collect_layer_dicts(model, loader, device=None, only_correct=True,
-                        layer_filter=None):
+                        layer_filter=None, label_transform=None):
     """Collect layer-dict data for Conv2d/Linear layers in the model.
 
     Thin public wrapper around the internal hook-based collection. Use this
@@ -661,14 +674,20 @@ def collect_layer_dicts(model, loader, device=None, only_correct=True,
                    (e.g. pass only the squeeze-conv spine of SqueezeNet to keep
                    BFT's sequential-layer assumption valid). Default None captures
                    all Conv2d and Linear layers.
+    label_transform : callable(tensor) -> tensor, or None. When provided, labels are
+                   mapped through it for the correctness check (returned as 'targets')
+                   and the raw labels are returned as 'digits'. Pass the same transform
+                   here that the model was trained on so the returned sample order
+                   matches BFT primary mode run on label_transformed_loader(loader, ...).
 
     Returns
     -------
-    dict: {'images', 'targets', 'confidences', 'layer_data'}
+    dict: {'images', 'targets', 'digits', 'confidences', 'layer_data'}
     """
     return _collect_layer_dicts(model, loader, device=device,
                                 only_correct=only_correct,
-                                layer_filter=layer_filter)
+                                layer_filter=layer_filter,
+                                label_transform=label_transform)
 
 
 # ── BFT public entry point ────────────────────────────────────────────────────

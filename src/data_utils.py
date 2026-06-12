@@ -3,7 +3,7 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import datasets
 from torchvision.transforms import ToTensor
 
@@ -33,6 +33,35 @@ def get_mnist_loaders(batch_size=32, root='./data/', digit_filter=None):
     train_loader = DataLoader(dataset=train_ds, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(dataset=test_ds, batch_size=batch_size, shuffle=False)
     return train_loader, test_loader
+
+
+class _LabelTransformedDataset(Dataset):
+    """Wraps a dataset, mapping each yielded label through `transform`."""
+
+    def __init__(self, base, transform):
+        self.base, self.transform = base, transform
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, i):
+        x, y = self.base[i]
+        return x, int(self.transform(torch.as_tensor(y)))
+
+
+def label_transformed_loader(loader, label_transform, **dl_kwargs):
+    """Return a DataLoader identical to `loader` but with labels mapped through
+    `label_transform`.
+
+    Useful for BFT primary mode (`bft(model, loader, validate=True)`) when the
+    model was trained on transformed labels (e.g. even/odd) while the underlying
+    dataset yields raw labels. Returns `loader` unchanged when `label_transform`
+    is None.
+    """
+    if label_transform is None:
+        return loader
+    ds = _LabelTransformedDataset(loader.dataset, label_transform)
+    return DataLoader(ds, batch_size=loader.batch_size, shuffle=False, **dl_kwargs)
 
 
 def collect_activations(model, dataset, layer_indices, label_transform=None,

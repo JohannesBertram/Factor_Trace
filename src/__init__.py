@@ -4,6 +4,7 @@ from .training import correct, label_transform_even_odd, train_epoch, evaluate
 from .data_utils import (get_mnist_loaders, get_cifar10_loaders, get_imagenet_loaders,
                           collect_activations,
                           collect_layer_inputs, collect_layer_inputs_generic,
+                          label_transformed_loader,
                           imdenorm)
 from .bft import (run_nmf_minibatch,
                   normalize_factors, sort_by_lambda,
