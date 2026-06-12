@@ -57,6 +57,11 @@ from .ablation_utils import (
     ablation_sweep,
     ablation_layer_sweep,
 )
+from .recon_validation import (
+    reconstruct_preactivation,
+    validate_node_reconstruction,
+    summarize_validation,
+)
 from .robustness_utils import (
     compute_nmf_stability,
     align_factors,

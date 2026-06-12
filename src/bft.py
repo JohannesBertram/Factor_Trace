@@ -691,6 +691,7 @@ def _dict_to_bft_node(d: dict) -> BFTNode:
         weighting=d.get('weighting', 'img_selectivity'),
         stimulus_threshold=d.get('stimulus_threshold', 0.0),
         attn_weights=d.get('attn_weights'),
+        recon_validation=d.get('recon_validation'),
         children=[_dict_to_bft_node(c) for c in d.get('children', [])],
     )
 
@@ -699,6 +700,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         conv_pool_method='avg', recon_threshold=None,
+        validate=False, validate_top_m=20, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
@@ -739,11 +741,20 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     k_fixed             : list[int or None] or None — per-layer fixed NMF rank
     conv_pool_method    : 'avg', 'max', or 'center' — spatial pooling for conv layers
     recon_threshold     : float or None — max acceptable relative Frobenius error
+    validate            : bool — run causal reconstruction validation per factorization.
+                          Each fc factorization's reconstructed activity replaces the
+                          layer's real output; the rest of the model runs normally and
+                          the cross-entropy loss ratio (recon / real) is recorded on the
+                          node. Only available in primary mode (bft(model, loader)).
+    validate_top_m      : int — images per factor for the per-factor fidelity check
+    validate_device     : torch device for validation forward passes (default: model's)
     verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
     Returns
     -------
     BFTResult — contains root BFTNode tree plus images, targets, confidences metadata.
+                When validate=True, each fc node carries a recon_validation dict and
+                BFTResult.validation_summary() aggregates them.
     """
     images_meta = targets_meta = confidences_meta = None
 
@@ -790,6 +801,14 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     assert len(kf_list) == n_layers, f"k_fixed list length {len(kf_list)} != n_layers {n_layers}"
 
     n_samples = inputs[0].shape[0]
+
+    # Causal reconstruction validation is only possible in primary mode, where the
+    # original model and input images are available to run forward passes.
+    val_model = model if (validate and isinstance(data, DataLoader)) else None
+    if val_model is not None:
+        from .recon_validation import validate_node_reconstruction
+        val_device = validate_device or next(val_model.parameters()).device
+        _real_ce_cache = {}
 
     def _trace_node(l_idx, stimulus_weights, connection_weights, path):
         W         = weights[l_idx]
@@ -842,6 +861,20 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         }
         if ltype == 'attn' and attn_w is not None:
             node['attn_weights'] = attn_w
+
+        if val_model is not None:
+            node['act_input'] = act_input
+            node['connection_weights'] = connection_weights
+            rv = validate_node_reconstruction(
+                val_model, images_meta, targets_meta, node, val_device,
+                top_m=validate_top_m, real_ce_cache=_real_ce_cache,
+            )
+            node['recon_validation'] = rv
+            # Drop the large activation reference so it is not retained on the node.
+            del node['act_input'], node['connection_weights']
+            if verbose >= 1 and rv is not None:
+                print(f'[BFT{layer_tag}]   recon loss-ratio (all factors) = '
+                      f'{rv["loss_ratio_all"]:.4f}  (n_active={rv["n_active"]})')
 
         if l_idx > 0:
             for fi in range(min(nb_list[l_idx], len(lams))):

@@ -33,6 +33,10 @@ class BFTNode:
     weighting         : str — weighting strategy used during tracing
     stimulus_threshold: float — stimulus quantile threshold applied during tracing
     attn_weights      : (N, T) or None — CLS-row attention scores (attn layers only)
+    recon_validation  : dict or None — causal reconstruction validation result
+                        (only populated when bft(..., validate=True); None for conv
+                        layers and non-primary modes). Keys: loss_ratio_all, real_ce,
+                        recon_ce, n_active, per_factor.
     children          : list[BFTNode] — child nodes toward the input; empty at leaves
     """
     layer_idx: int
@@ -50,6 +54,7 @@ class BFTNode:
     weighting: str = 'img_selectivity'
     stimulus_threshold: float = 0.0
     attn_weights: Optional[np.ndarray] = None
+    recon_validation: Optional[dict] = None
     children: list = field(default_factory=list)
 
     @property
@@ -86,6 +91,16 @@ class BFTResult:
     @property
     def n_samples(self) -> int:
         return len(self.targets)
+
+    def validation_summary(self) -> Optional[dict]:
+        """Aggregate causal reconstruction validation across all nodes.
+
+        Returns None when bft() was not run with validate=True. Otherwise a dict
+        with 'overall' and 'per_layer' summary statistics of the all-factors loss
+        ratio, plus the flat list of 'individual' per-node values.
+        """
+        from .recon_validation import summarize_validation
+        return summarize_validation(self.nodes())
 
 
 @dataclass
