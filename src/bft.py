@@ -719,7 +719,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         conv_pool_method='avg', recon_threshold=None,
-        validate=False, validate_top_m=20, validate_device=None,
+        validate=False, validate_top_m=100, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
