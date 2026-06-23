@@ -50,6 +50,93 @@ ab = ablation_sweep(model, result, test_loader, target_class=0)
 
 ---
 
+## Extending BFT: Custom Factorizations and Normalizations
+
+`bft()` accepts two extension points that let you swap the matrix decomposition or the joint-arbor preprocessing without touching library code.
+
+### Factorization interface
+
+Any callable that matches the signature below can be passed as `factorization=`:
+
+```python
+def my_factorization(
+    X: np.ndarray,       # (n_stimuli, n_features) non-negative joint arbor matrix
+    n_components: int,   # exact number of factors to extract
+    **params,            # contents of factorization_params dict
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Returns
+    -------
+    W       : (n_stimuli, n_components)   per-stimulus factor loadings
+    H       : (n_features, n_components)  per-feature factor loadings
+    lambdas : (n_components,)             factor importance, descending
+    """
+    ...
+```
+
+Pass keyword arguments for the factorizer via `factorization_params` (a plain dict). The legacy NMF params `random_state`, `max_iter`, `init`, `l1_ratio` are still accepted as top-level `bft()` kwargs for backward compatibility; `factorization_params` overrides them when both are given.
+
+Built-in strings: `'nmf'` (default, MiniBatch NMF via sklearn).
+
+### Normalization interface
+
+Any callable that matches the signature below can be passed as `normalization=`. It is applied to the raw joint arbor matrix after construction but before the positive/negative split and before factorization:
+
+```python
+def my_normalization(
+    joint: np.ndarray,   # (n_stimuli, n_features) raw joint arbor matrix
+) -> np.ndarray:         # same shape, normalized
+    ...
+```
+
+Built-in strings: `'none'` (default, no-op), `'l2_per_stimulus'`, `'l1_per_stimulus'`, `'frobenius'`.
+
+### Worked example: L1-regularized NMF
+
+```python
+result = bft(
+    model, test_loader,
+    factorization='nmf',
+    factorization_params={'l1_ratio': 0.5, 'max_iter': 300},
+    normalization='l2_per_stimulus',
+)
+```
+
+### Worked example: custom SVD-based factorizer
+
+```python
+import numpy as np
+
+def svd_factorize(X, n_components, **params):
+    U, s, Vt = np.linalg.svd(X, full_matrices=False)
+    U, Vt, s = U[:, :n_components], Vt[:n_components], s[:n_components]
+    W = np.abs(U) * np.sqrt(s)   # non-negative approx: take abs
+    H = np.abs(Vt.T) * np.sqrt(s)
+    lambdas = s
+    return W, H, lambdas
+
+result = bft(model, test_loader, factorization=svd_factorize, k_fixed=3)
+```
+
+### Registering a built-in
+
+Add your function to `_FACTORIZATIONS` or `_NORMALIZATIONS` in `src/bft.py` to make it available as a string key:
+
+```python
+from src.bft import _FACTORIZATIONS
+_FACTORIZATIONS['my_method'] = my_factorization
+result = bft(model, loader, factorization='my_method')
+```
+
+### Testing a new factorizer
+
+1. Run `bft(model, loader, factorization='nmf')` and `bft(model, loader, factorization=my_fn)` on notebook `01_MLP_8_4_0134.ipynb`'s model.
+2. Compare `result.root.img_factors.shape` — should be `(N, K)` with K ≤ k_max.
+3. Confirm `result.root.lambdas` is strictly descending and non-negative.
+4. Visually compare `plot_scaffold(result, model, loader)` outputs.
+
+---
+
 ## Notebooks
 
 Five analysis notebooks in `notebooks/` illustrate the full pipeline on different architectures:

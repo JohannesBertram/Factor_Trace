@@ -234,6 +234,89 @@ def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=500, init=None,
     return img_f[:, :k_star], con_f[:, :k_star], lams[:k_star], k_star
 
 
+# ── Factorization registry ────────────────────────────────────────────────────
+
+def _nmf_factorize(X, n_components, **params):
+    """Default NMF factorization — wraps full_nmf_pipeline."""
+    return full_nmf_pipeline(X, n_components, **params)
+
+
+_FACTORIZATIONS: dict = {'nmf': _nmf_factorize}
+
+
+def _resolve_factorization(factorization):
+    if callable(factorization):
+        return factorization
+    if factorization in _FACTORIZATIONS:
+        return _FACTORIZATIONS[factorization]
+    raise ValueError(
+        f"Unknown factorization {factorization!r}. "
+        f"Available built-ins: {list(_FACTORIZATIONS)}. Or pass a callable."
+    )
+
+
+def _auto_k_factorize(X, factorize_fn, k_max, recon_threshold, **params):
+    """Fit at k_max then prune to the smallest effective rank.
+
+    Applies the same lambda-drop + reconstruction-error heuristic used by
+    auto_nmf_pipeline, but accepts any factorize_fn with the standard interface.
+    """
+    if k_max is None:
+        k_max = min(min(X.shape) - 1, 20)
+    k_max = max(int(k_max), 2)
+    img_f, con_f, lams = factorize_fn(X, k_max, **params)
+    rt = recon_threshold if recon_threshold is not None else 0.4
+    recon_errs = _partial_recon_errors(X, img_f, con_f)
+    k_frac  = _select_k_single(lams, min_k=1)
+    k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
+    k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
+    return img_f[:, :k_star], con_f[:, :k_star], lams[:k_star], k_star
+
+
+def _run_factorization(joint, factorize_fn, k_fixed, k_max, recon_threshold, **params):
+    """Run factorization at fixed or auto rank. Returns (W, H, lambdas)."""
+    if k_fixed is not None:
+        k = max(1, min(int(k_fixed), min(joint.shape) - 1))
+        return factorize_fn(joint, k, **params)
+    W, H, lams, _ = _auto_k_factorize(joint, factorize_fn, k_max, recon_threshold, **params)
+    return W, H, lams
+
+
+# ── Normalization registry ────────────────────────────────────────────────────
+
+def _l2_per_stimulus(joint):
+    norms = np.linalg.norm(joint, axis=1, keepdims=True)
+    return joint / (norms + 1e-8)
+
+
+def _l1_per_stimulus(joint):
+    norms = np.abs(joint).sum(axis=1, keepdims=True)
+    return joint / (norms + 1e-8)
+
+
+def _frobenius_norm(joint):
+    return joint / (np.linalg.norm(joint) + 1e-8)
+
+
+_NORMALIZATIONS: dict = {
+    'none':             lambda j: j,
+    'l2_per_stimulus':  _l2_per_stimulus,
+    'l1_per_stimulus':  _l1_per_stimulus,
+    'frobenius':        _frobenius_norm,
+}
+
+
+def _resolve_normalization(normalization):
+    if callable(normalization):
+        return normalization
+    if normalization in _NORMALIZATIONS:
+        return _NORMALIZATIONS[normalization]
+    raise ValueError(
+        f"Unknown normalization {normalization!r}. "
+        f"Available built-ins: {list(_NORMALIZATIONS)}. Or pass a callable."
+    )
+
+
 # ── BFT core ──────────────────────────────────────────────────────────────────
 
 def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-8,
@@ -410,8 +493,10 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         random_state=0, max_iter=500, init=None, l1_ratio=0,
                         layer_type='fc', conv_pool_method='avg', k_fixed=None,
                         attn_weights=None, recon_threshold=None,
+                        factorization='nmf', factorization_params=None,
+                        normalization='none',
                         verbose=0, _layer_tag='', **factorizer_kwargs):
-    """One BFT step: build joint arbors for a layer and factorise with NMF.
+    """One BFT step: build joint arbors for a layer and factorise.
 
     Parameters
     ----------
@@ -420,16 +505,25 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     act_input           : (n_samples, n_in) for 'fc'; (N, C_in, H, W) for 'conv';
                           (N, T, d_model) for 'attn' (all token activations, post-LN)
     stimulus_weights    : (n_samples,) per-sample importance from the layer above
-    k_max               : upper bound on NMF rank; None uses auto default.
+    k_max               : upper bound on factorization rank; None uses auto default.
                           Ignored when k_fixed is set.
     stimulus_threshold  : passed through to the arbor-computation function
     connection_weights  : per-neuron (FC) or per-channel (conv) or per-dim (attn) importance
-    random_state, max_iter, init, l1_ratio : passed through to run_nmf_minibatch
+    random_state, max_iter, init, l1_ratio : NMF defaults; overridden by factorization_params
     layer_type          : 'fc' (default), 'conv', or 'attn' — selects the arbor function
     conv_pool_method    : spatial pooling for conv arbors: 'avg', 'max', 'center'
     k_fixed             : int or None — when set, use exactly this many components
-                          (calls full_nmf_pipeline directly at k_fixed, bypasses auto)
     attn_weights        : (N, T) or None — required when layer_type=='attn'.
+    factorization       : str or callable — matrix factorization to apply to the joint
+                          arbor matrix. Built-in: 'nmf' (default). A callable must match
+                          the interface: fn(X, n_components, **params) -> (W, H, lambdas).
+    factorization_params : dict or None — keyword arguments forwarded to the factorization
+                          function (e.g. {'l1_ratio': 0.5, 'max_iter': 200}). Overrides
+                          the legacy explicit NMF params when both are supplied.
+    normalization       : str or callable — transform applied to the raw joint arbor matrix
+                          after construction but before factorization. Built-ins: 'none'
+                          (default), 'l2_per_stimulus', 'l1_per_stimulus', 'frobenius'.
+                          A callable must match: fn(joint) -> joint.
 
     Returns
     -------
@@ -462,7 +556,22 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                                                     stimulus_threshold=stimulus_threshold,
                                                     connection_weights=connection_weights)
 
-    # Split into positive/negative parts for separate NMF factorization.
+    # Resolve factorization and normalization callables.
+    factorize_fn = _resolve_factorization(factorization)
+    normalize_fn = _resolve_normalization(normalization)
+
+    # Build unified params dict; factorization_params overrides legacy explicit params.
+    _fp: dict = {'random_state': random_state, 'max_iter': max_iter,
+                 'init': init, 'l1_ratio': l1_ratio}
+    if factorization_params:
+        _fp.update(factorization_params)
+    if factorizer_kwargs:
+        _fp.update(factorizer_kwargs)
+
+    # Apply normalization to raw joint before the pos/neg split.
+    raw_joint = normalize_fn(raw_joint)
+
+    # Split into positive/negative parts for separate factorization.
     pos_joint = np.clip(raw_joint, 0, None)
     neg_joint = np.clip(-raw_joint, 0, None)
 
@@ -472,41 +581,19 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
               f'pos {pos_joint.shape}  neg {neg_joint.shape}')
 
     _t0 = time.perf_counter() if verbose >= 2 else None
-    if k_fixed is not None:
-        k = max(int(k_fixed), 1)
-        k = min(k, min(pos_joint.shape) - 1)
-        img_f, con_f, lams = full_nmf_pipeline(
-            pos_joint, k, random_state=random_state, max_iter=max_iter,
-            init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
-        )
-    else:
-        img_f, con_f, lams, _ = auto_nmf_pipeline(
-            pos_joint, k_max=k_max,
-            random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-            recon_threshold=recon_threshold,
-            **factorizer_kwargs,
-        )
+    img_f, con_f, lams = _run_factorization(
+        pos_joint, factorize_fn, k_fixed, k_max, recon_threshold, **_fp,
+    )
     if verbose >= 2:
-        print(f'{tag}   NMF pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
+        print(f'{tag}   factorize pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
 
     if neg_joint.max() > 0:
         _t0_neg = time.perf_counter() if verbose >= 2 else None
-        k_neg = k_fixed if k_fixed is not None else None
-        if k_neg is not None:
-            k_neg = max(1, min(int(k_neg), min(neg_joint.shape) - 1))
-            neg_img_f, neg_con_f, neg_lams = full_nmf_pipeline(
-                neg_joint, k_neg, random_state=random_state, max_iter=max_iter,
-                init=init, l1_ratio=l1_ratio, **factorizer_kwargs,
-            )
-        else:
-            neg_img_f, neg_con_f, neg_lams, _ = auto_nmf_pipeline(
-                neg_joint, k_max=k_max,
-                random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
-                recon_threshold=recon_threshold,
-                **factorizer_kwargs,
-            )
+        neg_img_f, neg_con_f, neg_lams = _run_factorization(
+            neg_joint, factorize_fn, k_fixed, k_max, recon_threshold, **_fp,
+        )
         if verbose >= 2:
-            print(f'{tag}   NMF neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
+            print(f'{tag}   factorize neg  K={len(neg_lams)}  {time.perf_counter() - _t0_neg:.2f} s')
     else:
         neg_img_f = neg_con_f = neg_lams = None
 
@@ -719,6 +806,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         device=None, stimulus_threshold=0.0, weighting='img_selectivity',
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         conv_pool_method='avg', recon_threshold=None,
+        factorization='nmf', factorization_params=None, normalization='none',
         validate=False, validate_top_m=20, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
@@ -760,6 +848,17 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
     k_fixed             : list[int or None] or None — per-layer fixed NMF rank
     conv_pool_method    : 'avg', 'max', or 'center' — spatial pooling for conv layers
     recon_threshold     : float or None — max acceptable relative Frobenius error
+    factorization       : str or callable — matrix factorization applied to each layer's
+                          joint arbor matrix. Built-in: 'nmf' (default). A callable must
+                          match: fn(X, n_components, **params) -> (W, H, lambdas).
+    factorization_params : dict or None — keyword arguments forwarded to the factorization
+                          function (e.g. {'l1_ratio': 0.5}). Overrides the legacy explicit
+                          NMF params (random_state, max_iter, init, l1_ratio) when both
+                          are given. Extra **factorizer_kwargs always take final precedence.
+    normalization       : str or callable — transform applied to the raw joint arbor matrix
+                          after construction but before factorization. Built-ins: 'none'
+                          (default, preserves current behavior), 'l2_per_stimulus',
+                          'l1_per_stimulus', 'frobenius'. A callable: fn(joint) -> joint.
     validate            : bool — run causal reconstruction validation per factorization.
                           Each fc factorization's reconstructed activity replaces the
                           layer's real output; the rest of the model runs normally and
@@ -842,16 +941,23 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             print(f'[BFT] Layer {l_idx + 1}/{n_layers} {names[l_idx]!r} ({ltype})  '
                   f'path={path_str}')
 
+        # Build unified factorization params once; factorization_params overrides legacy.
+        _fp: dict = {'random_state': random_state, 'max_iter': max_iter,
+                     'init': init, 'l1_ratio': l1_ratio}
+        if factorization_params:
+            _fp.update(factorization_params)
+        _fp.update(factorizer_kwargs)
+
         _t_layer = time.perf_counter()
         img_f, con_f, lams, joint, neg_img_f, neg_con_f, neg_lams = trace_single_layer(
             W, act_input, stimulus_weights,
             k_max=k_list[l_idx], k_fixed=kf_list[l_idx],
             stimulus_threshold=stimulus_threshold, connection_weights=connection_weights,
-            random_state=random_state, max_iter=max_iter, init=init, l1_ratio=l1_ratio,
             layer_type=ltype, conv_pool_method=conv_pool_method,
             attn_weights=attn_w, recon_threshold=recon_threshold,
+            factorization=factorization, factorization_params=_fp,
+            normalization=normalization,
             verbose=verbose, _layer_tag=layer_tag,
-            **factorizer_kwargs,
         )
         _t_nmf = time.perf_counter() - _t_layer
         if verbose >= 1:
