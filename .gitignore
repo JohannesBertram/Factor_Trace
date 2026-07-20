@@ -21,3 +21,9 @@ encoding_manifolds/
 pixi.lock
 .pixi/
 pyproject.toml
+s01_encoding_manifolds.ipynb
+s02_FlyVis_BFT.ipynb
+klapoetke/
+FLYVIS_DATA_INSTRUCTIONS.md
+encoding_manifold_utils.py
+flyvis_trace_utils.py

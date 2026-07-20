@@ -33,6 +33,11 @@ from .checkpoint import (
 )
 from .scaffold_utils import (bft_node_vals, build_scaffold_edges,
                              scaffold_loading_from_edges, scaffold_layer_sizes_from_edges)
+from .flyvis_trace_utils import (build_celltype_graph, default_input_types,
+                                 prune_weak_edges,
+                                 compute_celltype_depths, select_presynaptic_types,
+                                 build_backward_stack, aggregate_factors_to_celltypes,
+                                 celltype_scaffold_edges, plot_celltype_traceback)
 from .fingerprint_utils import (
     extract_factor_fingerprint,
     extract_fingerprint_matrix,

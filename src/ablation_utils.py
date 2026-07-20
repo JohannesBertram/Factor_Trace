@@ -487,6 +487,7 @@ def ablation_sweep(
     device=None,
     n_random_repeats=10,
     normalize_bft=True,
+    layer_inputs_list=None,
     verbose=0,
 ):
     """Single entrypoint for a pruning experiment on one target class.
@@ -504,13 +505,16 @@ def ablation_sweep(
     layer_indices : list[int] or None — restrict pruning to these layer indices
                     (0 = input-side layer, n_layers-1 = output layer).
                     None means all layers.
-    methods       : subset of ('bft_top', 'bft_bottom', 'magnitude', 'random')
+    methods       : subset of ('bft_top', 'bft_bottom', 'magnitude', 'random',
+                    'act_magnitude', 'taylor'). 'act_magnitude' requires
+                    layer_inputs_list; 'taylor' uses test_loader + target_class.
     label_transform : callable or None
     device        : torch device or None
     n_random_repeats : repeats for the 'random' method
-    normalize_bft : if True, min-max normalise BFT scores per layer before
-                    using them for 'bft_bottom' (prevents wide early layers from
-                    dominating the low-importance pool)
+    normalize_bft : if True, min-max normalise BFT scores per layer before using
+                    them for BOTH 'bft_top' and 'bft_bottom' (prevents wide early
+                    layers from dominating and keeps top/bottom selection symmetric)
+    layer_inputs_list : list[(N, n_in)] per-layer inputs, required for 'act_magnitude'
     verbose       : 0 = silent, 1 = print method progress
 
     Returns
@@ -530,20 +534,42 @@ def ablation_sweep(
         except StopIteration:
             device = torch.device('cpu')
 
+    # Guard the label-space invariant: select_class_circuit compares target_class
+    # against bft_result.targets, while per_class_accuracy/taylor_scores compare
+    # against label_transform(target). They only agree if the BFT was traced on the
+    # label-transformed loader so its targets already live in the transformed space.
+    uniq = set(int(t) for t in np.unique(targets))
+    assert target_class in uniq, (
+        f"target_class={target_class} not in bft_result.targets {sorted(uniq)}; "
+        "trace BFT on the label-transformed loader so targets match the space used "
+        "by per_class_accuracy(label_transform=...).")
+
     # Compute importance scores
     bft_sc, bft_info = select_class_circuit(bft_result, targets, target_class)
     if bft_info['warning'] and verbose:
         print(f'[ablation_sweep] {bft_info["warning"]}')
 
+    # Use per-layer-normalized BFT scores for BOTH bft_top and bft_bottom so that,
+    # when a layer-depth sweep pools layers of different widths/NMF scales, top- and
+    # bottom-selection are on the same footing (fixes the raw-vs-normalized asymmetry).
     bft_sc_norm = normalize_scores_per_layer(bft_sc) if normalize_bft else bft_sc
     mag_sc = magnitude_scores(model)
 
     _score_map = {
-        'bft_top':   (bft_sc,      'algo_top'),
+        'bft_top':    (bft_sc_norm, 'algo_top'),
         'bft_bottom': (bft_sc_norm, 'algo_bottom'),
-        'magnitude': (mag_sc,      'algo_top'),
-        'random':    (mag_sc,      'random'),
+        'magnitude':  (mag_sc,      'algo_top'),
+        'random':     (mag_sc,      'random'),
     }
+    if 'act_magnitude' in methods:
+        if layer_inputs_list is None:
+            raise ValueError("method 'act_magnitude' requires layer_inputs_list=")
+        _score_map['act_magnitude'] = (
+            act_magnitude_scores(model, layer_inputs_list), 'algo_top')
+    if 'taylor' in methods:
+        _score_map['taylor'] = (
+            taylor_scores(model, test_loader, label_transform, device, target_class),
+            'algo_top')
 
     baseline = per_class_accuracy(model, test_loader, label_transform, device)
 
@@ -584,6 +610,7 @@ def ablation_layer_sweep(
     device=None,
     n_random_repeats=10,
     normalize_bft=True,
+    layer_inputs_list=None,
     verbose=0,
 ):
     """Sweep over layer depth: run ablation_sweep for last 1, 2, …, L layers.
@@ -628,6 +655,7 @@ def ablation_layer_sweep(
             device=device,
             n_random_repeats=n_random_repeats,
             normalize_bft=normalize_bft,
+            layer_inputs_list=layer_inputs_list,
             verbose=max(0, verbose - 1),
         )
 

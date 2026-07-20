@@ -41,6 +41,13 @@ import torch
 import torch.nn.functional as F
 
 
+# Floor on the real cross-entropy denominator. With only_correct=True and a small
+# top_m of high-confidence images, real_ce can be ~1e-3, which makes the raw ratio
+# recon_ce/real_ce explode for a negligible absolute error. loss_ratio_floored uses
+# this floor; prefer abs_ce_gap and preact_r2 as the headline fidelity metrics.
+CE_FLOOR = 1e-2
+
+
 # ── reconstruction ────────────────────────────────────────────────────────────
 
 def reconstruct_preactivation(W, act_input, img_f, con_f, neg_img_f, neg_con_f,
@@ -170,7 +177,7 @@ def _forward_ce(model, images, targets, device, hook_module=None, z_recon=None,
 # ── node-level validation ──────────────────────────────────────────────────────
 
 def validate_node_reconstruction(model, images, targets, node, device,
-                                 top_m=20, real_ce_cache=None):
+                                 top_m=100, real_ce_cache=None):
     """Causal reconstruction validation for one BFT node.
 
     Returns None when validation is not applicable (non-fc layer, no model, or the
@@ -249,8 +256,24 @@ def validate_node_reconstruction(model, images, targets, node, device,
     real_all, recon_all = ce_on(eval_idx)
     loss_ratio_all = recon_all / real_all if real_all > 0 else float('inf')
 
+    # Robust fidelity metrics. The raw ratio blows up when real_ce -> 0 (very
+    # confident correct samples), so we also report a floored ratio, the absolute
+    # CE gap, and the pre-activation R^2 (how well the factors reconstruct the true
+    # pre-activation, independent of any CE amplification).
+    loss_ratio_floored = recon_all / max(real_all, CE_FLOOR)
+    abs_ce_gap = recon_all - real_all
+    z_true = act_input @ W.T                                # (N, n_out)
+    zt = z_true[eval_idx].ravel()
+    zr = z_recon[eval_idx].ravel()
+    ss_tot = float(np.sum((zt - zt.mean()) ** 2))
+    ss_res = float(np.sum((zt - zr) ** 2))
+    preact_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
+
     return {
         'loss_ratio_all': loss_ratio_all,
+        'loss_ratio_floored': loss_ratio_floored,
+        'abs_ce_gap': abs_ce_gap,
+        'preact_r2': preact_r2,
         'real_ce': real_all,
         'recon_ce': recon_all,
         'n_eval': int(len(eval_idx)),
@@ -280,24 +303,29 @@ def summarize_validation(nodes):
     dict with keys 'overall', 'per_layer', and 'individual', or None if no node
     carries validation results.
     """
+    # Headline metrics: prefer the floored ratio, absolute CE gap, and pre-activation
+    # R^2 over the raw (blow-up-prone) loss_ratio_all.
+    METRICS = ('loss_ratio_floored', 'abs_ce_gap', 'preact_r2', 'loss_ratio_all')
+
     individual = []
     for nd in nodes:
         rv = getattr(nd, 'recon_validation', None)
         if rv is None:
             continue
-        individual.append({
-            'layer_idx': nd.layer_idx,
-            'layer_name': nd.layer_name,
-            'path': nd.path,
-            'loss_ratio_all': rv['loss_ratio_all'],
-        })
+        rec = {'layer_idx': nd.layer_idx, 'layer_name': nd.layer_name, 'path': nd.path}
+        for m in METRICS:
+            rec[m] = rv.get(m)
+        individual.append(rec)
     if not individual:
         return None
 
+    layer_ids = sorted({d['layer_idx'] for d in individual})
     per_layer = {}
-    for li in sorted({d['layer_idx'] for d in individual}):
-        vals = [d['loss_ratio_all'] for d in individual if d['layer_idx'] == li]
-        per_layer[li] = _stats(vals)
+    for li in layer_ids:
+        rows = [d for d in individual if d['layer_idx'] == li]
+        per_layer[li] = {m: _stats([r[m] for r in rows if r[m] is not None])
+                         for m in METRICS}
 
-    overall = _stats([d['loss_ratio_all'] for d in individual])
+    overall = {m: _stats([d[m] for d in individual if d[m] is not None])
+               for m in METRICS}
     return {'overall': overall, 'per_layer': per_layer, 'individual': individual}

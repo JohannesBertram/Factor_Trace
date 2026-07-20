@@ -807,7 +807,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         conv_pool_method='avg', recon_threshold=None,
         factorization='nmf', factorization_params=None, normalization='none',
-        validate=False, validate_top_m=20, validate_device=None,
+        validate=False, validate_top_m=100, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
@@ -928,6 +928,18 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         from .recon_validation import validate_node_reconstruction
         val_device = validate_device or next(val_model.parameters()).device
         _real_ce_cache = {}
+        # reconstruct_preactivation inverts the per-stimulus normalization inside
+        # compute_joint_arbors_normalized, but NOT the outer `normalization` transform
+        # applied to the raw joint arbor. With a non-'none' normalization the
+        # reconstructed pre-activation is off by a per-row scale and loss ratios are
+        # systematically inflated.
+        if normalization != 'none':
+            import warnings
+            warnings.warn(
+                f"validate=True with normalization={normalization!r}: causal "
+                "reconstruction does not invert this outer normalization, so "
+                "recon metrics will be biased. Use normalization='none' for "
+                "validation.", RuntimeWarning)
 
     def _trace_node(l_idx, stimulus_weights, connection_weights, path):
         W         = weights[l_idx]
@@ -999,8 +1011,10 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             # Drop the large activation reference so it is not retained on the node.
             del node['act_input'], node['connection_weights']
             if verbose >= 1 and rv is not None:
-                print(f'[BFT{layer_tag}]   recon loss-ratio (all factors) = '
-                      f'{rv["loss_ratio_all"]:.4f}  (n_eval={rv["n_eval"]})')
+                print(f'[BFT{layer_tag}]   recon: preact_R2={rv["preact_r2"]:.3f}  '
+                      f'abs_CE_gap={rv["abs_ce_gap"]:.4f}  '
+                      f'ratio_floored={rv["loss_ratio_floored"]:.3f}  '
+                      f'(raw={rv["loss_ratio_all"]:.3f}, n_eval={rv["n_eval"]})')
 
         if l_idx > 0:
             for fi in range(min(nb_list[l_idx], len(lams))):
