@@ -9,7 +9,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY="${PYTHON:-$REPO/.venv/bin/python}"
+PY="${PYTHON:-$REPO/.venv2/bin/python}"
 WHICH="${1:-all}"
 SEEDS="${SEEDS:-1 2 3 4}"
 

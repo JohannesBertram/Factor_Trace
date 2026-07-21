@@ -1,0 +1,346 @@
+[NbConvertApp] Converting notebook 09_validation_all_models.ipynb to notebook
+Traceback (most recent call last):
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/jupyter_core/utils/__init__.py", line 154, in wrapped
+    asyncio.get_running_loop()
+RuntimeError: no running event loop
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib64/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/usr/lib64/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/__main__.py", line 5, in <module>
+    main()
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/jupyter_core/application.py", line 284, in launch_instance
+    super().launch_instance(argv=argv, **kwargs)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/traitlets/config/application.py", line 1082, in launch_instance
+    app.start()
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/nbconvertapp.py", line 420, in start
+    self.convert_notebooks()
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/nbconvertapp.py", line 597, in convert_notebooks
+    self.convert_single_notebook(notebook_filename)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/nbconvertapp.py", line 563, in convert_single_notebook
+    output, resources = self.export_single_notebook(
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/nbconvertapp.py", line 487, in export_single_notebook
+    output, resources = self.exporter.from_filename(
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/exporters/exporter.py", line 201, in from_filename
+    return self.from_file(f, resources=resources, **kw)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/exporters/exporter.py", line 220, in from_file
+    return self.from_notebook_node(
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/exporters/notebook.py", line 36, in from_notebook_node
+    nb_copy, resources = super().from_notebook_node(nb, resources, **kw)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/exporters/exporter.py", line 154, in from_notebook_node
+    nb_copy, resources = self._preprocess(nb_copy, resources)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/exporters/exporter.py", line 353, in _preprocess
+    nbc, resc = preprocessor(nbc, resc)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/preprocessors/base.py", line 48, in __call__
+    return self.preprocess(nb, resources)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/preprocessors/execute.py", line 103, in preprocess
+    self.preprocess_cell(cell, resources, index)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbconvert/preprocessors/execute.py", line 124, in preprocess_cell
+    cell = self.execute_cell(cell, index, store_history=True)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/jupyter_core/utils/__init__.py", line 158, in wrapped
+    return loop.run_until_complete(inner)
+  File "/usr/lib64/python3.9/asyncio/base_events.py", line 634, in run_until_complete
+    self.run_forever()
+  File "/usr/lib64/python3.9/asyncio/base_events.py", line 601, in run_forever
+    self._run_once()
+  File "/usr/lib64/python3.9/asyncio/base_events.py", line 1869, in _run_once
+    event_list = self._selector.select(timeout)
+  File "/usr/lib64/python3.9/selectors.py", line 469, in select
+    fd_event_list = self._selector.poll(timeout, max_ev)
+KeyboardInterrupt
+Task exception was never retrieved
+future: <Task finished name='Task-7' coro=<NotebookClient.async_execute_cell() done, defined at /home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbclient/client.py:920> exception=CellExecutionError('An error occurred while executing the following cell:\n------------------\nimport os, sys, json, copy, warnings\nsys.path.insert(0, \'..\')\n\nimport numpy as np\nimport torch\nimport torch.nn as nn\nimport matplotlib.pyplot as plt\nfrom torch.utils.data import DataLoader, Subset\nfrom scipy.stats import wilcoxon, ttest_rel\nfrom sklearn.decomposition import MiniBatchNMF, PCA\nfrom sklearn.manifold import MDS\nfrom sklearn.metrics import silhouette_score, roc_auc_score\nfrom sklearn.metrics.pairwise import cosine_distances, paired_cosine_distances\nfrom sklearn.neighbors import KNeighborsClassifier\nfrom sklearn.model_selection import cross_val_score, train_test_split\nfrom sklearn.random_projection import GaussianRandomProjection\nfrom sklearn.utils.extmath import randomized_svd\n\nfrom src import (SimpleMLP, load_experiment, save_experiment, get_transform,\n                 get_loaders_from_config, collect_layer_dicts, bft, evaluate,\n                 select_class_circuit, per_class_accuracy,\n                 extract_fingerprint_matrix, project_stimuli_onto_tree,\n                 compute_nmf_stability, compute_k_sensitivity)\nfrom src.bft import (compute_joint_arbors_normalized, compute_conv_joint_arbors,\n                     compute_attn_joint_arbors)\nfrom src.training import train_epoch, label_transform_even_odd\nfrom src.data_utils import get_mnist_loaders, label_transformed_loader\nfrom src.robustness_utils import align_factors\n\nwarnings.filterwarnings(\'ignore\')\nRNG  = np.random.default_rng(0)\nREPO = os.path.abspath(\'..\')                     # notebook lives in notebooks/\nEXP  = os.environ.get(\'NB09_EXP\',  \'mlp_even_odd\')\nMODE = os.environ.get(\'NB09_MODE\', \'local\')\nDEVICE = torch.device(\'cuda\' if torch.cuda.is_available() else\n                      (\'mps\' if torch.backends.mps.is_available() else \'cpu\'))\n\nFIG_DIR    = os.path.join(REPO, \'figs\', \'09_validation\', EXP)\nRES_DIR    = os.path.join(REPO, \'data\', \'results\')\nMODEL_ROOT = os.path.join(REPO, \'data\', \'models\')\nfor d in (FIG_DIR, RES_DIR):\n    os.makedirs(d, exist_ok=True)\n\n# Compute profile. \'local\' caps everything for laptop iteration; \'cluster\' is the\n# full run (use a GPU node — see the final cell for job scripts).\nif MODE == \'cluster\':\n    N_TRACE, BFT_MAX_ITER, AUX_MAX_ITER, STAB_SEEDS, NMF_SUB, IG_STEPS = None, 500, 300, 10, 800, 48\n    RECON_EVAL_MAX, SWEEP_STAB_SEEDS, N_NMF_SEEDS, ATTR_MAX = 2000, 4, 5, 1000\n    REFIT_RUNS = 3\nelse:\n    N_TRACE, BFT_MAX_ITER, AUX_MAX_ITER, STAB_SEEDS, NMF_SUB, IG_STEPS = 400, 100, 80, 4, 250, 8\n    RECON_EVAL_MAX, SWEEP_STAB_SEEDS, N_NMF_SEEDS, ATTR_MAX = 300, 2, 2, 200\n    REFIT_RUNS = 2\n\n# RECON_EVAL_MAX caps the samples scored per causal-reconstruction variant: the metrics\n# are per-sample means, so a large subsample is statistically equivalent and much cheaper.\n# SWEEP_STAB_SEEDS is the (reduced) stability-seed count inside the FU1/S10 sweeps, where\n# stability is a shape signal rather than a headline number; S1 keeps the full STAB_SEEDS.\n\nresults, figpaths = {\'experiment\': EXP, \'mode\': MODE}, {}\n\n\nCOMPLETED = []\nRESULT_PATH = os.path.join(RES_DIR, f\'nb09_{EXP}.json\')\n\n\ndef checkpoint(section=None):\n    """Atomically write results+figure paths to disk so a partial run is not wasted.\n\n    Called at the end of every section. Writing to a .tmp and os.replace()-ing means a\n    kill mid-write cannot leave a truncated JSON behind.\n    """\n    if section and section not in COMPLETED:\n        COMPLETED.append(section)\n    results[\'completed_sections\'] = list(COMPLETED)\n    results[\'figures\'] = dict(figpaths)\n    results[\'caps\'] = globals().get(\'caps\')\n    results[\'config\'] = {\'n_trace\': N_TRACE, \'bft_max_iter\': BFT_MAX_ITER,\n                         \'aux_max_iter\': AUX_MAX_ITER, \'stab_seeds\': STAB_SEEDS,\n                         \'recon_eval_max\': RECON_EVAL_MAX,\n                         \'n_samples\': globals().get(\'n_samples\'), \'device\': str(DEVICE)}\n    tmp = RESULT_PATH + \'.tmp\'\n    with open(tmp, \'w\') as f:\n        json.dump(jsonable(results), f, indent=1)\n    os.replace(tmp, RESULT_PATH)\n    print(f\'  [checkpoint] {section or ""} -> {os.path.relpath(RESULT_PATH, REPO)} \'\n          f\'({len(COMPLETED)} sections)\')\n\n\ndef hist_data(v, bins=30):\n    """Everything needed to redraw a histogram from the JSON alone."""\n    v = np.asarray(v, dtype=float)\n    counts, edges = np.histogram(v, bins=bins)\n    return {\'counts\': counts.tolist(), \'bin_edges\': edges.tolist(), \'n\': int(v.size),\n            \'mean\': float(v.mean()), \'std\': float(v.std()),\n            \'min\': float(v.min()), \'max\': float(v.max()),\n            \'q25\': float(np.percentile(v, 25)), \'median\': float(np.percentile(v, 50)),\n            \'q75\': float(np.percentile(v, 75))}\n\n\ndef savefig(fig, name):\n    p = os.path.join(FIG_DIR, name)\n    fig.savefig(p, bbox_inches=\'tight\')\n    figpaths[name] = os.path.relpath(p, REPO)\n    print(\'  saved\', figpaths[name])\n    plt.show()\n\n\ndef jsonable(o):\n    if isinstance(o, dict):\n        return {str(k): jsonable(v) for k, v in o.items()}\n    if isinstance(o, (list, tuple)):\n        return [jsonable(v) for v in o]\n    if isinstance(o, np.ndarray):\n        return o.tolist()\n    if isinstance(o, (np.floating, np.integer)):\n        return float(o)\n    return o if isinstance(o, (float, int, str, bool)) or o is None else str(o)\n\n\ndef sub_rows(X):\n    return X if X.shape[0] <= NMF_SUB else X[RNG.choice(X.shape[0], NMF_SUB, replace=False)]\n\n\ndef stab_mean(X, k, n_seeds=None):\n    sim, _ = compute_nmf_stability(sub_rows(X), k, n_seeds=n_seeds or STAB_SEEDS,\n                                   max_iter=AUX_MAX_ITER)\n    return sim[~np.eye(sim.shape[0], dtype=bool)]\n\n\ndef knn_cv(X, y, kmax=5, cv_max=3):\n    """kNN cross-val accuracy, robust to non-contiguous and small classes.\n\n    Counts only classes that are PRESENT: np.bincount() reports a 0 for gaps in the\n    label set (e.g. digits {0,1,3,4} -> a zero at index 2), which would yield\n    n_neighbors=0 and make sklearn raise.\n    """\n    classes, counts = np.unique(y, return_counts=True)\n    mn = int(counts.min())\n    if len(classes) < 2 or mn < 2:\n        return float(\'nan\')\n    cv = int(min(cv_max, mn))              # StratifiedKFold needs >= cv per class\n    k = int(max(1, min(kmax, mn)))         # and n_neighbors >= 1\n    return float(cross_val_score(KNeighborsClassifier(k), X, y, cv=cv).mean())\n\n\ndef sep_metrics(X, y):\n    Xn = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)\n    if len(np.unique(y)) < 2 or len(y) < 12:\n        return float(\'nan\'), float(\'nan\')\n    return float(silhouette_score(Xn, y)), knn_cv(Xn, y)\n\n\ndef fit_nmf(X, k):\n    """Fit on a row subsample (speed), transform the full matrix for loadings."""\n    Xc = np.clip(X, 0, None).astype(np.float32)\n    m = MiniBatchNMF(n_components=k, random_state=0, max_iter=AUX_MAX_ITER,\n                     batch_size=1024, init=\'random\')\n    m.fit(sub_rows(Xc))\n    return m.transform(Xc), m.components_.T\n\n\nprint(f\'EXP={EXP}  MODE={MODE}  DEVICE={DEVICE}  N_TRACE={N_TRACE}\')\n------------------\n\n\n\x1b[0;31m---------------------------------------------------------------------------\x1b[0m\n\x1b[0;31mKeyboardInterrupt\x1b[0m                         Traceback (most recent call last)\nCell \x1b[0;32mIn[1], line 11\x1b[0m\n\x1b[1;32m      9\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01mscipy\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mstats\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m wilcoxon, ttest_rel\n\x1b[1;32m     10\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01msklearn\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mdecomposition\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m MiniBatchNMF, PCA\n\x1b[0;32m---> 11\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01msklearn\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mmanifold\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m MDS\n\x1b[1;32m     12\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01msklearn\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mmetrics\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m silhouette_score, roc_auc_score\n\x1b[1;32m     13\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01msklearn\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mmetrics\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpairwise\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m cosine_distances, paired_cosine_distances\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/manifold/__init__.py:6\x1b[0m\n\x1b[1;32m      1\x1b[0m \x1b[38;5;124;03m"""Data embedding techniques."""\x1b[39;00m\n\x1b[1;32m      3\x1b[0m \x1b[38;5;66;03m# Authors: The scikit-learn developers\x1b[39;00m\n\x1b[1;32m      4\x1b[0m \x1b[38;5;66;03m# SPDX-License-Identifier: BSD-3-Clause\x1b[39;00m\n\x1b[0;32m----> 6\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_isomap\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m Isomap\n\x1b[1;32m      7\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_locally_linear\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m LocallyLinearEmbedding, locally_linear_embedding\n\x1b[1;32m      8\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_mds\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m MDS, smacof\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/manifold/_isomap.py:21\x1b[0m\n\x1b[1;32m     19\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mdecomposition\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m KernelPCA\n\x1b[1;32m     20\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mmetrics\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpairwise\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m _VALID_METRICS\n\x1b[0;32m---> 21\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mneighbors\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m NearestNeighbors, kneighbors_graph, radius_neighbors_graph\n\x1b[1;32m     22\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpreprocessing\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m KernelCenterer\n\x1b[1;32m     23\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mutils\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_param_validation\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m Interval, StrOptions\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/neighbors/__init__.py:19\x1b[0m\n\x1b[1;32m     17\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_lof\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m LocalOutlierFactor\n\x1b[1;32m     18\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_nca\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m NeighborhoodComponentsAnalysis\n\x1b[0;32m---> 19\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_nearest_centroid\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m NearestCentroid\n\x1b[1;32m     20\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_regression\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m KNeighborsRegressor, RadiusNeighborsRegressor\n\x1b[1;32m     21\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_unsupervised\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m NearestNeighbors\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/neighbors/_nearest_centroid.py:15\x1b[0m\n\x1b[1;32m     12\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01mscipy\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m sparse \x1b[38;5;28;01mas\x1b[39;00m sp\n\x1b[1;32m     14\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mbase\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m BaseEstimator, ClassifierMixin, _fit_context\n\x1b[0;32m---> 15\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mdiscriminant_analysis\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m DiscriminantAnalysisPredictionMixin\n\x1b[1;32m     16\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mmetrics\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpairwise\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m (\n\x1b[1;32m     17\x1b[0m     pairwise_distances,\n\x1b[1;32m     18\x1b[0m     pairwise_distances_argmin,\n\x1b[1;32m     19\x1b[0m )\n\x1b[1;32m     20\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpreprocessing\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m LabelEncoder\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/discriminant_analysis.py:20\x1b[0m\n\x1b[1;32m     11\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01mscipy\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m linalg\n\x1b[1;32m     13\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mbase\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m (\n\x1b[1;32m     14\x1b[0m     BaseEstimator,\n\x1b[1;32m     15\x1b[0m     ClassifierMixin,\n\x1b[0;32m   (...)\x1b[0m\n\x1b[1;32m     18\x1b[0m     _fit_context,\n\x1b[1;32m     19\x1b[0m )\n\x1b[0;32m---> 20\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mcovariance\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m empirical_covariance, ledoit_wolf, shrunk_covariance\n\x1b[1;32m     21\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mlinear_model\x1b[39;00m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_base\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m LinearClassifierMixin\n\x1b[1;32m     22\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01mpreprocessing\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m StandardScaler\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/covariance/__init__.py:17\x1b[0m\n\x1b[1;32m     11\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_elliptic_envelope\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m EllipticEnvelope\n\x1b[1;32m     12\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_empirical_covariance\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m (\n\x1b[1;32m     13\x1b[0m     EmpiricalCovariance,\n\x1b[1;32m     14\x1b[0m     empirical_covariance,\n\x1b[1;32m     15\x1b[0m     log_likelihood,\n\x1b[1;32m     16\x1b[0m )\n\x1b[0;32m---> 17\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_graph_lasso\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m GraphicalLasso, GraphicalLassoCV, graphical_lasso\n\x1b[1;32m     18\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_robust_covariance\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m MinCovDet, fast_mcd\n\x1b[1;32m     19\x1b[0m \x1b[38;5;28;01mfrom\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01m.\x1b[39;00m\x1b[38;5;21;01m_shrunk_covariance\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;28;01mimport\x1b[39;00m (\n\x1b[1;32m     20\x1b[0m     OAS,\n\x1b[1;32m     21\x1b[0m     LedoitWolf,\n\x1b[0;32m   (...)\x1b[0m\n\x1b[1;32m     26\x1b[0m     shrunk_covariance,\n\x1b[1;32m     27\x1b[0m )\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/covariance/_graph_lasso.py:715\x1b[0m\n\x1b[1;32m    711\x1b[0m         \x1b[38;5;28;01mreturn\x1b[39;00m covariances_, precisions_, scores_\n\x1b[1;32m    712\x1b[0m     \x1b[38;5;28;01mreturn\x1b[39;00m covariances_, precisions_\n\x1b[0;32m--> 715\x1b[0m \x1b[38;5;28;01mclass\x1b[39;00m\x1b[38;5;250m \x1b[39m\x1b[38;5;21;01mGraphicalLassoCV\x1b[39;00m(BaseGraphicalLasso):\n\x1b[1;32m    716\x1b[0m \x1b[38;5;250m    \x1b[39m\x1b[38;5;124;03m"""Sparse inverse covariance w/ cross-validated choice of the l1 penalty.\x1b[39;00m\n\x1b[1;32m    717\x1b[0m \n\x1b[1;32m    718\x1b[0m \x1b[38;5;124;03m    See glossary entry for :term:`cross-validation estimator`.\x1b[39;00m\n\x1b[0;32m   (...)\x1b[0m\n\x1b[1;32m    895\x1b[0m \x1b[38;5;124;03m    array([0.073, 0.04 , 0.038, 0.143])\x1b[39;00m\n\x1b[1;32m    896\x1b[0m \x1b[38;5;124;03m    """\x1b[39;00m\n\x1b[1;32m    898\x1b[0m     _parameter_constraints: \x1b[38;5;28mdict\x1b[39m \x1b[38;5;241m=\x1b[39m {\n\x1b[1;32m    899\x1b[0m         \x1b[38;5;241m*\x1b[39m\x1b[38;5;241m*\x1b[39mBaseGraphicalLasso\x1b[38;5;241m.\x1b[39m_parameter_constraints,\n\x1b[1;32m    900\x1b[0m         \x1b[38;5;124m"\x1b[39m\x1b[38;5;124malphas\x1b[39m\x1b[38;5;124m"\x1b[39m: [Interval(Integral, \x1b[38;5;241m0\x1b[39m, \x1b[38;5;28;01mNone\x1b[39;00m, closed\x1b[38;5;241m=\x1b[39m\x1b[38;5;124m"\x1b[39m\x1b[38;5;124mleft\x1b[39m\x1b[38;5;124m"\x1b[39m), \x1b[38;5;124m"\x1b[39m\x1b[38;5;124marray-like\x1b[39m\x1b[38;5;124m"\x1b[39m],\n\x1b[0;32m   (...)\x1b[0m\n\x1b[1;32m    903\x1b[0m         \x1b[38;5;124m"\x1b[39m\x1b[38;5;124mn_jobs\x1b[39m\x1b[38;5;124m"\x1b[39m: [Integral, \x1b[38;5;28;01mNone\x1b[39;00m],\n\x1b[1;32m    904\x1b[0m     }\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/utils/_metadata_requests.py:1377\x1b[0m, in \x1b[0;36m_MetadataRequester.__init_subclass__\x1b[0;34m(cls, **kwargs)\x1b[0m\n\x1b[1;32m   1360\x1b[0m \x1b[38;5;250m\x1b[39m\x1b[38;5;124;03m"""Set the ``set_{method}_request`` methods.\x1b[39;00m\n\x1b[1;32m   1361\x1b[0m \n\x1b[1;32m   1362\x1b[0m \x1b[38;5;124;03mThis uses PEP-487 [1]_ to set the ``set_{method}_request`` methods. It\x1b[39;00m\n\x1b[0;32m   (...)\x1b[0m\n\x1b[1;32m   1374\x1b[0m \x1b[38;5;124;03m.. [1] https://www.python.org/dev/peps/pep-0487\x1b[39;00m\n\x1b[1;32m   1375\x1b[0m \x1b[38;5;124;03m"""\x1b[39;00m\n\x1b[1;32m   1376\x1b[0m \x1b[38;5;28;01mtry\x1b[39;00m:\n\x1b[0;32m-> 1377\x1b[0m     requests \x1b[38;5;241m=\x1b[39m \x1b[38;5;28;43mcls\x1b[39;49m\x1b[38;5;241;43m.\x1b[39;49m\x1b[43m_get_default_requests\x1b[49m\x1b[43m(\x1b[49m\x1b[43m)\x1b[49m\n\x1b[1;32m   1378\x1b[0m \x1b[38;5;28;01mexcept\x1b[39;00m \x1b[38;5;167;01mException\x1b[39;00m:\n\x1b[1;32m   1379\x1b[0m     \x1b[38;5;66;03m# if there are any issues in the default values, it will be raised\x1b[39;00m\n\x1b[1;32m   1380\x1b[0m     \x1b[38;5;66;03m# when ``get_metadata_routing`` is called. Here we are going to\x1b[39;00m\n\x1b[1;32m   1381\x1b[0m     \x1b[38;5;66;03m# ignore all the issues such as bad defaults etc.\x1b[39;00m\n\x1b[1;32m   1382\x1b[0m     \x1b[38;5;28msuper\x1b[39m()\x1b[38;5;241m.\x1b[39m__init_subclass__(\x1b[38;5;241m*\x1b[39m\x1b[38;5;241m*\x1b[39mkwargs)\n\nFile \x1b[0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/utils/_metadata_requests.py:1463\x1b[0m, in \x1b[0;36m_MetadataRequester._get_default_requests\x1b[0;34m(cls)\x1b[0m\n\x1b[1;32m   1461\x1b[0m substr \x1b[38;5;241m=\x1b[39m \x1b[38;5;124m"\x1b[39m\x1b[38;5;124m__metadata_request__\x1b[39m\x1b[38;5;124m"\x1b[39m\n\x1b[1;32m   1462\x1b[0m \x1b[38;5;28;01mfor\x1b[39;00m base_class \x1b[38;5;129;01min\x1b[39;00m \x1b[38;5;28mreversed\x1b[39m(inspect\x1b[38;5;241m.\x1b[39mgetmro(\x1b[38;5;28mcls\x1b[39m)):\n\x1b[0;32m-> 1463\x1b[0m     \x1b[38;5;28;01mfor\x1b[39;00m attr, value \x1b[38;5;129;01min\x1b[39;00m \x1b[38;5;28;43mvars\x1b[39;49m\x1b[43m(\x1b[49m\x1b[43mbase_class\x1b[49m\x1b[43m)\x1b[49m\x1b[38;5;241m.\x1b[39mitems():\n\x1b[1;32m   1464\x1b[0m         \x1b[38;5;28;01mif\x1b[39;00m substr \x1b[38;5;129;01mnot\x1b[39;00m \x1b[38;5;129;01min\x1b[39;00m attr:\n\x1b[1;32m   1465\x1b[0m             \x1b[38;5;28;01mcontinue\x1b[39;00m\n\n\x1b[0;31mKeyboardInterrupt\x1b[0m: \n')>
+Traceback (most recent call last):
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/jupyter_core/utils/__init__.py", line 154, in wrapped
+    asyncio.get_running_loop()
+RuntimeError: no running event loop
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbclient/client.py", line 1062, in async_execute_cell
+    await self._check_raise_for_error(cell, cell_index, exec_reply)
+  File "/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/nbclient/client.py", line 918, in _check_raise_for_error
+    raise CellExecutionError.from_cell_and_msg(cell, exec_reply_content)
+nbclient.exceptions.CellExecutionError: An error occurred while executing the following cell:
+------------------
+import os, sys, json, copy, warnings
+sys.path.insert(0, '..')
+
+import numpy as np
+import torch
+import torch.nn as nn
+import matplotlib.pyplot as plt
+from torch.utils.data import DataLoader, Subset
+from scipy.stats import wilcoxon, ttest_rel
+from sklearn.decomposition import MiniBatchNMF, PCA
+from sklearn.manifold import MDS
+from sklearn.metrics import silhouette_score, roc_auc_score
+from sklearn.metrics.pairwise import cosine_distances, paired_cosine_distances
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.random_projection import GaussianRandomProjection
+from sklearn.utils.extmath import randomized_svd
+
+from src import (SimpleMLP, load_experiment, save_experiment, get_transform,
+                 get_loaders_from_config, collect_layer_dicts, bft, evaluate,
+                 select_class_circuit, per_class_accuracy,
+                 extract_fingerprint_matrix, project_stimuli_onto_tree,
+                 compute_nmf_stability, compute_k_sensitivity)
+from src.bft import (compute_joint_arbors_normalized, compute_conv_joint_arbors,
+                     compute_attn_joint_arbors)
+from src.training import train_epoch, label_transform_even_odd
+from src.data_utils import get_mnist_loaders, label_transformed_loader
+from src.robustness_utils import align_factors
+
+warnings.filterwarnings('ignore')
+RNG  = np.random.default_rng(0)
+REPO = os.path.abspath('..')                     # notebook lives in notebooks/
+EXP  = os.environ.get('NB09_EXP',  'mlp_even_odd')
+MODE = os.environ.get('NB09_MODE', 'local')
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else
+                      ('mps' if torch.backends.mps.is_available() else 'cpu'))
+
+FIG_DIR    = os.path.join(REPO, 'figs', '09_validation', EXP)
+RES_DIR    = os.path.join(REPO, 'data', 'results')
+MODEL_ROOT = os.path.join(REPO, 'data', 'models')
+for d in (FIG_DIR, RES_DIR):
+    os.makedirs(d, exist_ok=True)
+
+# Compute profile. 'local' caps everything for laptop iteration; 'cluster' is the
+# full run (use a GPU node — see the final cell for job scripts).
+if MODE == 'cluster':
+    N_TRACE, BFT_MAX_ITER, AUX_MAX_ITER, STAB_SEEDS, NMF_SUB, IG_STEPS = None, 500, 300, 10, 800, 48
+    RECON_EVAL_MAX, SWEEP_STAB_SEEDS, N_NMF_SEEDS, ATTR_MAX = 2000, 4, 5, 1000
+    REFIT_RUNS = 3
+else:
+    N_TRACE, BFT_MAX_ITER, AUX_MAX_ITER, STAB_SEEDS, NMF_SUB, IG_STEPS = 400, 100, 80, 4, 250, 8
+    RECON_EVAL_MAX, SWEEP_STAB_SEEDS, N_NMF_SEEDS, ATTR_MAX = 300, 2, 2, 200
+    REFIT_RUNS = 2
+
+# RECON_EVAL_MAX caps the samples scored per causal-reconstruction variant: the metrics
+# are per-sample means, so a large subsample is statistically equivalent and much cheaper.
+# SWEEP_STAB_SEEDS is the (reduced) stability-seed count inside the FU1/S10 sweeps, where
+# stability is a shape signal rather than a headline number; S1 keeps the full STAB_SEEDS.
+
+results, figpaths = {'experiment': EXP, 'mode': MODE}, {}
+
+
+COMPLETED = []
+RESULT_PATH = os.path.join(RES_DIR, f'nb09_{EXP}.json')
+
+
+def checkpoint(section=None):
+    """Atomically write results+figure paths to disk so a partial run is not wasted.
+
+    Called at the end of every section. Writing to a .tmp and os.replace()-ing means a
+    kill mid-write cannot leave a truncated JSON behind.
+    """
+    if section and section not in COMPLETED:
+        COMPLETED.append(section)
+    results['completed_sections'] = list(COMPLETED)
+    results['figures'] = dict(figpaths)
+    results['caps'] = globals().get('caps')
+    results['config'] = {'n_trace': N_TRACE, 'bft_max_iter': BFT_MAX_ITER,
+                         'aux_max_iter': AUX_MAX_ITER, 'stab_seeds': STAB_SEEDS,
+                         'recon_eval_max': RECON_EVAL_MAX,
+                         'n_samples': globals().get('n_samples'), 'device': str(DEVICE)}
+    tmp = RESULT_PATH + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(jsonable(results), f, indent=1)
+    os.replace(tmp, RESULT_PATH)
+    print(f'  [checkpoint] {section or ""} -> {os.path.relpath(RESULT_PATH, REPO)} '
+          f'({len(COMPLETED)} sections)')
+
+
+def hist_data(v, bins=30):
+    """Everything needed to redraw a histogram from the JSON alone."""
+    v = np.asarray(v, dtype=float)
+    counts, edges = np.histogram(v, bins=bins)
+    return {'counts': counts.tolist(), 'bin_edges': edges.tolist(), 'n': int(v.size),
+            'mean': float(v.mean()), 'std': float(v.std()),
+            'min': float(v.min()), 'max': float(v.max()),
+            'q25': float(np.percentile(v, 25)), 'median': float(np.percentile(v, 50)),
+            'q75': float(np.percentile(v, 75))}
+
+
+def savefig(fig, name):
+    p = os.path.join(FIG_DIR, name)
+    fig.savefig(p, bbox_inches='tight')
+    figpaths[name] = os.path.relpath(p, REPO)
+    print('  saved', figpaths[name])
+    plt.show()
+
+
+def jsonable(o):
+    if isinstance(o, dict):
+        return {str(k): jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [jsonable(v) for v in o]
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, (np.floating, np.integer)):
+        return float(o)
+    return o if isinstance(o, (float, int, str, bool)) or o is None else str(o)
+
+
+def sub_rows(X):
+    return X if X.shape[0] <= NMF_SUB else X[RNG.choice(X.shape[0], NMF_SUB, replace=False)]
+
+
+def stab_mean(X, k, n_seeds=None):
+    sim, _ = compute_nmf_stability(sub_rows(X), k, n_seeds=n_seeds or STAB_SEEDS,
+                                   max_iter=AUX_MAX_ITER)
+    return sim[~np.eye(sim.shape[0], dtype=bool)]
+
+
+def knn_cv(X, y, kmax=5, cv_max=3):
+    """kNN cross-val accuracy, robust to non-contiguous and small classes.
+
+    Counts only classes that are PRESENT: np.bincount() reports a 0 for gaps in the
+    label set (e.g. digits {0,1,3,4} -> a zero at index 2), which would yield
+    n_neighbors=0 and make sklearn raise.
+    """
+    classes, counts = np.unique(y, return_counts=True)
+    mn = int(counts.min())
+    if len(classes) < 2 or mn < 2:
+        return float('nan')
+    cv = int(min(cv_max, mn))              # StratifiedKFold needs >= cv per class
+    k = int(max(1, min(kmax, mn)))         # and n_neighbors >= 1
+    return float(cross_val_score(KNeighborsClassifier(k), X, y, cv=cv).mean())
+
+
+def sep_metrics(X, y):
+    Xn = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-12)
+    if len(np.unique(y)) < 2 or len(y) < 12:
+        return float('nan'), float('nan')
+    return float(silhouette_score(Xn, y)), knn_cv(Xn, y)
+
+
+def fit_nmf(X, k):
+    """Fit on a row subsample (speed), transform the full matrix for loadings."""
+    Xc = np.clip(X, 0, None).astype(np.float32)
+    m = MiniBatchNMF(n_components=k, random_state=0, max_iter=AUX_MAX_ITER,
+                     batch_size=1024, init='random')
+    m.fit(sub_rows(Xc))
+    return m.transform(Xc), m.components_.T
+
+
+print(f'EXP={EXP}  MODE={MODE}  DEVICE={DEVICE}  N_TRACE={N_TRACE}')
+------------------
+
+
+[0;31m---------------------------------------------------------------------------[0m
+[0;31mKeyboardInterrupt[0m                         Traceback (most recent call last)
+Cell [0;32mIn[1], line 11[0m
+[1;32m      9[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01mscipy[39;00m[38;5;21;01m.[39;00m[38;5;21;01mstats[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m wilcoxon, ttest_rel
+[1;32m     10[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01msklearn[39;00m[38;5;21;01m.[39;00m[38;5;21;01mdecomposition[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m MiniBatchNMF, PCA
+[0;32m---> 11[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01msklearn[39;00m[38;5;21;01m.[39;00m[38;5;21;01mmanifold[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m MDS
+[1;32m     12[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01msklearn[39;00m[38;5;21;01m.[39;00m[38;5;21;01mmetrics[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m silhouette_score, roc_auc_score
+[1;32m     13[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01msklearn[39;00m[38;5;21;01m.[39;00m[38;5;21;01mmetrics[39;00m[38;5;21;01m.[39;00m[38;5;21;01mpairwise[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m cosine_distances, paired_cosine_distances
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/manifold/__init__.py:6[0m
+[1;32m      1[0m [38;5;124;03m"""Data embedding techniques."""[39;00m
+[1;32m      3[0m [38;5;66;03m# Authors: The scikit-learn developers[39;00m
+[1;32m      4[0m [38;5;66;03m# SPDX-License-Identifier: BSD-3-Clause[39;00m
+[0;32m----> 6[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_isomap[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m Isomap
+[1;32m      7[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_locally_linear[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m LocallyLinearEmbedding, locally_linear_embedding
+[1;32m      8[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_mds[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m MDS, smacof
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/manifold/_isomap.py:21[0m
+[1;32m     19[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mdecomposition[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m KernelPCA
+[1;32m     20[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mmetrics[39;00m[38;5;21;01m.[39;00m[38;5;21;01mpairwise[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m _VALID_METRICS
+[0;32m---> 21[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mneighbors[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m NearestNeighbors, kneighbors_graph, radius_neighbors_graph
+[1;32m     22[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mpreprocessing[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m KernelCenterer
+[1;32m     23[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mutils[39;00m[38;5;21;01m.[39;00m[38;5;21;01m_param_validation[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m Interval, StrOptions
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/neighbors/__init__.py:19[0m
+[1;32m     17[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_lof[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m LocalOutlierFactor
+[1;32m     18[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_nca[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m NeighborhoodComponentsAnalysis
+[0;32m---> 19[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_nearest_centroid[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m NearestCentroid
+[1;32m     20[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_regression[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m KNeighborsRegressor, RadiusNeighborsRegressor
+[1;32m     21[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_unsupervised[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m NearestNeighbors
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/neighbors/_nearest_centroid.py:15[0m
+[1;32m     12[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01mscipy[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m sparse [38;5;28;01mas[39;00m sp
+[1;32m     14[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mbase[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m BaseEstimator, ClassifierMixin, _fit_context
+[0;32m---> 15[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mdiscriminant_analysis[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m DiscriminantAnalysisPredictionMixin
+[1;32m     16[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mmetrics[39;00m[38;5;21;01m.[39;00m[38;5;21;01mpairwise[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m (
+[1;32m     17[0m     pairwise_distances,
+[1;32m     18[0m     pairwise_distances_argmin,
+[1;32m     19[0m )
+[1;32m     20[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m.[39;00m[38;5;21;01mpreprocessing[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m LabelEncoder
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/discriminant_analysis.py:20[0m
+[1;32m     11[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01mscipy[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m linalg
+[1;32m     13[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01mbase[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m (
+[1;32m     14[0m     BaseEstimator,
+[1;32m     15[0m     ClassifierMixin,
+[0;32m   (...)[0m
+[1;32m     18[0m     _fit_context,
+[1;32m     19[0m )
+[0;32m---> 20[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01mcovariance[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m empirical_covariance, ledoit_wolf, shrunk_covariance
+[1;32m     21[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01mlinear_model[39;00m[38;5;21;01m.[39;00m[38;5;21;01m_base[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m LinearClassifierMixin
+[1;32m     22[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01mpreprocessing[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m StandardScaler
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/covariance/__init__.py:17[0m
+[1;32m     11[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_elliptic_envelope[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m EllipticEnvelope
+[1;32m     12[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_empirical_covariance[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m (
+[1;32m     13[0m     EmpiricalCovariance,
+[1;32m     14[0m     empirical_covariance,
+[1;32m     15[0m     log_likelihood,
+[1;32m     16[0m )
+[0;32m---> 17[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_graph_lasso[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m GraphicalLasso, GraphicalLassoCV, graphical_lasso
+[1;32m     18[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_robust_covariance[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m MinCovDet, fast_mcd
+[1;32m     19[0m [38;5;28;01mfrom[39;00m[38;5;250m [39m[38;5;21;01m.[39;00m[38;5;21;01m_shrunk_covariance[39;00m[38;5;250m [39m[38;5;28;01mimport[39;00m (
+[1;32m     20[0m     OAS,
+[1;32m     21[0m     LedoitWolf,
+[0;32m   (...)[0m
+[1;32m     26[0m     shrunk_covariance,
+[1;32m     27[0m )
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/covariance/_graph_lasso.py:715[0m
+[1;32m    711[0m         [38;5;28;01mreturn[39;00m covariances_, precisions_, scores_
+[1;32m    712[0m     [38;5;28;01mreturn[39;00m covariances_, precisions_
+[0;32m--> 715[0m [38;5;28;01mclass[39;00m[38;5;250m [39m[38;5;21;01mGraphicalLassoCV[39;00m(BaseGraphicalLasso):
+[1;32m    716[0m [38;5;250m    [39m[38;5;124;03m"""Sparse inverse covariance w/ cross-validated choice of the l1 penalty.[39;00m
+[1;32m    717[0m 
+[1;32m    718[0m [38;5;124;03m    See glossary entry for :term:`cross-validation estimator`.[39;00m
+[0;32m   (...)[0m
+[1;32m    895[0m [38;5;124;03m    array([0.073, 0.04 , 0.038, 0.143])[39;00m
+[1;32m    896[0m [38;5;124;03m    """[39;00m
+[1;32m    898[0m     _parameter_constraints: [38;5;28mdict[39m [38;5;241m=[39m {
+[1;32m    899[0m         [38;5;241m*[39m[38;5;241m*[39mBaseGraphicalLasso[38;5;241m.[39m_parameter_constraints,
+[1;32m    900[0m         [38;5;124m"[39m[38;5;124malphas[39m[38;5;124m"[39m: [Interval(Integral, [38;5;241m0[39m, [38;5;28;01mNone[39;00m, closed[38;5;241m=[39m[38;5;124m"[39m[38;5;124mleft[39m[38;5;124m"[39m), [38;5;124m"[39m[38;5;124marray-like[39m[38;5;124m"[39m],
+[0;32m   (...)[0m
+[1;32m    903[0m         [38;5;124m"[39m[38;5;124mn_jobs[39m[38;5;124m"[39m: [Integral, [38;5;28;01mNone[39;00m],
+[1;32m    904[0m     }
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/utils/_metadata_requests.py:1377[0m, in [0;36m_MetadataRequester.__init_subclass__[0;34m(cls, **kwargs)[0m
+[1;32m   1360[0m [38;5;250m[39m[38;5;124;03m"""Set the ``set_{method}_request`` methods.[39;00m
+[1;32m   1361[0m 
+[1;32m   1362[0m [38;5;124;03mThis uses PEP-487 [1]_ to set the ``set_{method}_request`` methods. It[39;00m
+[0;32m   (...)[0m
+[1;32m   1374[0m [38;5;124;03m.. [1] https://www.python.org/dev/peps/pep-0487[39;00m
+[1;32m   1375[0m [38;5;124;03m"""[39;00m
+[1;32m   1376[0m [38;5;28;01mtry[39;00m:
+[0;32m-> 1377[0m     requests [38;5;241m=[39m [38;5;28;43mcls[39;49m[38;5;241;43m.[39;49m[43m_get_default_requests[49m[43m([49m[43m)[49m
+[1;32m   1378[0m [38;5;28;01mexcept[39;00m [38;5;167;01mException[39;00m:
+[1;32m   1379[0m     [38;5;66;03m# if there are any issues in the default values, it will be raised[39;00m
+[1;32m   1380[0m     [38;5;66;03m# when ``get_metadata_routing`` is called. Here we are going to[39;00m
+[1;32m   1381[0m     [38;5;66;03m# ignore all the issues such as bad defaults etc.[39;00m
+[1;32m   1382[0m     [38;5;28msuper[39m()[38;5;241m.[39m__init_subclass__([38;5;241m*[39m[38;5;241m*[39mkwargs)
+
+File [0;32m~/Factor_Trace/.venv2/lib64/python3.9/site-packages/sklearn/utils/_metadata_requests.py:1463[0m, in [0;36m_MetadataRequester._get_default_requests[0;34m(cls)[0m
+[1;32m   1461[0m substr [38;5;241m=[39m [38;5;124m"[39m[38;5;124m__metadata_request__[39m[38;5;124m"[39m
+[1;32m   1462[0m [38;5;28;01mfor[39;00m base_class [38;5;129;01min[39;00m [38;5;28mreversed[39m(inspect[38;5;241m.[39mgetmro([38;5;28mcls[39m)):
+[0;32m-> 1463[0m     [38;5;28;01mfor[39;00m attr, value [38;5;129;01min[39;00m [38;5;28;43mvars[39;49m[43m([49m[43mbase_class[49m[43m)[49m[38;5;241m.[39mitems():
+[1;32m   1464[0m         [38;5;28;01mif[39;00m substr [38;5;129;01mnot[39;00m [38;5;129;01min[39;00m attr:
+[1;32m   1465[0m             [38;5;28;01mcontinue[39;00m
+
+[0;31mKeyboardInterrupt[0m: 
+
