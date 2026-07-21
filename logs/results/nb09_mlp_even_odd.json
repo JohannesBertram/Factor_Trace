@@ -248,9 +248,9 @@
     "n_classes_eval": 2,
     "bft_target_drop_mean": 0.9935106178225445,
     "bft_bystander_drop_mean": -0.006489382177455538,
-    "random_target_drop_mean": -0.00013567811732939639,
+    "random_target_drop_mean": 0.0018523270816849235,
     "wilcoxon_target_vs_bystander_p": 0.5,
-    "ttest_bft_vs_random_p": 0.002002603257440313
+    "ttest_bft_vs_random_p": 0.001428713671634792
   },
   "attribution": {
     "discriminability_task": {
@@ -276,6 +276,173 @@
       0.5993787050247192
     ]
   },
+  "FU1_rank_sweep": {
+    "r2_target": 0.8,
+    "stab_target": 0.85,
+    "per_layer": {
+      "0": {
+        "default_k": 5,
+        "k_star": 7,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 0.9999999615881178,
+            "recon_r2": 0.5693941117039343,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 2,
+            "stability": 0.9999457187122769,
+            "recon_r2": 0.6761511228536046,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 3,
+            "stability": 0.9959281086921692,
+            "recon_r2": 0.7233131850189318,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 4,
+            "stability": 0.8500066690974766,
+            "recon_r2": 0.7474103797253713,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 5,
+            "stability": 0.9213698506355286,
+            "recon_r2": 0.764330114262775,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 6,
+            "stability": 0.882890710565779,
+            "recon_r2": 0.7790408798910304,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 7,
+            "stability": 0.8596125682195027,
+            "recon_r2": 0.7857790510777374,
+            "selectivity": 0.9795486600846262
+          }
+        ]
+      },
+      "1": {
+        "default_k": 1,
+        "k_star": 1,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000000331136916,
+            "recon_r2": 0.9885633474385185,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 2,
+            "stability": 0.9501657485961914,
+            "recon_r2": 0.9979074738168848,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 3,
+            "stability": 0.9080063462257385,
+            "recon_r2": 0.9987218403894751,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 4,
+            "stability": 0.8918671131134033,
+            "recon_r2": 0.9981228671805581,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 5,
+            "stability": 0.8743661165237426,
+            "recon_r2": 0.998564518173057,
+            "selectivity": 0.9795486600846262
+          },
+          {
+            "K": 6,
+            "stability": 0.8733927832709418,
+            "recon_r2": 0.9989106994306357,
+            "selectivity": 0.9795486600846262
+          }
+        ]
+      },
+      "2": {
+        "default_k": 2,
+        "k_star": 2,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 0.9999999165534973,
+            "recon_r2": 0.5602394131319686,
+            "selectivity": 1.0
+          },
+          {
+            "K": 2,
+            "stability": 0.9999945256445143,
+            "recon_r2": 0.9999499952853189,
+            "selectivity": 1.0
+          },
+          {
+            "K": 3,
+            "stability": 0.9596624599562751,
+            "recon_r2": 0.9999584773476102,
+            "selectivity": 1.0
+          },
+          {
+            "K": 4,
+            "stability": 0.8937511775228713,
+            "recon_r2": 0.9999648422046532,
+            "selectivity": 1.0
+          },
+          {
+            "K": 5,
+            "stability": 0.8843739363882277,
+            "recon_r2": 0.9999635250004626,
+            "selectivity": 1.0
+          },
+          {
+            "K": 6,
+            "stability": 0.8535105718506707,
+            "recon_r2": 0.999957081941585,
+            "selectivity": 1.0
+          }
+        ]
+      }
+    }
+  },
+  "FU2_recon_fc": {
+    "L2:layers.5": {
+      "module": "layers.5",
+      "real_ce": 0.00038793316914462574,
+      "recon_ce": 0.0007469143298472844,
+      "abs_ce_gap": 0.0003589811607026586,
+      "loss_ratio_floored": 0.07469143298472844,
+      "preact_r2": 0.9806126914570837,
+      "n_eval": 4080
+    },
+    "L1:layers.3": {
+      "module": "layers.3",
+      "real_ce": 0.0007479783403230648,
+      "recon_ce": 0.13321120318244487,
+      "abs_ce_gap": 0.1324632248421218,
+      "loss_ratio_floored": 13.321120318244486,
+      "preact_r2": 0.9568018077927894,
+      "n_eval": 2040
+    },
+    "L0:layers.1": {
+      "module": "layers.1",
+      "real_ce": 0.0007479783403230648,
+      "recon_ce": 0.40456168978822,
+      "abs_ce_gap": 0.4038137114478969,
+      "loss_ratio_floored": 40.456168978822,
+      "preact_r2": 0.757621799161047,
+      "n_eval": 2040
+    }
+  },
   "figures": {
     "fig_nmf_stability.pdf": "figs/09_validation/mlp_even_odd/fig_nmf_stability.pdf",
     "fig_recon_validation.pdf": "figs/09_validation/mlp_even_odd/fig_recon_validation.pdf",
@@ -284,7 +451,9 @@
     "fig_a1_weight_vs_activation.pdf": "figs/09_validation/mlp_even_odd/fig_a1_weight_vs_activation.pdf",
     "fig_ablation_pruning.pdf": "figs/09_validation/mlp_even_odd/fig_ablation_pruning.pdf",
     "fig_attribution_baselines.pdf": "figs/09_validation/mlp_even_odd/fig_attribution_baselines.pdf",
-    "fig_seed_robustness.pdf": "figs/09_validation/mlp_even_odd/fig_seed_robustness.pdf"
+    "fig_seed_robustness.pdf": "figs/09_validation/mlp_even_odd/fig_seed_robustness.pdf",
+    "fig_fu1_rank_sweep.pdf": "figs/09_validation/mlp_even_odd/fig_fu1_rank_sweep.pdf",
+    "fig_fu2_recon_fc.pdf": "figs/09_validation/mlp_even_odd/fig_fu2_recon_fc.pdf"
   },
   "caps": {
     "recon": true,

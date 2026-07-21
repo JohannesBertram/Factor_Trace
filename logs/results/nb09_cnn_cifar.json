@@ -149,13 +149,272 @@
     "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
   },
   "seed_robustness": "skipped: <2 seed checkpoints on disk",
+  "FU1_rank_sweep": {
+    "r2_target": 0.8,
+    "stab_target": 0.85,
+    "per_layer": {
+      "0": {
+        "default_k": 5,
+        "k_star": 3,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000000291400486,
+            "recon_r2": 0.28373178110655783,
+            "selectivity": 0.6940123456790124
+          },
+          {
+            "K": 2,
+            "stability": 0.9999992701742384,
+            "recon_r2": 0.6885227491228543,
+            "selectivity": 0.7141666666666666
+          },
+          {
+            "K": 3,
+            "stability": 0.8681618147426181,
+            "recon_r2": 0.8120325382665825,
+            "selectivity": 0.7639969135802469
+          },
+          {
+            "K": 4,
+            "stability": 0.8458443999290466,
+            "recon_r2": 0.9153694559964083,
+            "selectivity": 0.7787345679012345
+          },
+          {
+            "K": 5,
+            "stability": 0.9074677944183349,
+            "recon_r2": 0.9555551389607779,
+            "selectivity": 0.7995061728395061
+          },
+          {
+            "K": 6,
+            "stability": 0.8772060871124268,
+            "recon_r2": 0.9822192910602932,
+            "selectivity": 0.8013117283950617
+          },
+          {
+            "K": 7,
+            "stability": 0.8715660386615329,
+            "recon_r2": 0.9881081166022703,
+            "selectivity": 0.8031481481481482
+          }
+        ]
+      },
+      "1": {
+        "default_k": 3,
+        "k_star": 2,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 0.999999984105428,
+            "recon_r2": 0.7948639225236277,
+            "selectivity": 0.8713888888888889
+          },
+          {
+            "K": 2,
+            "stability": 0.999999463558197,
+            "recon_r2": 0.8990111962417504,
+            "selectivity": 0.7741666666666667
+          },
+          {
+            "K": 3,
+            "stability": 0.9958844410048591,
+            "recon_r2": 0.9315117051769252,
+            "selectivity": 0.8788888888888889
+          },
+          {
+            "K": 4,
+            "stability": 0.9660185760921902,
+            "recon_r2": 0.9561197088591915,
+            "selectivity": 0.9067901234567901
+          },
+          {
+            "K": 5,
+            "stability": 0.9229902492629157,
+            "recon_r2": 0.9658328404494039,
+            "selectivity": 0.897962962962963
+          },
+          {
+            "K": 6,
+            "stability": 0.9567623244391548,
+            "recon_r2": 0.9712658645804033,
+            "selectivity": 0.8941975308641975
+          }
+        ]
+      },
+      "2": {
+        "default_k": 2,
+        "k_star": 1,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.000000011920929,
+            "recon_r2": 0.8230156046011128,
+            "selectivity": 0.7560493827160494
+          },
+          {
+            "K": 2,
+            "stability": 0.9848979367150201,
+            "recon_r2": 0.859871042644863,
+            "selectivity": 0.8289814814814814
+          },
+          {
+            "K": 3,
+            "stability": 0.9618444893095228,
+            "recon_r2": 0.8892405961043288,
+            "selectivity": 0.9156790123456789
+          },
+          {
+            "K": 4,
+            "stability": 0.8810894608497619,
+            "recon_r2": 0.897597551702444,
+            "selectivity": 0.9274382716049382
+          },
+          {
+            "K": 5,
+            "stability": 0.8871956666310629,
+            "recon_r2": 0.9132623557516785,
+            "selectivity": 0.8527777777777777
+          },
+          {
+            "K": 6,
+            "stability": 0.8772101508246528,
+            "recon_r2": 0.9229692651436054,
+            "selectivity": 0.8528395061728394
+          }
+        ]
+      },
+      "3": {
+        "default_k": 6,
+        "k_star": 4,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000001006656223,
+            "recon_r2": 0.7284802203488556,
+            "selectivity": 1.0
+          },
+          {
+            "K": 2,
+            "stability": 0.9998679081598918,
+            "recon_r2": 0.7695463578813678,
+            "selectivity": 0.9774074074074074
+          },
+          {
+            "K": 3,
+            "stability": 0.9217211670345731,
+            "recon_r2": 0.786276514250642,
+            "selectivity": 0.943425925925926
+          },
+          {
+            "K": 4,
+            "stability": 0.8991512868139478,
+            "recon_r2": 0.8003929183464107,
+            "selectivity": 0.9518827160493827
+          },
+          {
+            "K": 5,
+            "stability": 0.870182622803582,
+            "recon_r2": 0.8118822028970345,
+            "selectivity": 0.9843518518518518
+          },
+          {
+            "K": 6,
+            "stability": 0.8506665388743083,
+            "recon_r2": 0.822199246470857,
+            "selectivity": 0.9401543209876543
+          },
+          {
+            "K": 7,
+            "stability": 0.8562510821554395,
+            "recon_r2": 0.8312951172152371,
+            "selectivity": 0.9464814814814816
+          },
+          {
+            "K": 8,
+            "stability": 0.8406017965740628,
+            "recon_r2": 0.8405572768188105,
+            "selectivity": 0.991111111111111
+          }
+        ]
+      },
+      "4": {
+        "default_k": 10,
+        "k_star": 8,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000000476837159,
+            "recon_r2": 0.5079215326696156,
+            "selectivity": 0.9755246913580247
+          },
+          {
+            "K": 2,
+            "stability": 0.9999634583791097,
+            "recon_r2": 0.614460171629548,
+            "selectivity": 0.9815432098765432
+          },
+          {
+            "K": 3,
+            "stability": 0.9652080867025588,
+            "recon_r2": 0.663568266809242,
+            "selectivity": 0.990462962962963
+          },
+          {
+            "K": 4,
+            "stability": 0.9796642382939657,
+            "recon_r2": 0.701889761395664,
+            "selectivity": 0.9912037037037037
+          },
+          {
+            "K": 5,
+            "stability": 0.9434079792764452,
+            "recon_r2": 0.732965710315707,
+            "selectivity": 0.9998765432098765
+          },
+          {
+            "K": 6,
+            "stability": 0.9119939645131429,
+            "recon_r2": 0.7553715290072281,
+            "selectivity": 1.0
+          },
+          {
+            "K": 7,
+            "stability": 0.9177951667043898,
+            "recon_r2": 0.7816041970556307,
+            "selectivity": 1.0
+          },
+          {
+            "K": 8,
+            "stability": 0.9516640835338168,
+            "recon_r2": 0.7980018596003547,
+            "selectivity": 1.0
+          }
+        ]
+      }
+    }
+  },
+  "FU2_recon_fc": {
+    "L4:classifier": {
+      "module": "classifier",
+      "real_ce": 2.107592454801003e-05,
+      "recon_ce": 0.031194623708724976,
+      "abs_ce_gap": 0.031173547784176966,
+      "loss_ratio_floored": 3.1194623708724976,
+      "preact_r2": 0.9370674224575152,
+      "n_eval": 600
+    }
+  },
   "figures": {
     "fig_nmf_stability.pdf": "figs/09_validation/cnn_cifar/fig_nmf_stability.pdf",
     "fig_nnls_roundtrip.pdf": "figs/09_validation/cnn_cifar/fig_nnls_roundtrip.pdf",
     "fig_fingerprint_separability.pdf": "figs/09_validation/cnn_cifar/fig_fingerprint_separability.pdf",
     "fig_a1_weight_vs_activation.pdf": "figs/09_validation/cnn_cifar/fig_a1_weight_vs_activation.pdf",
     "fig_ablation_pruning.pdf": "figs/09_validation/cnn_cifar/fig_ablation_pruning.pdf",
-    "fig_attribution_baselines.pdf": "figs/09_validation/cnn_cifar/fig_attribution_baselines.pdf"
+    "fig_attribution_baselines.pdf": "figs/09_validation/cnn_cifar/fig_attribution_baselines.pdf",
+    "fig_fu1_rank_sweep.pdf": "figs/09_validation/cnn_cifar/fig_fu1_rank_sweep.pdf",
+    "fig_fu2_recon_fc.pdf": "figs/09_validation/cnn_cifar/fig_fu2_recon_fc.pdf"
   },
   "caps": {
     "recon": false,

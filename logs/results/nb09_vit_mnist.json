@@ -134,11 +134,243 @@
     "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
   },
   "seed_robustness": "skipped: <2 seed checkpoints on disk",
+  "FU1_rank_sweep": {
+    "r2_target": 0.8,
+    "stab_target": 0.85,
+    "per_layer": {
+      "0": {
+        "default_k": 8,
+        "k_star": 4,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000001059638128,
+            "recon_r2": 0.6530528232091832,
+            "selectivity": 0.7538322263803142
+          },
+          {
+            "K": 2,
+            "stability": 0.9999846498171489,
+            "recon_r2": 0.7331039589712388,
+            "selectivity": 0.8318641998233987
+          },
+          {
+            "K": 3,
+            "stability": 0.9738978147506714,
+            "recon_r2": 0.7789020190994047,
+            "selectivity": 0.8257907275488339
+          },
+          {
+            "K": 4,
+            "stability": 0.8989458150333829,
+            "recon_r2": 0.8049473106830678,
+            "selectivity": 0.8404828094120794
+          },
+          {
+            "K": 5,
+            "stability": 0.9319718612564935,
+            "recon_r2": 0.8301100930897325,
+            "selectivity": 0.8787144658621862
+          },
+          {
+            "K": 6,
+            "stability": 0.8761170493231879,
+            "recon_r2": 0.8410123788019488,
+            "selectivity": 0.8319330265627238
+          },
+          {
+            "K": 7,
+            "stability": 0.8713836736149259,
+            "recon_r2": 0.8473012403087894,
+            "selectivity": 0.8162601947792575
+          },
+          {
+            "K": 8,
+            "stability": 0.8565596156650119,
+            "recon_r2": 0.86882224935573,
+            "selectivity": 0.8082264672707489
+          }
+        ]
+      },
+      "1": {
+        "default_k": 6,
+        "k_star": 8,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000000728501215,
+            "recon_r2": 0.3638713909093424,
+            "selectivity": 0.748553310893908
+          },
+          {
+            "K": 2,
+            "stability": 0.9999509943856133,
+            "recon_r2": 0.49360771252155977,
+            "selectivity": 0.8916015364086398
+          },
+          {
+            "K": 3,
+            "stability": 0.9866409725613065,
+            "recon_r2": 0.5605168603016393,
+            "selectivity": 0.8641446458439022
+          },
+          {
+            "K": 4,
+            "stability": 0.9280886557367113,
+            "recon_r2": 0.6126554701430367,
+            "selectivity": 0.8983106914519264
+          },
+          {
+            "K": 5,
+            "stability": 0.9184001909361945,
+            "recon_r2": 0.650861022691243,
+            "selectivity": 0.9090829473808584
+          },
+          {
+            "K": 6,
+            "stability": 0.9332565625508626,
+            "recon_r2": 0.6796825150358865,
+            "selectivity": 0.8408957283611469
+          },
+          {
+            "K": 7,
+            "stability": 0.8888811137941148,
+            "recon_r2": 0.6997845868106662,
+            "selectivity": 0.9043683364805283
+          },
+          {
+            "K": 8,
+            "stability": 0.8571615921126472,
+            "recon_r2": 0.7275072545703019,
+            "selectivity": 0.866610335776579
+          }
+        ]
+      },
+      "2": {
+        "default_k": 6,
+        "k_star": 5,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.0000001788139343,
+            "recon_r2": 0.5080316268847858,
+            "selectivity": 0.9117030100061384
+          },
+          {
+            "K": 2,
+            "stability": 0.999974689218733,
+            "recon_r2": 0.6616259651381591,
+            "selectivity": 0.8747784392999605
+          },
+          {
+            "K": 3,
+            "stability": 0.9993680040041606,
+            "recon_r2": 0.7544025882347386,
+            "selectivity": 0.8144858837560764
+          },
+          {
+            "K": 4,
+            "stability": 0.9705375697877672,
+            "recon_r2": 0.7865719583244469,
+            "selectivity": 0.7848103369050221
+          },
+          {
+            "K": 5,
+            "stability": 0.9012179268731011,
+            "recon_r2": 0.8058299055472404,
+            "selectivity": 0.7926825144901237
+          },
+          {
+            "K": 6,
+            "stability": 0.8641662518183391,
+            "recon_r2": 0.8245312017444973,
+            "selectivity": 0.7849765126159123
+          },
+          {
+            "K": 7,
+            "stability": 0.8649918516476949,
+            "recon_r2": 0.8424795364346296,
+            "selectivity": 0.8391784618024458
+          },
+          {
+            "K": 8,
+            "stability": 0.8655140174759759,
+            "recon_r2": 0.8519485624659419,
+            "selectivity": 0.8032100807815996
+          }
+        ]
+      },
+      "3": {
+        "default_k": 4,
+        "k_star": 6,
+        "sweep": [
+          {
+            "K": 1,
+            "stability": 1.000000043710073,
+            "recon_r2": 0.21312535575963243,
+            "selectivity": 0.8127395763790946
+          },
+          {
+            "K": 2,
+            "stability": 0.9999979760911729,
+            "recon_r2": 0.35793873246702024,
+            "selectivity": 0.8286519326830515
+          },
+          {
+            "K": 3,
+            "stability": 0.9999841226471795,
+            "recon_r2": 0.4619435622086905,
+            "selectivity": 0.94610204595054
+          },
+          {
+            "K": 4,
+            "stability": 0.9994290722741022,
+            "recon_r2": 0.5268916499736902,
+            "selectivity": 0.8892534617899996
+          },
+          {
+            "K": 5,
+            "stability": 0.9524683223830329,
+            "recon_r2": 0.5680800936749905,
+            "selectivity": 0.8769038123292712
+          },
+          {
+            "K": 6,
+            "stability": 0.9827681289778816,
+            "recon_r2": 0.598820904109322,
+            "selectivity": 0.8879065901250266
+          }
+        ]
+      }
+    }
+  },
+  "FU2_recon_fc": {
+    "L3:block.ffn2": {
+      "module": "block.ffn2",
+      "real_ce": 0.010010263293435278,
+      "recon_ce": 0.23765317971254804,
+      "abs_ce_gap": 0.22764291641911277,
+      "loss_ratio_floored": 23.740951935639973,
+      "preact_r2": 0.4315714216700832,
+      "n_eval": 9820
+    },
+    "L2:block.ffn1": {
+      "module": "block.ffn1",
+      "real_ce": 0.010010263293435278,
+      "recon_ce": 0.9006664175122916,
+      "abs_ce_gap": 0.8906561542188564,
+      "loss_ratio_floored": 89.97429848852705,
+      "preact_r2": 0.4561722468567394,
+      "n_eval": 9820
+    }
+  },
   "figures": {
     "fig_nmf_stability.pdf": "figs/09_validation/vit_mnist/fig_nmf_stability.pdf",
     "fig_fingerprint_separability.pdf": "figs/09_validation/vit_mnist/fig_fingerprint_separability.pdf",
     "fig_a1_weight_vs_activation.pdf": "figs/09_validation/vit_mnist/fig_a1_weight_vs_activation.pdf",
-    "fig_attribution_baselines.pdf": "figs/09_validation/vit_mnist/fig_attribution_baselines.pdf"
+    "fig_attribution_baselines.pdf": "figs/09_validation/vit_mnist/fig_attribution_baselines.pdf",
+    "fig_fu1_rank_sweep.pdf": "figs/09_validation/vit_mnist/fig_fu1_rank_sweep.pdf",
+    "fig_fu2_recon_fc.pdf": "figs/09_validation/vit_mnist/fig_fu2_recon_fc.pdf"
   },
   "caps": {
     "recon": false,
