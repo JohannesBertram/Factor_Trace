@@ -1,0 +1,159 @@
+{
+  "experiment": "vit_mnist",
+  "mode": "cluster",
+  "stability": {
+    "per_layer": {
+      "0": {
+        "mean": 0.8539475626415677,
+        "std": 0.03204108234293844,
+        "k": 8
+      },
+      "1": {
+        "mean": 0.908323143588172,
+        "std": 0.07417662957659937,
+        "k": 6
+      },
+      "2": {
+        "mean": 0.8865364578035143,
+        "std": 0.05372252100985539,
+        "k": 6
+      },
+      "3": {
+        "mean": 0.9991787552833558,
+        "std": 0.0009030969136062813,
+        "k": 4
+      }
+    },
+    "k_sensitivity": {
+      "k_star": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "k_minus1": [
+        0.7683608531951904,
+        0.913425087928772,
+        0.9073427319526672,
+        0.985347330570221,
+        0.986059308052063,
+        0.9891452789306641,
+        0.9071692824363708,
+        0.9859874248504639
+      ],
+      "k_plus1": [
+        0.9225021600723267,
+        0.9321750998497009,
+        0.9026574492454529,
+        0.9976330399513245,
+        0.9450869560241699,
+        0.996601939201355,
+        0.8573036789894104,
+        0.995124340057373
+      ]
+    }
+  },
+  "recon": "skipped: needs primary-mode BFT (layer-dict archs have no model hook)",
+  "roundtrip": "skipped: NNLS projection not supported through attn nodes",
+  "separability": {
+    "by_task": {
+      "bft_fingerprint": {
+        "silhouette": 0.15017059445381165,
+        "knn_acc": 0.9786151330530369
+      },
+      "raw_activations": {
+        "silhouette": 0.1400168538093567,
+        "knn_acc": 0.9879839449565542
+      }
+    },
+    "by_fine": {
+      "bft_fingerprint": {
+        "silhouette": 0.15017059445381165,
+        "knn_acc": 0.9786151330530369
+      },
+      "raw_activations": {
+        "silhouette": 0.1400168538093567,
+        "knn_acc": 0.9879839449565542
+      }
+    }
+  },
+  "A1_weight_vs_activation": {
+    "per_layer": {
+      "0": {
+        "stability_arbor": 0.8629498600959777,
+        "stability_act": 0.8636311398612129,
+        "selectivity_arbor": 0.9131150160778267,
+        "selectivity_act": 0.8138044616985627
+      },
+      "1": {
+        "stability_arbor": 0.8688661946190728,
+        "stability_act": 0.9421526723437839,
+        "selectivity_arbor": 0.9151526028621635,
+        "selectivity_act": 0.8573602128509439
+      },
+      "2": {
+        "stability_arbor": 0.8736146635479397,
+        "stability_act": 0.9384112901157803,
+        "selectivity_arbor": 0.8503891303702075,
+        "selectivity_act": 0.8278532894368918
+      },
+      "3": {
+        "stability_arbor": 0.9994314180480109,
+        "stability_act": 0.938766770892673,
+        "selectivity_arbor": 0.8948723207978226,
+        "selectivity_act": 0.9531745431174008
+      }
+    },
+    "fingerprint_separability": {
+      "arbor_nmf": {
+        "silhouette": 0.1909477263689041,
+        "knn_acc": 0.9718944041705884
+      },
+      "activation_nmf": {
+        "silhouette": 0.18726488947868347,
+        "knn_acc": 0.9715885319020764
+      }
+    }
+  },
+  "ablation": "skipped: BFT node names do not map onto model weight modules",
+  "attribution": {
+    "discriminability_task": {
+      "IG": 0.9948068282709963,
+      "Saliency": 0.9637483347801062,
+      "input_mag": 0.9796344687966426
+    },
+    "discriminability_fine": {
+      "IG": 0.9948068282709963,
+      "Saliency": 0.9637483347801062,
+      "input_mag": 0.9796344687966426
+    },
+    "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
+  },
+  "seed_robustness": "skipped: <2 seed checkpoints on disk",
+  "figures": {
+    "fig_nmf_stability.pdf": "figs/09_validation/vit_mnist/fig_nmf_stability.pdf",
+    "fig_fingerprint_separability.pdf": "figs/09_validation/vit_mnist/fig_fingerprint_separability.pdf",
+    "fig_a1_weight_vs_activation.pdf": "figs/09_validation/vit_mnist/fig_a1_weight_vs_activation.pdf",
+    "fig_attribution_baselines.pdf": "figs/09_validation/vit_mnist/fig_attribution_baselines.pdf"
+  },
+  "caps": {
+    "recon": false,
+    "roundtrip": false,
+    "ablation": false,
+    "attribution": true,
+    "bft_pixel": false,
+    "multi_seed": false
+  },
+  "config": {
+    "n_trace": null,
+    "bft_max_iter": 500,
+    "aux_max_iter": 300,
+    "stab_seeds": 10,
+    "n_samples": 9820,
+    "device": "cpu"
+  }
+}

@@ -1,0 +1,176 @@
+{
+  "experiment": "cnn_cifar",
+  "mode": "cluster",
+  "stability": {
+    "per_layer": {
+      "0": {
+        "mean": 0.9074677944183349,
+        "std": 0.12356639677372704,
+        "k": 5
+      },
+      "1": {
+        "mean": 0.9958844410048591,
+        "std": 0.00444236252667132,
+        "k": 3
+      },
+      "2": {
+        "mean": 0.9848979367150201,
+        "std": 0.023687095197732717,
+        "k": 2
+      },
+      "3": {
+        "mean": 0.8506665388743083,
+        "std": 0.026606008057388,
+        "k": 6
+      },
+      "4": {
+        "mean": 0.8884711517228021,
+        "std": 0.03982071263951442,
+        "k": 10
+      }
+    },
+    "k_sensitivity": {
+      "k_star": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "k_minus1": [
+        0.8780384063720703,
+        0.9968427419662476,
+        0.8833039999008179,
+        0.5295214653015137,
+        0.9905873537063599
+      ],
+      "k_plus1": [
+        0.9966762661933899,
+        0.9931180477142334,
+        0.8910165429115295,
+        0.9972151517868042,
+        0.9910504817962646
+      ]
+    }
+  },
+  "recon": "skipped: needs primary-mode BFT (layer-dict archs have no model hook)",
+  "roundtrip": {
+    "mean": 0.9344459232035058,
+    "std": 0.034024781849790096,
+    "min": 0.8027585158949775
+  },
+  "separability": {
+    "by_task": {
+      "bft_fingerprint": {
+        "silhouette": 0.33765482902526855,
+        "knn_acc": 0.9883333333333333
+      },
+      "raw_activations": {
+        "silhouette": 0.2572202980518341,
+        "knn_acc": 1.0
+      }
+    },
+    "by_fine": {
+      "bft_fingerprint": {
+        "silhouette": 0.33765482902526855,
+        "knn_acc": 0.9883333333333333
+      },
+      "raw_activations": {
+        "silhouette": 0.2572202980518341,
+        "knn_acc": 1.0
+      }
+    }
+  },
+  "A1_weight_vs_activation": {
+    "per_layer": {
+      "0": {
+        "stability_arbor": 0.9074677944183349,
+        "stability_act": 0.9499030417866177,
+        "selectivity_arbor": 0.7995061728395061,
+        "selectivity_act": 0.7495987654320988
+      },
+      "1": {
+        "stability_arbor": 0.9958844410048591,
+        "stability_act": 0.9987014399634467,
+        "selectivity_arbor": 0.8788888888888889,
+        "selectivity_act": 0.885679012345679
+      },
+      "2": {
+        "stability_arbor": 0.9848979367150201,
+        "stability_act": 0.9995522287156847,
+        "selectivity_arbor": 0.8289814814814814,
+        "selectivity_act": 0.9206790123456791
+      },
+      "3": {
+        "stability_arbor": 0.8506665388743083,
+        "stability_act": 0.8996300048298306,
+        "selectivity_arbor": 0.9401543209876543,
+        "selectivity_act": 0.9835185185185185
+      },
+      "4": {
+        "stability_arbor": 0.8884711517228021,
+        "stability_act": 0.9204191009203593,
+        "selectivity_arbor": 1.0,
+        "selectivity_act": 1.0
+      }
+    },
+    "fingerprint_separability": {
+      "arbor_nmf": {
+        "silhouette": 0.4272839426994324,
+        "knn_acc": 0.985
+      },
+      "activation_nmf": {
+        "silhouette": 0.4936249852180481,
+        "knn_acc": 0.995
+      }
+    }
+  },
+  "ablation": {
+    "method": "generic filter-level proxy",
+    "frac": 0.2,
+    "n_classes_eval": 10,
+    "bft_target_drop_mean": 0.8029,
+    "bft_bystander_drop_mean": 0.8029,
+    "random_target_drop_mean": 0.8029,
+    "wilcoxon_target_vs_bystander_p": 0.083984375,
+    "ttest_bft_vs_random_p": NaN
+  },
+  "attribution": {
+    "discriminability_task": {
+      "IG": 0.35333333333333333,
+      "Saliency": 0.395,
+      "input_mag": 0.22166666666666668
+    },
+    "discriminability_fine": {
+      "IG": 0.35333333333333333,
+      "Saliency": 0.395,
+      "input_mag": 0.22166666666666668
+    },
+    "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
+  },
+  "seed_robustness": "skipped: <2 seed checkpoints on disk",
+  "figures": {
+    "fig_nmf_stability.pdf": "figs/09_validation/cnn_cifar/fig_nmf_stability.pdf",
+    "fig_nnls_roundtrip.pdf": "figs/09_validation/cnn_cifar/fig_nnls_roundtrip.pdf",
+    "fig_fingerprint_separability.pdf": "figs/09_validation/cnn_cifar/fig_fingerprint_separability.pdf",
+    "fig_a1_weight_vs_activation.pdf": "figs/09_validation/cnn_cifar/fig_a1_weight_vs_activation.pdf",
+    "fig_ablation_pruning.pdf": "figs/09_validation/cnn_cifar/fig_ablation_pruning.pdf",
+    "fig_attribution_baselines.pdf": "figs/09_validation/cnn_cifar/fig_attribution_baselines.pdf"
+  },
+  "caps": {
+    "recon": false,
+    "roundtrip": true,
+    "ablation": true,
+    "attribution": true,
+    "bft_pixel": false,
+    "multi_seed": false
+  },
+  "config": {
+    "n_trace": null,
+    "bft_max_iter": 500,
+    "aux_max_iter": 300,
+    "stab_seeds": 10,
+    "n_samples": 600,
+    "device": "cpu"
+  }
+}

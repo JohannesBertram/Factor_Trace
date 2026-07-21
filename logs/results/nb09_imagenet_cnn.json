@@ -1,0 +1,228 @@
+{
+  "experiment": "imagenet_cnn",
+  "mode": "cluster",
+  "stability": {
+    "per_layer": {
+      "0": {
+        "mean": 0.8943014542261759,
+        "std": 0.1414427211299561,
+        "k": 4
+      },
+      "1": {
+        "mean": 0.999950095017751,
+        "std": 4.791596002800281e-05,
+        "k": 2
+      },
+      "2": {
+        "mean": 1.0000000529819064,
+        "std": 6.310743358173157e-08,
+        "k": 1
+      },
+      "3": {
+        "mean": 0.9999999483426412,
+        "std": 4.963078497567493e-08,
+        "k": 1
+      },
+      "4": {
+        "mean": 0.9995991362465753,
+        "std": 0.0004658114434340404,
+        "k": 2
+      },
+      "5": {
+        "mean": 1.0000000927183363,
+        "std": 8.665417159290381e-08,
+        "k": 1
+      },
+      "6": {
+        "mean": 0.9281911015510559,
+        "std": 0.044304993230922275,
+        "k": 4
+      },
+      "7": {
+        "mean": 0.9456540571318732,
+        "std": 0.03202234065435738,
+        "k": 4
+      },
+      "8": {
+        "mean": 0.8968986564212376,
+        "std": 0.04153550560351078,
+        "k": 4
+      },
+      "9": {
+        "mean": 0.9164589987860785,
+        "std": 0.06027572862830205,
+        "k": 8
+      }
+    },
+    "k_sensitivity": {
+      "k_star": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "k_minus1": [
+        0.9781636595726013,
+        0.7955023646354675,
+        0.897720217704773,
+        0.827914834022522
+      ],
+      "k_plus1": [
+        0.9410805702209473,
+        0.9434389472007751,
+        0.9956530332565308,
+        0.8740794062614441
+      ]
+    }
+  },
+  "recon": "skipped: needs primary-mode BFT (layer-dict archs have no model hook)",
+  "roundtrip": {
+    "mean": 0.924949216536726,
+    "std": 0.04058281837104462,
+    "min": 0.7795368511730806
+  },
+  "separability": {
+    "by_task": {
+      "bft_fingerprint": {
+        "silhouette": 0.3622373938560486,
+        "knn_acc": 0.9402236935622638
+      },
+      "raw_activations": {
+        "silhouette": 0.09092360734939575,
+        "knn_acc": 0.8450417087494856
+      }
+    },
+    "by_fine": {
+      "bft_fingerprint": {
+        "silhouette": 0.3622373938560486,
+        "knn_acc": 0.9402236935622638
+      },
+      "raw_activations": {
+        "silhouette": 0.09092360734939575,
+        "knn_acc": 0.8450417087494856
+      }
+    }
+  },
+  "A1_weight_vs_activation": {
+    "per_layer": {
+      "0": {
+        "stability_arbor": 0.8943014542261759,
+        "stability_act": 0.9870480974515279,
+        "selectivity_arbor": 0.8402285714285714,
+        "selectivity_act": 0.8932571428571429
+      },
+      "1": {
+        "stability_arbor": 0.999950095017751,
+        "stability_act": 0.9804715712865194,
+        "selectivity_arbor": 0.8949142857142858,
+        "selectivity_act": 0.9292
+      },
+      "2": {
+        "stability_arbor": 1.0000000529819064,
+        "stability_act": 1.0000000556310018,
+        "selectivity_arbor": 0.8049142857142857,
+        "selectivity_act": 0.7964
+      },
+      "3": {
+        "stability_arbor": 0.9999999483426412,
+        "stability_act": 1.0000000251664056,
+        "selectivity_arbor": 0.8991428571428571,
+        "selectivity_act": 0.8334285714285714
+      },
+      "4": {
+        "stability_arbor": 0.9995991362465753,
+        "stability_act": 0.9998103419939677,
+        "selectivity_arbor": 0.9569714285714286,
+        "selectivity_act": 0.9577142857142857
+      },
+      "5": {
+        "stability_arbor": 1.0000000927183363,
+        "stability_act": 1.0000000013245476,
+        "selectivity_arbor": 0.8285142857142858,
+        "selectivity_act": 0.8294285714285715
+      },
+      "6": {
+        "stability_arbor": 0.9281911015510559,
+        "stability_act": 0.946965401702457,
+        "selectivity_arbor": 0.9539428571428572,
+        "selectivity_act": 0.9633714285714285
+      },
+      "7": {
+        "stability_arbor": 0.9456540571318732,
+        "stability_act": 0.961565171347724,
+        "selectivity_arbor": 0.9578857142857143,
+        "selectivity_act": 0.9468
+      },
+      "8": {
+        "stability_arbor": 0.8968986564212376,
+        "stability_act": 0.988174577554067,
+        "selectivity_arbor": 0.9648,
+        "selectivity_act": 0.9553142857142857
+      },
+      "9": {
+        "stability_arbor": 0.9164589987860785,
+        "stability_act": 0.8771741350491842,
+        "selectivity_arbor": 1.0,
+        "selectivity_act": 1.0
+      }
+    },
+    "fingerprint_separability": {
+      "arbor_nmf": {
+        "silhouette": 0.37881115078926086,
+        "knn_acc": 0.9250738787266674
+      },
+      "activation_nmf": {
+        "silhouette": 0.20183783769607544,
+        "knn_acc": 0.8925111285676879
+      }
+    }
+  },
+  "ablation": {
+    "method": "generic filter-level proxy",
+    "frac": 0.2,
+    "n_classes_eval": 8,
+    "bft_target_drop_mean": 0.0425,
+    "bft_bystander_drop_mean": 0.0012500000000000033,
+    "random_target_drop_mean": 0.0012500000000000011,
+    "wilcoxon_target_vs_bystander_p": 0.1484375,
+    "ttest_bft_vs_random_p": 0.3506166628202075
+  },
+  "attribution": {
+    "discriminability_task": {
+      "IG": 0.21503385328994126,
+      "Saliency": 0.2025399319193506,
+      "input_mag": 0.16500205738226162
+    },
+    "discriminability_fine": {
+      "IG": 0.21503385328994126,
+      "Saliency": 0.2025399319193506,
+      "input_mag": 0.16500205738226162
+    },
+    "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
+  },
+  "seed_robustness": "skipped: <2 seed checkpoints on disk",
+  "figures": {
+    "fig_nmf_stability.pdf": "figs/09_validation/imagenet_cnn/fig_nmf_stability.pdf",
+    "fig_nnls_roundtrip.pdf": "figs/09_validation/imagenet_cnn/fig_nnls_roundtrip.pdf",
+    "fig_fingerprint_separability.pdf": "figs/09_validation/imagenet_cnn/fig_fingerprint_separability.pdf",
+    "fig_a1_weight_vs_activation.pdf": "figs/09_validation/imagenet_cnn/fig_a1_weight_vs_activation.pdf",
+    "fig_ablation_pruning.pdf": "figs/09_validation/imagenet_cnn/fig_ablation_pruning.pdf",
+    "fig_attribution_baselines.pdf": "figs/09_validation/imagenet_cnn/fig_attribution_baselines.pdf"
+  },
+  "caps": {
+    "recon": false,
+    "roundtrip": true,
+    "ablation": true,
+    "attribution": true,
+    "bft_pixel": false,
+    "multi_seed": false
+  },
+  "config": {
+    "n_trace": null,
+    "bft_max_iter": 500,
+    "aux_max_iter": 300,
+    "stab_seeds": 10,
+    "n_samples": 400,
+    "device": "cpu"
+  }
+}

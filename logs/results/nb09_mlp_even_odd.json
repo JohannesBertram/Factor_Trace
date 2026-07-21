@@ -1,0 +1,305 @@
+{
+  "experiment": "mlp_even_odd",
+  "mode": "cluster",
+  "stability": {
+    "per_layer": {
+      "0": {
+        "mean": 0.8870443211661445,
+        "std": 0.059780332217763334,
+        "k": 5
+      },
+      "1": {
+        "mean": 0.999999984105428,
+        "std": 4.599824310457796e-08,
+        "k": 1
+      },
+      "2": {
+        "mean": 0.9999954647488064,
+        "std": 4.545643021823319e-06,
+        "k": 2
+      }
+    },
+    "k_sensitivity": {
+      "k_star": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "k_minus1": [
+        0.9958459734916687,
+        0.9987810850143433,
+        0.968388557434082,
+        0.9569859504699707,
+        0.7801226377487183
+      ],
+      "k_plus1": [
+        0.9881516695022583,
+        0.9876490831375122,
+        0.963415265083313,
+        0.9488968849182129,
+        0.9424680471420288
+      ]
+    }
+  },
+  "recon": {
+    "overall": {
+      "loss_ratio_floored": {
+        "n": 5,
+        "mean": 123.72190111600612,
+        "median": 0.006676703691482544,
+        "min": 0.0026280099991708994,
+        "max": 618.5216064453125,
+        "std": 247.39985416585208
+      },
+      "abs_ce_gap": {
+        "n": 5,
+        "mean": 1.2368895328913396,
+        "median": 4.311078460887074e-05,
+        "min": -1.4913990162312972e-06,
+        "max": 6.1840463808178905,
+        "std": 2.4735784276207933
+      },
+      "preact_r2": {
+        "n": 5,
+        "mean": 0.6818211154822775,
+        "median": 0.9806126914570837,
+        "min": -0.4840746683215773,
+        "max": 0.9938177003152402,
+        "std": 0.5832531600586278
+      },
+      "loss_ratio_all": {
+        "n": 5,
+        "mean": 1058.9302329913153,
+        "median": 1.9253685666894509,
+        "min": 0.9462974967319955,
+        "max": 5287.939300964354,
+        "std": 2114.5046447472864
+      }
+    },
+    "per_layer": {
+      "0": {
+        "loss_ratio_floored": {
+          "n": 2,
+          "mean": 309.26211722765584,
+          "median": 309.26211722765584,
+          "min": 0.0026280099991708994,
+          "max": 618.5216064453125,
+          "std": 309.25948921765666
+        },
+        "abs_ce_gap": {
+          "n": 2,
+          "mean": 3.0920224447094373,
+          "median": 3.0920224447094373,
+          "min": -1.4913990162312972e-06,
+          "max": 6.1840463808178905,
+          "std": 3.092023936108453
+        },
+        "preact_r2": {
+          "n": 2,
+          "mean": 0.22693942484069962,
+          "median": 0.22693942484069962,
+          "min": -0.4840746683215773,
+          "max": 0.9379535180029765,
+          "std": 0.7110140931622769
+        },
+        "loss_ratio_all": {
+          "n": 2,
+          "mean": 2644.4427992305427,
+          "median": 2644.4427992305427,
+          "min": 0.9462974967319955,
+          "max": 5287.939300964354,
+          "std": 2643.496501733811
+        }
+      },
+      "1": {
+        "loss_ratio_floored": {
+          "n": 2,
+          "mean": 0.005289845867082477,
+          "median": 0.005289845867082477,
+          "min": 0.0039029880426824093,
+          "max": 0.006676703691482544,
+          "std": 0.0013868578244000673
+        },
+        "abs_ce_gap": {
+          "n": 2,
+          "mean": 2.189693856053054e-05,
+          "median": 2.189693856053054e-05,
+          "min": 6.830925121903387e-07,
+          "max": 4.311078460887074e-05,
+          "std": 2.12138460483402e-05
+        },
+        "preact_r2": {
+          "n": 2,
+          "mean": 0.987307018136452,
+          "median": 0.987307018136452,
+          "min": 0.980796335957664,
+          "max": 0.9938177003152402,
+          "std": 0.006510682178788085
+        },
+        "loss_ratio_all": {
+          "n": 2,
+          "mean": 1.9200989644008604,
+          "median": 1.9200989644008604,
+          "min": 1.0178135523035468,
+          "max": 2.822384376498174,
+          "std": 0.9022854120973136
+        }
+      },
+      "2": {
+        "loss_ratio_floored": {
+          "n": 1,
+          "mean": 0.07469143298472844,
+          "median": 0.07469143298472844,
+          "min": 0.07469143298472844,
+          "max": 0.07469143298472844,
+          "std": 0.0
+        },
+        "abs_ce_gap": {
+          "n": 1,
+          "mean": 0.0003589811607026586,
+          "median": 0.0003589811607026586,
+          "min": 0.0003589811607026586,
+          "max": 0.0003589811607026586,
+          "std": 0.0
+        },
+        "preact_r2": {
+          "n": 1,
+          "mean": 0.9806126914570837,
+          "median": 0.9806126914570837,
+          "min": 0.9806126914570837,
+          "max": 0.9806126914570837,
+          "std": 0.0
+        },
+        "loss_ratio_all": {
+          "n": 1,
+          "mean": 1.9253685666894509,
+          "median": 1.9253685666894509,
+          "min": 1.9253685666894509,
+          "max": 1.9253685666894509,
+          "std": 0.0
+        }
+      }
+    }
+  },
+  "roundtrip": {
+    "mean": 0.9916385052184107,
+    "std": 0.031179803197957025,
+    "min": 0.6633470382754741
+  },
+  "separability": {
+    "by_task": {
+      "bft_fingerprint": {
+        "silhouette": 0.6663472652435303,
+        "knn_acc": 1.0
+      },
+      "raw_activations": {
+        "silhouette": 0.8111934661865234,
+        "knn_acc": 0.9997549019607842
+      }
+    },
+    "by_fine": {
+      "bft_fingerprint": {
+        "silhouette": 0.4069523215293884,
+        "knn_acc": 0.9784313725490196
+      },
+      "raw_activations": {
+        "silhouette": 0.24907265603542328,
+        "knn_acc": 0.9534313725490197
+      }
+    }
+  },
+  "A1_weight_vs_activation": {
+    "per_layer": {
+      "0": {
+        "stability_arbor": 0.8958470172352261,
+        "stability_act": 0.8972785022523668,
+        "selectivity_arbor": 0.9795486600846262,
+        "selectivity_act": 0.828060262429433
+      },
+      "1": {
+        "stability_arbor": 1.0000000145700243,
+        "stability_act": 1.000000090069241,
+        "selectivity_arbor": 0.9795486600846262,
+        "selectivity_act": 0.9914432511456944
+      },
+      "2": {
+        "stability_arbor": 0.9999947759840223,
+        "stability_act": 0.999982644451989,
+        "selectivity_arbor": 1.0,
+        "selectivity_act": 1.0
+      }
+    },
+    "fingerprint_separability": {
+      "arbor_nmf": {
+        "silhouette": 0.9119016528129578,
+        "knn_acc": 1.0
+      },
+      "activation_nmf": {
+        "silhouette": 0.5199533700942993,
+        "knn_acc": 0.9997549019607842
+      }
+    }
+  },
+  "ablation": {
+    "method": "library weight-level (bft_top)",
+    "frac": 0.2,
+    "n_classes_eval": 2,
+    "bft_target_drop_mean": 0.9935106178225445,
+    "bft_bystander_drop_mean": -0.006489382177455538,
+    "random_target_drop_mean": -0.00013567811732939639,
+    "wilcoxon_target_vs_bystander_p": 0.5,
+    "ttest_bft_vs_random_p": 0.002002603257440313
+  },
+  "attribution": {
+    "discriminability_task": {
+      "IG": 0.9980392156862745,
+      "Saliency": 0.9955882352941177,
+      "input_mag": 0.9958333333333332,
+      "BFT": 0.9852941176470589
+    },
+    "discriminability_fine": {
+      "IG": 0.9924019607843139,
+      "Saliency": 0.9276960784313726,
+      "input_mag": 0.9936274509803922,
+      "BFT": 0.9556372549019608
+    },
+    "metric": "kNN 3-fold CV accuracy from per-sample attribution map"
+  },
+  "seed_robustness": {
+    "mean": 0.5878807157278061,
+    "scores": [
+      0.5490068793296814,
+      0.5574918985366821,
+      0.6456453800201416,
+      0.5993787050247192
+    ]
+  },
+  "figures": {
+    "fig_nmf_stability.pdf": "figs/09_validation/mlp_even_odd/fig_nmf_stability.pdf",
+    "fig_recon_validation.pdf": "figs/09_validation/mlp_even_odd/fig_recon_validation.pdf",
+    "fig_nnls_roundtrip.pdf": "figs/09_validation/mlp_even_odd/fig_nnls_roundtrip.pdf",
+    "fig_fingerprint_separability.pdf": "figs/09_validation/mlp_even_odd/fig_fingerprint_separability.pdf",
+    "fig_a1_weight_vs_activation.pdf": "figs/09_validation/mlp_even_odd/fig_a1_weight_vs_activation.pdf",
+    "fig_ablation_pruning.pdf": "figs/09_validation/mlp_even_odd/fig_ablation_pruning.pdf",
+    "fig_attribution_baselines.pdf": "figs/09_validation/mlp_even_odd/fig_attribution_baselines.pdf",
+    "fig_seed_robustness.pdf": "figs/09_validation/mlp_even_odd/fig_seed_robustness.pdf"
+  },
+  "caps": {
+    "recon": true,
+    "roundtrip": true,
+    "ablation": true,
+    "attribution": true,
+    "bft_pixel": true,
+    "multi_seed": true
+  },
+  "config": {
+    "n_trace": null,
+    "bft_max_iter": 500,
+    "aux_max_iter": 300,
+    "stab_seeds": 10,
+    "n_samples": 4080,
+    "device": "cpu"
+  }
+}
