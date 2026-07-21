@@ -28,3 +28,6 @@ FLYVIS_DATA_INSTRUCTIONS.md
 encoding_manifold_utils.py
 flyvis_trace_utils.py
 .venv2
+*.bib
+logs_old
+VALIDATION_FINDINGS.md
