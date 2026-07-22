@@ -1,0 +1,9 @@
+# Only needed for venues NOT covered by tueplots — see references/venues.md.
+# Delete this file if the venue is covered (geometry then comes from tueplots).
+# name: myjournal2026
+# source: "https://..."
+# text_width_in: 5.95
+# column_width_in: 2.87   # omit for single-column venues
+# font_size_pt: 10
+# font_family: times
+# notes: ""

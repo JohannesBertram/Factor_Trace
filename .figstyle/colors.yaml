@@ -1,0 +1,38 @@
+# Semantic color map — single source of truth for the whole paper.
+# Every figure script resolves colors via figstyle.color("<component>").
+# Values: palette names (blue, red, green, yellow, cyan, purple, grey) or hex.
+#
+# Assignment rationale
+#   blue / red   are RESERVED for the even/odd running example (the paper's most
+#                frequent visual: MLP 8x4, and ViT-MNIST). Sub-classes (digits)
+#                are shades within the parent class hue.
+#   purple       is BFT itself — the protagonist in every method comparison.
+#   grey         means "context, not contender" (random / chance baselines).
+components:
+  # ── the method and its ablation / attribution competitors ────────────────
+  ours: purple            # BFT (bft_top / algo_top); also the sequential-map
+                          # hue for BFT loadings where classes have no color
+                          # of their own (10-digit MLP, CNN, ViT)
+  bft_bottom: cyan        # BFT least-important control — variant of ours
+  magnitude: yellow       # weight-magnitude pruning baseline
+  taylor: green           # Taylor / gradient x input baseline
+  random: grey            # random pruning baseline
+
+  # ── even/odd running example: class identity ─────────────────────────────
+  even: blue
+  odd: red
+  # sub-class (digit) shades are derived from the parent hue in the figure code:
+  # digits 0 / 4 = dark / light blue, digits 1 / 3 = dark / light red
+
+  # ── circuit polarity inside scaffold graphs ──────────────────────────────
+  # Excitatory edges take the class hue; inhibitory edges are drawn dark grey
+  # and dashed, so the sign is readable independently of the class color.
+  inhibitory: '#444444'
+
+  # ── stimulus conditions in the fingerprint / OOD figures ─────────────────
+  # A second axis of meaning (which data a stimulus came from), so these are
+  # taken from Paul Tol "muted" and stay clear of the class and method hues.
+  id_data: '#333333'      # in-distribution, where one neutral hue is needed
+                          # (nb01/nb02 usually color ID by class instead)
+  near_ood: '#44AA99'     # teal — held-out digits (nb01), Fashion-MNIST (nb02)
+  far_ood: '#882255'      # wine — synthetic far-OOD stimuli

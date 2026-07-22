@@ -475,7 +475,7 @@ def plot_input_layer_factors(node, images, arch='fc', image_shape=None):
             figs.append(fig)
 
     elif arch == 'attn':
-        attn_w = node.get('attn_weights', None)  # (N, T) if stored
+        attn_w = getattr(node, 'attn_weights', None)  # (N, T) if stored
         H_img  = images.shape[-2] if images.ndim >= 3 else 28
         W_img  = images.shape[-1] if images.ndim >= 2 else 28
         for k in range(K):
