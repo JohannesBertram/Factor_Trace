@@ -68,6 +68,7 @@ from .recon_validation import (
     validate_node_reconstruction,
     summarize_validation,
 )
+from . import figdata          # bundle I/O for paper figures
 from .robustness_utils import (
     compute_nmf_stability,
     align_factors,
