@@ -16,7 +16,15 @@ components:
   bft_bottom: cyan        # BFT least-important control — variant of ours
   magnitude: yellow       # weight-magnitude pruning baseline
   taylor: green           # Taylor / gradient x input baseline
-  random: grey            # random pruning baseline
+  random: grey            # random pruning baseline; also the random-rank
+                          # reconstruction floor and the shuffled-label null
+
+  # ── validation figures: what BFT is measured against ─────────────────────
+  # One hue for "a control that is not BFT", one for "a bound BFT cannot beat
+  # by construction". Several controls in one panel are separated by tint().
+  baseline: '#332288'     # indigo — raw activations, activation-only NMF,
+                          # IG / Saliency / input-magnitude attribution
+  ceiling: '#999933'      # olive — exact injection, rank-matched SVD
 
   # ── even/odd running example: class identity ─────────────────────────────
   even: blue
