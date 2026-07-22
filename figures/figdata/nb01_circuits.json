@@ -1,0 +1,21 @@
+{
+ "circuits.0.color_key": "even",
+ "circuits.0.k": 1,
+ "circuits.0.name": "even",
+ "circuits.0.scaffold.edges.__list__": 2,
+ "circuits.0.scaffold.neg_edges.__list__": 2,
+ "circuits.1.color_key": "odd",
+ "circuits.1.k": 0,
+ "circuits.1.name": "odd",
+ "circuits.1.scaffold.edges.__list__": 2,
+ "circuits.1.scaffold.neg_edges.__list__": 2,
+ "circuits.__list__": 2,
+ "out_labels": [
+  "even",
+  "odd"
+ ],
+ "root_factor_color_keys": [
+  "odd",
+  "even"
+ ]
+}

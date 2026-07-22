@@ -1,0 +1,20 @@
+{
+ "circuits.0.k": 0,
+ "circuits.0.scaffold.edges.__list__": 2,
+ "circuits.0.scaffold.neg_edges.__list__": 2,
+ "circuits.1.k": 1,
+ "circuits.1.scaffold.edges.__list__": 2,
+ "circuits.1.scaffold.neg_edges.__list__": 2,
+ "circuits.2.k": 2,
+ "circuits.2.scaffold.edges.__list__": 2,
+ "circuits.2.scaffold.neg_edges.__list__": 2,
+ "circuits.3.k": 3,
+ "circuits.3.scaffold.edges.__list__": 2,
+ "circuits.3.scaffold.neg_edges.__list__": 2,
+ "circuits.4.k": 4,
+ "circuits.4.scaffold.edges.__list__": 2,
+ "circuits.4.scaffold.neg_edges.__list__": 2,
+ "circuits.__list__": 5,
+ "n_digits": 10,
+ "n_show": 3
+}
