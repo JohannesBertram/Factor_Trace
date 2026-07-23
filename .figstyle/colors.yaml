@@ -37,6 +37,29 @@ components:
   # and dashed, so the sign is readable independently of the class color.
   inhibitory: '#444444'
 
+  # ── CNN / CIFAR-10 circuit figures ───────────────────────────────────────
+  # CIFAR classes get no colors of their own (ten of them, and the images
+  # carry the identity); one accent marks the exception worth seeing.
+  cross_class: '#CC6677'  # rose — a sub-factor whose top images come from a
+                          # class other than its circuit's (a confusion group)
+
+  # ── per-class identity in the embedding / mean-fingerprint panels ────────
+  # Ten classes (MNIST digits, CIFAR-10 categories) need ten distinguishable
+  # hues: Paul Tol "muted" without its pale-grey "bad data" entry, plus brown.
+  # A separate axis of meaning from the method and condition colors, used only
+  # where a dot or a tick label stands for one class. `class_colors()` in
+  # src/paper_figures.py resolves class i to class_<i mod 10>.
+  class_0: '#CC6677'      # rose
+  class_1: '#332288'      # indigo
+  class_2: '#DDCC77'      # sand
+  class_3: '#117733'      # green
+  class_4: '#88CCEE'      # cyan
+  class_5: '#882255'      # wine
+  class_6: '#44AA99'      # teal
+  class_7: '#999933'      # olive
+  class_8: '#AA4499'      # purple
+  class_9: '#661100'      # brown
+
   # ── stimulus conditions in the fingerprint / OOD figures ─────────────────
   # A second axis of meaning (which data a stimulus came from), so these are
   # taken from Paul Tol "muted" and stay clear of the class and method hues.

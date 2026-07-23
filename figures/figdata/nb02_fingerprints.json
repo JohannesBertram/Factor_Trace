@@ -1,4 +1,10 @@
 {
+ "act.aligned": 1,
+ "act.reps.0.dim": 40,
+ "act.reps.0.label": "$L_2$ act.",
+ "act.reps.1.dim": 20,
+ "act.reps.1.label": "$L_3$ act.",
+ "act.reps.__list__": 2,
  "agree": 0.6963,
  "block_color_keys": [
   "id_data",

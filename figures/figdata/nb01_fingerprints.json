@@ -1,4 +1,10 @@
 {
+ "act.aligned": 1,
+ "act.reps.0.dim": 8,
+ "act.reps.0.label": "$L_2$ act.",
+ "act.reps.1.dim": 4,
+ "act.reps.1.label": "$L_3$ act.",
+ "act.reps.__list__": 2,
  "cond.0.color_key": "id_data",
  "cond.0.label": "ID test",
  "cond.1.color_key": "near_ood",
