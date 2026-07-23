@@ -1,0 +1,34 @@
+exec-ing 3 setup cells from 09_validation_all_models.ipynb (this builds the base tree — the single fixed cost of a launch) …
+/home/jb3879/Factor_Trace/.venv2/lib64/python3.9/site-packages/networkx/utils/backends.py:135: RuntimeWarning: networkx backend defined more than once: nx-loopback
+  backends.update(_get_backends("networkx.backends"))
+EXP=imagenet_cnn  MODE=cluster  DEVICE=cpu  N_TRACE=None
+  built: n_samples=400  n_classes=8
+  caps={'recon': False, 'roundtrip': True, 'ablation': False, 'attribution': True, 'bft_pixel': False, 'multi_seed': False}
+
+nb10  EXP=imagenet_cnn  MODE=cluster  n_samples=400  max_iter=500  n_jobs=4
+  -> data/results/nb10_imagenet_cnn.json
+prior : data/results/nb09_imagenet_cnn.json
+        sections=['S1', 'S2', 'S2b', 'S3', 'S4', 'S5', 'S7', 'FU1', 'FU2']  n=400
+
+rank profiles : {'default': [4, 2, 1, 1, 2, 1, 4, 4, 4, 8], 'K@R2.90': [5, 2, 2, 1, 4, 2, 4, 4, 7, 8], 'K@R2.95': [5, 4, 5, 3, 2, 7, 4, 4, 4, 8], 'rank x0.7': [3, 1, 1, 1, 1, 1, 3, 3, 3, 6], 'rank x1.3': [5, 3, 1, 1, 3, 1, 5, 5, 5, 10]}
+thresholds    : [0.0, 0.3]   (incumbent: thr=0.0)
+
+grid (6 configs):
+  thr=0.0          nb09   sil=0.3622 knn=0.9402 stab=0.844 dim=223
+  thr=0.3          nb09   sil=0.3479 knn=0.9477 stab=0.876 dim=213
+  rank=K@R2.90     nb09   sil=0.3635 knn=0.9402 stab=0.847 dim=230
+  rank=K@R2.95     nb09   sil=0.3614 knn=0.9377 stab=0.844 dim=230
+  rank=rank x0.7   nb09   sil=0.2942 knn=0.8776 stab=0.769 dim=178
+  rank=rank x1.3   MISSING — to run —
+
+1 configuration(s) to run: ['rank=rank x1.3']
+scoring the base tree as thr=0.0 (already built by §0, no refit) …
+  thr=0.0          sil=0.3622 knn=0.9402 stab=0.844 medR2=n/a dim=223  3182s
+  reproducibility vs prior run: 0.3622 -> 0.3622  (delta +0.0000)
+  rank=rank x1.3   sil=0.4112 knn=0.9501 stab=0.886 medR2=n/a dim=234  10894s
+  [checkpoint]  -> data/results/nb10_imagenet_cnn.json (0 sections)
+  [checkpoint] sweep -> data/results/nb10_imagenet_cnn.json (1 sections)
+
+sweep complete: True  (6/6 configs)
+contenders: ['rank=rank x1.3', 'rank=K@R2.90', 'thr=0.0']
+refits needed: ['rank=K@R2.90']
