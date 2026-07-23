@@ -1,0 +1,364 @@
+{
+ "experiment": "imagenet_cnn",
+ "mode": "cluster",
+ "notebook": "10",
+ "nb10": {
+  "n_jobs": 4,
+  "refits": 2,
+  "b_boot": 1000,
+  "sub_frac": 0.8,
+  "sweep_max_iter": 500
+ },
+ "incumbent_reproduction": {
+  "nb10": 0.3622373938560486,
+  "nb09": 0.3622373938560486
+ },
+ "HP_sweep": {
+  "rule": "max silhouette among configs within 0.05 of the best observed MEDIAN-node causal R2; ties -> smaller fp dim (revision 2; revision 1 used an absolute R2>=0.90 gate that was unsatisfiable in every experiment)",
+  "cost_prepass": {
+   "0.0": 32471,
+   "0.3": 15736
+  },
+  "dropped_thresholds": [],
+  "rank_profiles": {
+   "default": [
+    4,
+    2,
+    1,
+    1,
+    2,
+    1,
+    4,
+    4,
+    4,
+    8
+   ],
+   "K@R2.90": [
+    5,
+    2,
+    2,
+    1,
+    4,
+    2,
+    4,
+    4,
+    7,
+    8
+   ],
+   "K@R2.95": [
+    5,
+    4,
+    5,
+    3,
+    2,
+    7,
+    4,
+    4,
+    4,
+    8
+   ],
+   "rank x0.7": [
+    3,
+    1,
+    1,
+    1,
+    1,
+    1,
+    3,
+    3,
+    3,
+    6
+   ],
+   "rank x1.3": [
+    5,
+    3,
+    1,
+    1,
+    3,
+    1,
+    5,
+    5,
+    5,
+    10
+   ]
+  },
+  "incumbent": "thr=0.0",
+  "source": {
+   "thr=0.0": "nb09",
+   "thr=0.3": "nb09",
+   "rank=K@R2.90": "nb09",
+   "rank=K@R2.95": "nb09",
+   "rank=rank x0.7": "nb09",
+   "rank=rank x1.3": "nb10"
+  },
+  "complete": true,
+  "configs": [
+   {
+    "name": "thr=0.0",
+    "config": {
+     "stimulus_threshold": 0.0
+    },
+    "silhouette": 0.3622373938560486,
+    "knn_acc": 0.9402236935622638,
+    "min_stability": 0.8436892231305441,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 223,
+    "n_samples": 400,
+    "wall_s": 4738.3,
+    "source": "nb09"
+   },
+   {
+    "name": "thr=0.3",
+    "config": {
+     "stimulus_threshold": 0.3
+    },
+    "silhouette": 0.34788742661476135,
+    "knn_acc": 0.947686380129428,
+    "min_stability": 0.8755014836788177,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 213,
+    "n_samples": 400,
+    "wall_s": 5197.1,
+    "source": "nb09"
+   },
+   {
+    "name": "rank=K@R2.90",
+    "config": {
+     "k_max": [
+      5,
+      2,
+      2,
+      1,
+      4,
+      2,
+      4,
+      4,
+      7,
+      8
+     ]
+    },
+    "silhouette": 0.36353951692581177,
+    "knn_acc": 0.9402236935622638,
+    "min_stability": 0.8468771775563558,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 230,
+    "n_samples": 400,
+    "wall_s": 5679.5,
+    "source": "nb09",
+    "refit_silhouette": 0.36353954672813416
+   },
+   {
+    "name": "rank=K@R2.95",
+    "config": {
+     "k_max": [
+      5,
+      4,
+      5,
+      3,
+      2,
+      7,
+      4,
+      4,
+      4,
+      8
+     ]
+    },
+    "silhouette": 0.36144527792930603,
+    "knn_acc": 0.9377174278981034,
+    "min_stability": 0.8436892231305441,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 230,
+    "n_samples": 400,
+    "wall_s": 5313.0,
+    "source": "nb09"
+   },
+   {
+    "name": "rank=rank x0.7",
+    "config": {
+     "k_max": [
+      3,
+      1,
+      1,
+      1,
+      1,
+      1,
+      3,
+      3,
+      3,
+      6
+     ]
+    },
+    "silhouette": 0.294153094291687,
+    "knn_acc": 0.8776044589084652,
+    "min_stability": 0.7688489854335785,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 178,
+    "n_samples": 400,
+    "wall_s": 4685.1,
+    "source": "nb09"
+   },
+   {
+    "name": "rank=rank x1.3",
+    "config": {
+     "k_max": [
+      5,
+      3,
+      1,
+      1,
+      3,
+      1,
+      5,
+      5,
+      5,
+      10
+     ]
+    },
+    "silhouette": 0.4112423062324524,
+    "knn_acc": 0.9501365353682715,
+    "min_stability": 0.8856912851333618,
+    "min_preact_r2": NaN,
+    "median_preact_r2": NaN,
+    "fingerprint_dim": 234,
+    "n_samples": 400,
+    "wall_s": 10893.6,
+    "source": "nb10"
+   }
+  ]
+ },
+ "completed_sections": [
+  "sweep",
+  "refits",
+  "bootstrap",
+  "final_hp",
+  "seed_repeats",
+  "DONE"
+ ],
+ "figures": {
+  "fig_nb10_bootstrap.pdf": "figs/10_final_settings/imagenet_cnn/fig_nb10_bootstrap.pdf"
+ },
+ "caps": {
+  "recon": false,
+  "roundtrip": true,
+  "ablation": false,
+  "attribution": true,
+  "bft_pixel": false,
+  "multi_seed": false
+ },
+ "config": {
+  "n_trace": null,
+  "bft_max_iter": 500,
+  "aux_max_iter": 300,
+  "stab_seeds": 10,
+  "recon_eval_max": 2000,
+  "n_samples": 400,
+  "device": "cpu"
+ },
+ "bootstrap": {
+  "method": "paired class-stratified 80% stimulus subsampling without replacement, B=1000; reported, never gated on",
+  "incumbent": "thr=0.0",
+  "per_config": {
+   "rank=rank x1.3": {
+    "mean": 0.4111608862876892,
+    "sd": 0.00640224851667881,
+    "lo": 0.3985812790691853,
+    "hi": 0.4240380346775055,
+    "delta_vs_incumbent": 0.048915550112724304,
+    "delta_lo": 0.0436569519340992,
+    "delta_hi": 0.05428125113248825,
+    "p_beats_incumbent": 1.0,
+    "p_best": 1.0
+   },
+   "rank=K@R2.90": {
+    "mean": 0.36353811621665955,
+    "sd": 0.006266234442591667,
+    "lo": 0.3517514169216156,
+    "hi": 0.37648202031850814,
+    "delta_vs_incumbent": 0.0012927672360092402,
+    "delta_lo": 0.000847664475440979,
+    "delta_hi": 0.0017439819872379302,
+    "p_beats_incumbent": 1.0,
+    "p_best": 0.0
+   },
+   "thr=0.0": {
+    "mean": 0.3622453510761261,
+    "sd": 0.00623730756342411,
+    "lo": 0.35038779154419897,
+    "hi": 0.3752210415899754,
+    "delta_vs_incumbent": 0.0,
+    "delta_lo": 0.0,
+    "delta_hi": 0.0,
+    "p_beats_incumbent": 0.0,
+    "p_best": 0.0
+   }
+  }
+ },
+ "final_hp": {
+  "selected_config": "rank=rank x1.3",
+  "sweep_complete": true,
+  "median_preact_r2": NaN,
+  "min_preact_r2": NaN,
+  "min_stability": 0.8856912851333618,
+  "silhouette": 0.4112423062324524,
+  "fingerprint_dim": 234,
+  "selected_below_stab_gate": false,
+  "gate_statistic": "median_preact_r2",
+  "r2_slack": 0.05,
+  "best_median_preact_r2": NaN,
+  "n_within_slack": 6,
+  "faithfulness_gate_vacuous": true,
+  "subsample_mean": 0.4111608862876892,
+  "ci_refit_mismatch": false,
+  "silhouette_ci": [
+   0.3985812790691853,
+   0.4240380346775055
+  ],
+  "delta_vs_incumbent_ci": [
+   0.0436569519340992,
+   0.05428125113248825
+  ],
+  "separated_from_incumbent": true,
+  "bft_kwargs": {
+   "k_max": [
+    5,
+    3,
+    1,
+    1,
+    3,
+    1,
+    5,
+    5,
+    5,
+    10
+   ],
+   "n_branches": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    5
+   ],
+   "conv_pool_method": "avg",
+   "stimulus_threshold": 0.0,
+   "weighting": "img_selectivity",
+   "normalization": "none"
+  }
+ },
+ "seed_repeats": {
+  "complete": true,
+  "config": "rank=rank x1.3",
+  "raw": {
+   "model_seed": []
+  },
+  "note": "NMF-seed repeats are deliberately not run: nb09 measured sigma = 0.0000 over 5 seeds because bft initialises with deterministic nndsvda. Model seeds and the stimulus subsampling interval are the only informative spreads."
+ }
+}
