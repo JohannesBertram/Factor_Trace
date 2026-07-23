@@ -3216,6 +3216,79 @@ def _seed_spread(D, key):
     return float(m['mean']), float(m['std']), int(m['n'])
 
 
+def _boot_incumbent(D):
+    """Notebook 10's paired stimulus-subsampling record for the *incumbent* config.
+
+    The incumbent row is ``bft()`` at the registry defaults, which is exactly the
+    configuration every measurement panel of this figure was traced at — so its
+    interval is the one that may be drawn on those panels, never the selected
+    configuration's. Two models (pretrained SqueezeNet, TinyViT) have a single
+    checkpoint and can never have a model-seed error bar; this is the only spread
+    they will ever get. Returns None when notebook 10 never ran for this model.
+
+    The bundle writer replaces '.' in dict keys, so the incumbent's name has to be
+    sanitized the same way before it is looked up.
+    """
+    bt = D.get('bootstrap')
+    if not isinstance(bt, dict) or not isinstance(bt.get('per_config'), dict):
+        return None
+    rec = bt['per_config'].get(str(bt.get('incumbent', '')).replace('.', '_'))
+    return rec if isinstance(rec, dict) else None
+
+
+def _cfg_label(name):
+    """Sweep row id -> something a caption can carry: 'rank=rank x1.3' -> 'rank ×1.3'."""
+    return (str(name).replace('rank=rank ', 'rank ').replace('=', ' ')
+            .replace(' x', r' $\times$'))
+
+
+def _executed_k_max(k_max):
+    """The profile that actually runs: ``_auto_k_factorize`` floors ``k_max`` at 2.
+
+    The sweep emits raw ``round(m * K)`` profiles, so a requested rank of 1 is
+    printed here as the 2 that ``src/bft.py`` substitutes. Printing the request
+    instead would put a number in the figure that no notebook can be set to.
+    """
+    return [max(2, int(v)) for v in k_max]
+
+
+def _val_header_lines(D, boot, g_boot):
+    """Subtitle lines under a validation figure's title.
+
+    The nine panels are traced at the registry defaults, while the settings in the
+    subtitle are what the sweep *selected* — a distinction that only starts to
+    matter once notebook 10 both finished the grid and put an interval on it, so
+    the extra lines appear exactly then. Built before the layout because the
+    header row has to be sized for however many lines come back.
+    """
+    hp = D.get('final_hp') if isinstance(D.get('final_hp'), dict) else {}
+    kw = hp.get('bft_kwargs', {})
+    lines = [f"$n={int(D['config']['n_samples'])}$ stimuli"
+             + (f", selected $K_{{\\max}}={_executed_k_max(kw['k_max'])}$"
+                if 'k_max' in kw else '')
+             + (f", threshold ${float(kw['stimulus_threshold']):g}$"
+                if 'stimulus_threshold' in kw else '')
+             + (f", {int(hp['fingerprint_dim'])}-d fingerprint"
+                if 'fingerprint_dim' in hp else '')]
+    if not boot:
+        return lines
+    if hp.get('selected_config'):
+        n_cfg = len(D.get('HP_sweep', {}).get('configs', []) or [])
+        ci = hp.get('silhouette_ci')
+        lines.append(
+            f"selection: {_cfg_label(hp['selected_config'])}"
+            + (f' of {n_cfg} swept configurations' if n_cfg else '')
+            + f", silhouette {float(hp['silhouette']):.3f}"
+            + (f" [{float(ci[0]):.3f}, {float(ci[1]):.3f}]"
+               if ci is not None and ci[0] is not None else '')
+            + f" against {float(boot['mean']):.3f} at the registry defaults, "
+              'which is what every panel below is traced at')
+    if g_boot:                                  # usetex: a bare % comments the line
+        lines.append('error bar in (g): paired 80\\,\\% stimulus subsample — this model '
+                     'has a single checkpoint, so no model-seed spread exists')
+    return lines
+
+
 def _layer_shades(n, base):
     """Input layer darkest -> output layer lightest, so depth is readable."""
     return [tint(base, 0.62 * i / max(n - 1, 1)) for i in range(n)]
@@ -3231,14 +3304,22 @@ def fig_validation(D):
     C_BFT, C_BASE = figstyle.color('ours'), figstyle.color('baseline')
     C_CEIL, C_RAND = figstyle.color('ceiling'), figstyle.color('random')
     caps = D['caps']
+    boot = _boot_incumbent(D)         # notebook 10's interval, or None if it never ran
+    sil_sp = _seed_spread(D, 'silhouette')
+    # one checkpoint => no model-seed spread ever; fall back to notebook 10's paired
+    # stimulus subsample, which is measured at exactly the configuration (g) shows
+    g_boot = boot if not sil_sp else None
+    sub_lines = _val_header_lines(D, boot, g_boot)
 
     figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
                    height_to_width_ratio=0.80)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.014, w_pad=0.016,
                           hspace=0.03, wspace=0.03)
+    # the header row has to grow with the subtitle, or an extra line lands on (a)
     gs = fig.add_gridspec(7, 3,
-                          height_ratios=[0.20, 0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
+                          height_ratios=[0.20 + 0.11 * (len(sub_lines) - 1),
+                                         0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
                           hspace=0.06)
     header = fig.add_subplot(gs[0, :]); header.set_axis_off()
     spacers = [fig.add_subplot(gs[r, :]) for r in (1, 3, 5)]
@@ -3408,11 +3489,11 @@ def fig_validation(D):
     ROWS = [r for r in ROWS if r[1] in sep]
     ROWS.append(('shuffled labels', None, C_RAND, None))
     pos = np.arange(len(ROWS))[::-1]
-    sil_sp = _seed_spread(D, 'silhouette')
+    sil_err = sil_sp[1] if sil_sp else (float(g_boot['sd']) if g_boot else None)
     for p, (lab, key, col, dim) in zip(pos, ROWS):
         rec = sep[key] if key else D['separability']['null_shuffled_labels']
         s, kn = float(rec['silhouette']), float(rec['knn_acc'])
-        err = sil_sp[1] if (key == 'bft_fingerprint' and sil_sp) else None
+        err = sil_err if key == 'bft_fingerprint' else None
         g.barh(p, s, height=0.66, color=col, edgecolor='none',
                xerr=err, error_kw=dict(ecolor='0.25', elinewidth=0.7, capsize=1.4))
         g.text(max(s, 0) + (err or 0) + 0.03, p, f'{kn:.2f}', va='center', ha='left', fontsize=6,
@@ -3425,6 +3506,9 @@ def fig_validation(D):
     g.set_xlim(-0.08, 1.0)
     _val_axes(g, xlab='silhouette (bar) and 5-NN accuracy (number),\nfine-grained class')
     g.spines['left'].set_visible(False); g.tick_params(axis='y', length=0)
+    # What kind of interval that error bar is goes in the header — this panel is
+    # a third of the figure wide and every corner of it already holds a bar or a
+    # k-NN number.
 
     # ── (h) does multiplying the weights in earn its place ────────────────────
     h = ax[(2, 1)]
@@ -3483,19 +3567,12 @@ def fig_validation(D):
                   loc='upper left')
 
     figstyle.freeze(fig)
-    hp = D.get('final_hp') if isinstance(D.get('final_hp'), dict) else {}
-    kw = hp.get('bft_kwargs', {})
-    sub = (f"$n={int(D['config']['n_samples'])}$ stimuli"
-           + (f", $K_{{\\max}}={[int(v) for v in kw['k_max']]}$" if 'k_max' in kw else '')
-           + (f", threshold ${float(kw['stimulus_threshold']):g}$"
-              if 'stimulus_threshold' in kw else '')
-           + (f", {int(hp['fingerprint_dim'])}-d fingerprint"
-              if 'fingerprint_dim' in hp else ''))
     hp_pos = header.get_position()
     fig.text(0.002, hp_pos.y1, f"{D['label']} — {D['arch']}", ha='left', va='top',
              fontweight='bold')
-    fig.text(0.002, hp_pos.y1 - 0.021, sub, ha='left', va='top', fontsize=6,
-             color='0.35')
+    for i, line in enumerate(sub_lines):
+        fig.text(0.002, hp_pos.y1 - 0.021 - 0.015 * i, line, ha='left', va='top',
+                 fontsize=6, color='0.35')
 
     # the row's claim rides on its leading panel label — a separate row header
     # would either cost a text line or collide with the right-hand panel labels
