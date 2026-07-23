@@ -2,7 +2,7 @@
 """Redraw paper figures from the figdata bundles — no models, no datasets.
 
     python scripts/render_figures.py                 # every figure with a bundle
-    python scripts/render_figures.py fig3_digit_mlp_circuits figB_digit_mlp_details
+    python scripts/render_figures.py fig4_fingerprints_main figB_digit_mlp_details
     python scripts/render_figures.py --list
 
 The bundles are written by the notebooks (which run where the data is) and live in
