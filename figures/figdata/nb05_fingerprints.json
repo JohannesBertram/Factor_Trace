@@ -1,4 +1,24 @@
 {
+ "category_names": [
+  "airplane",
+  "ship",
+  "car",
+  "bicycle",
+  "elephant",
+  "bear",
+  "dog",
+  "bird"
+ ],
+ "class_names": [
+  "airplane",
+  "ship",
+  "car",
+  "bicycle",
+  "elephant",
+  "bear",
+  "dog",
+  "bird"
+ ],
  "cond.0.color_key": "id_data",
  "cond.0.label": "ID val",
  "cond.1.color_key": "far_ood",
@@ -26,5 +46,6 @@
  "like.4.color_key": "far_ood",
  "like.4.label": "inverted",
  "like.__list__": 5,
+ "n_classes": 8,
  "n_factors": 253
 }
