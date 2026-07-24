@@ -1,4 +1,10 @@
 {
+ "act.aligned": 1,
+ "act.reps.0.dim": 2624,
+ "act.reps.0.label": "all layers act.",
+ "act.reps.1.dim": 512,
+ "act.reps.1.label": "classifier act.",
+ "act.reps.__list__": 2,
  "category_names": [
   "airplane",
   "ship",
