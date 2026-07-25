@@ -1,0 +1,49 @@
+{
+ "models": [
+  {
+   "id": "nb01",
+   "title": "MLP \u00b7 MNIST even/odd",
+   "subtitle": "3-layer fully-connected net, even-vs-odd digit",
+   "file": "models/nb01/manifest.json",
+   "n_nodes": 5,
+   "depth": 2,
+   "image_kind": "gray"
+  },
+  {
+   "id": "nb02",
+   "title": "MLP \u00b7 MNIST digits",
+   "subtitle": "3-layer fully-connected net, 10-way digit classifier",
+   "file": "models/nb02/manifest.json",
+   "n_nodes": 15,
+   "depth": 2,
+   "image_kind": "gray"
+  },
+  {
+   "id": "nb03",
+   "title": "CNN \u00b7 CIFAR-10",
+   "subtitle": "4-block small convolutional network",
+   "file": "models/nb03/manifest.json",
+   "n_nodes": 41,
+   "depth": 4,
+   "image_kind": "rgb"
+  },
+  {
+   "id": "nb04",
+   "title": "ViT \u00b7 MNIST even/odd",
+   "subtitle": "Tiny vision transformer, 1 block / 2 heads",
+   "file": "models/nb04/manifest.json",
+   "n_nodes": 16,
+   "depth": 3,
+   "image_kind": "gray"
+  },
+  {
+   "id": "nb05",
+   "title": "SqueezeNet \u00b7 ImageNet",
+   "subtitle": "SqueezeNet-style CNN, 8-category ImageNet subset",
+   "file": "models/nb05/manifest.json",
+   "n_nodes": 86,
+   "depth": 9,
+   "image_kind": "rgb"
+  }
+ ]
+}

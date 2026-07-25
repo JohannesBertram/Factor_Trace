@@ -4,15 +4,27 @@
 ## General comments for this project only (so do not update the skill)
 
 
-## fig4, 9
+## Individual figures
 
-- Merge to obtain a single fingerprint main figure, ie keep fig4 as is and add a row with fingerprint pca, activation pca for imagenet and a single silhouette comparison of both datasets between fingerprints and activations.
+figC: remove the embeddings a, b, e. remove c
+figD: remove a, b, c, d, f.
+figE: remove the nuber of nodes text. For the gallery in b add more examples for each subfactor and add a weighted mean image that activates this factor. feel free to use more space for this then (ie more rows). Clarify which layer factor is being traced back and which is shown, and do not put factor labels on top of images for visibility.
+figF: remove c, d, h, i.
+figN: a: in L4 with one bar only make that bar thinner. remove the number of nodes text. b: put more emphasis on this by showing more examples, and weighted average images. feel free to spend multiple rows on this. remove d.
+figO: remove a, g, h, i.
 
-## fig8
+## Validation figures (I-M)
 
-- a move f_i labels to the small bar charts, they are not visible on top of the images.
-- b: do traceback of f0, f1 and f5
-- remove c, e
-- d: move next to be, make it less wide to fit there.
+Restructure this to not have one figure per model, but one figure per validation topic, across models. 
 
+The first figure should be on faithfulness, this includes reconstruction controls, and projection round trip, across models, and the stability across nmf seeds.
 
+The second should be about rand sensitivity, ie the panels e and f of figI across models. 
+
+The third should be about silhouette scores, and also include the weights vs activation advantage on silhouette scores across models. 
+
+remove the comparison to pixel attribution stuff.
+
+feel free to use fig P, Q, R for these as a starting point. 
+
+All of the figures that are being restructured/merged by this should afterwards be cleaned up and deleted such that I only have the new figures. 

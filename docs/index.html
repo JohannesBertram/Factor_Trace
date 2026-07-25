@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backward Factor Trace · Circuit Explorer</title>
+<meta name="description" content="Interactively explore the circuits that Backward Factor Trace decomposes out of neural networks.">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="19" cy="5" r="2.2"/><circle cx="5" cy="12" r="2.2"/>
+        <circle cx="19" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/>
+        <path d="M6.9 11 17 5.8M7 12.6l9.9 5.1M20.2 7 18 10.4"/>
+      </svg>
+    </div>
+    <div class="brand-text">
+      <h1>Circuit Explorer</h1>
+      <p>Backward Factor Trace — click through the factor tree of each model</p>
+    </div>
+  </div>
+  <nav class="models" id="modelNav" aria-label="Select model"></nav>
+  <button class="ghost" id="helpBtn" title="How to read this">?</button>
+</header>
+
+<div id="help" class="help hidden">
+  <div class="help-inner">
+    <button class="help-close" id="helpClose" aria-label="Close">×</button>
+    <h2>How to read this</h2>
+    <p><strong>Backward Factor Trace (BFT)</strong> decomposes a trained network's
+    computation by factorizing each layer, starting at the <em>output</em> and
+    working <em>backward</em> toward the input. Each <strong>factor</strong> is a
+    reusable sub-computation; the trace forms a tree.</p>
+    <ul>
+      <li><strong>Weighted-average image</strong> (large tile) — the average input,
+      weighted by how strongly each stimulus drives the factor. It is the factor's
+      "preferred stimulus".</li>
+      <li><strong>Example images</strong> (small strip) — the real stimuli that
+      most activate the factor.</li>
+      <li><strong>Class profile</strong> — which output classes the factor
+      contributes to.</li>
+      <li><strong>Importance</strong> — the factor's share of its parent's arbor.</li>
+    </ul>
+    <p>Click a factor to descend into the <strong>sub-factors</strong> that compose
+    it. The panel on the left shows where in the network you are and which circuit
+    led there. Use the breadcrumb or <kbd>Backspace</kbd> to go back up.</p>
+  </div>
+</div>
+
+<main class="layout" id="layout" hidden>
+  <aside class="net-panel">
+    <div class="panel-head">
+      <h2>Network</h2>
+      <span class="hint">output → input</span>
+    </div>
+    <div class="net-stack" id="netStack"></div>
+  </aside>
+
+  <section class="main-panel">
+    <div class="crumbs" id="crumbs"></div>
+    <div class="node-head" id="nodeHead"></div>
+    <div class="factor-grid" id="factorGrid"></div>
+  </section>
+</main>
+
+<div class="splash" id="splash">
+  <div class="spinner"></div>
+  <p>Loading models…</p>
+</div>
+
+<div class="modal hidden" id="modal">
+  <div class="modal-backdrop" id="modalBackdrop"></div>
+  <div class="modal-card" id="modalCard" role="dialog" aria-modal="true"></div>
+</div>
+
+<footer class="foot">
+  <span>Backward Factor Trace · circuit explorer</span>
+  <span id="footMeta"></span>
+</footer>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

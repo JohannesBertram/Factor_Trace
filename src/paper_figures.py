@@ -81,15 +81,19 @@ def row_label(fig, spec, text, color='k'):
 def spacer_label(fig, anchor, spacer, text, color='k', dx=0.0):
     """Panel label in a reserved spacer row, anchored to an axes. Use after freeze."""
     fig.text(max(anchor.get_position().x0 + dx, 0.002), spacer.get_position().y0,
-             text, ha='left', va='bottom', color=color)
+             text, ha='left', va='bottom', color=color, fontweight='bold')
 
 
 def bar_panel(ax, values, digit_order, digit_color, *, xticks=True,
-              yticklabels=False, ylab=None, title=None, tcolor='k'):
-    """Mini bar chart: per-digit share of one factor's stimulus loading."""
+              yticklabels=False, ylab=None, title=None, tcolor='k', color=None):
+    """Mini bar chart: per-digit share of one factor's stimulus loading.
+
+    `color` overrides the per-digit hues with one flat color for every bar (used
+    at the top of the tree, where the factors are not yet digit-specific)."""
+    bar_colors = [color] * len(digit_order) if color is not None \
+        else [digit_color[d] for d in digit_order]
     ax.bar(np.arange(len(digit_order)), values,
-           color=[digit_color[d] for d in digit_order],
-           edgecolor='0.25', linewidth=0.3, width=0.8)
+           color=bar_colors, edgecolor='0.25', linewidth=0.3, width=0.8)
     ax.set_xlim(-0.65, len(digit_order) - 0.35)
     ax.set_ylim(0, 1.02)
     ax.set_xticks(np.arange(len(digit_order)))
@@ -302,30 +306,36 @@ def fig2_mlp_circuits(D):
     C_INH = figstyle.color('inhibitory')
     DIGIT_COLOR = digit_colors(DIGIT_ORDER, C_EVEN, C_ODD)
 
+    # 0.49 (from 0.52) + a tighter inter-row gap trims a bit of height; the
+    # aspect-locked pixel montages still fill their cells at this ratio.
     figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='paper',
-                   height_to_width_ratio=0.52)
+                   height_to_width_ratio=0.49)
     fig = plt.figure()
     # NOTE: wspace/hspace must not be passed to subgridspec() (silently disables
     # constrained_layout in mpl 3.10) — inner spacing is set on the layout engine.
     fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.012,
                           hspace=0.03, wspace=0.02)
     gs = fig.add_gridspec(2, 2, width_ratios=[1.12, 1.36],
-                          height_ratios=[1.0, 1.30], hspace=0.16)
+                          height_ratios=[1.0, 1.30], hspace=0.12)
 
     # ── (a) both circuits in one graph: shared units and output push-pull ────
     ax_a = fig.add_subplot(gs[0, 0])
     draw_scaffold_pair(ax_a, CIRCUITS, LAYER_SIZES, C_INH, OUT_LABELS)
-    ax_a.set_title('(a) the two class circuits', pad=2, loc='left')
+    ax_a.set_title('(a) the two class circuits', pad=2, loc='left', fontweight='bold')
 
     # ── (b) the top of the trace tree, as per-digit loadings ────────────────
     gsb = gs[0, 1].subgridspec(3, 7, height_ratios=[1.0, 0.24, 1.0])
-    ax_b = [fig.add_subplot(gsb[0, 0:2]), fig.add_subplot(gsb[0, 4:6]),
+    # L3 even sits centered above its two L2 children (cols 0:2 and 2:4); L3 odd
+    # above its single L2 child (cols 4:6). Bars carry the per-digit hues (as in
+    # c,d) so the loadings read the same everywhere; the circuit-colored titles
+    # sit over the plots. The black "(b)" panel label is placed after freeze.
+    ax_b = [fig.add_subplot(gsb[0, 1:3]), fig.add_subplot(gsb[0, 4:6]),
             fig.add_subplot(gsb[2, 0:2]), fig.add_subplot(gsb[2, 2:4]),
             fig.add_subplot(gsb[2, 4:6])]
     fig.add_subplot(gsb[1, :]).set_axis_off()          # room for the tree connectors
     bp = dict(digit_order=DIGIT_ORDER, digit_color=DIGIT_COLOR)
     bar_panel(ax_b[0], CIRCUITS[0]['l3_profile'], xticks=False, ylab='loading',
-              title=r'(b) $L_3$ even', tcolor=C_EVEN, **bp)
+              title=r'$L_3$ even', tcolor=C_EVEN, **bp)
     bar_panel(ax_b[1], CIRCUITS[1]['l3_profile'], xticks=False,
               title=r'$L_3$ odd', tcolor=C_ODD, **bp)
     bar_panel(ax_b[2], CIRCUITS[0]['l2_profiles'][0], yticklabels=True,
@@ -361,6 +371,12 @@ def fig2_mlp_circuits(D):
     # ── settle constrained_layout, then freeze and add cross-axes annotation ──
     figstyle.freeze(fig)          # draw once, then switch the layout engine off
 
+    # (b) panel label — black, at the top-left corner of the panel-b region (left
+    # edge of the leftmost L2 axis, top of the L3 row), kept clear of the blue
+    # "L3 even" title that sits over the loading plot.
+    fig.text(ax_b[2].get_position().x0, ax_b[0].get_position().y1, '(b)',
+             ha='left', va='bottom', color='k', fontweight='bold')
+
     for src, dsts in ((ax_b[0], (ax_b[2], ax_b[3])), (ax_b[1], (ax_b[4],))):  # tree
         b0 = src.get_position()
         x0, ytop = b0.x0 + b0.width / 2, b0.y0 - 0.012
@@ -370,13 +386,13 @@ def fig2_mlp_circuits(D):
             ymid = (ytop + ybot) / 2
             fig.add_artist(matplotlib.lines.Line2D([x0, x0, x1, x1],
                                                    [ytop, ymid, ymid, ybot],
-                                                   color='0.65', lw=0.4, zorder=0))
+                                                   color='0.5', lw=1.0, zorder=0))
 
     for ci, c in enumerate(CIRCUITS):                                    # block labels
         fig.text(max(img_axes[ci][0].get_position().x0 - 0.008, 0.002),
                  sp_de.get_position().y0,
                  f"({'cd'[ci]}) {c['name']} circuit — $L_1$ factors below $L_2\\,f_0$",
-                 ha='left', va='bottom', color=c['color'])
+                 ha='left', va='bottom', color=c['color'], fontweight='bold')
     return fig
 
 
@@ -791,22 +807,32 @@ def fp_farood_violin(ax, COND):
         ax.spines[s_].set_visible(False)
 
 
-def mlp_factor_tree(ax, D):
+def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
+                    show_layers=True):
     """The 13 factors of the 8x4 MLP trace as the tree they form: the output
     layer's two factors branch into L2 factors and those into L1 factors.
 
     One node per column of the fingerprint heatmap, laid out left to right in the
-    same L3->L2->L1 order and colored by that factor's mean loading — the picture
-    of where the heatmap's columns come from.
+    same L3->L2->L1 order — the picture of where the heatmap's columns come from.
+
+    Without `digit` the nodes are shaded by each factor's mean loading over all
+    digits. With one, they are shaded by how strongly *that* digit drives the
+    factor, so drawing the same tree for two digits shows the fingerprint changing
+    with the stimulus: an even digit lights the even branch, an odd digit the odd
+    one. Pass a shared `amax` so the two copies stay on one intensity scale.
     """
     dims = D['dims']
     C_EVEN, C_ODD = figstyle.color('even'), figstyle.color('odd')
     CMAP = {'even': seq_cmap(C_EVEN, 'ev'), 'odd': seq_cmap(C_ODD, 'od')}
 
-    # each factor's mean share of a fingerprint — the column means of the heatmap
+    # each factor's share of a fingerprint — the columns of the heatmap
     M = D['fp_mean_by_digit']
-    act = (M / M.sum(1, keepdims=True)).mean(0)
-    amax = float(act.max())
+    Mn = M / M.sum(1, keepdims=True)
+    if digit is None:
+        act = Mn.mean(0)
+    else:
+        act = Mn[[int(d) for d in D['digit_order']].index(int(digit))]
+    amax = float(act.max()) if amax is None else float(amax)
 
     LAYERS = [2, 1, 0]                      # left to right: the trace's direction
     BLOCKS = [('even', C_EVEN, list(D['cols_even']), 0.755),
@@ -841,18 +867,22 @@ def mlp_factor_tree(ax, D):
                        edgecolors='0.3', c=[CMAP[name](0.16 + 0.72 * v)])
         ax.text(-0.17, yc, name, ha='right', va='center', fontsize=6.5, color=col)
 
-    # where the tree ends: the pixels the L1 factors read from
-    ax.annotate('', xy=(2.62, 0.5), xytext=(2.22, 0.5),
-                arrowprops=dict(arrowstyle='-|>', lw=0.5, color='0.45',
-                                shrinkA=0, shrinkB=0, mutation_scale=5))
-    ax.text(2.66, 0.5, '784 px', ha='left', va='center', fontsize=6, color='0.35')
+    if label:
+        ax.text(-0.78, 1.20, label, ha='left', va='top', fontsize=6.5,
+                color=label_color)
+    if not show_layers:
+        ax.set_xlim(-0.78, 2.30)
+        ax.set_ylim(-0.06, 1.30 if label else 1.06)
+        ax.axis('off')
+        return
     for xi, li in enumerate(LAYERS):
         n = int((dims[:, 0] == li).sum())
-        ax.text(xi, -0.035, rf'$L_{{{li + 1}}}$', ha='center', va='top', fontsize=6.5)
-        ax.text(xi, -0.125, f'{n} factors' if xi == 0 else f'{n}', ha='center',
-                va='top', fontsize=6, color='0.4')
-    ax.set_xlim(-0.78, 3.42)
-    ax.set_ylim(-0.24, 1.06)
+        # layer and factor count on one line — stacked they collide once the tree
+        # is drawn at half height (two copies in one cell)
+        ax.text(xi, -0.045, rf'$L_{{{li + 1}}}$ ({n})', ha='center', va='top',
+                fontsize=6.5)
+    ax.set_xlim(-0.78, 2.30)
+    ax.set_ylim(-0.24, 1.30 if label else 1.06)
     ax.axis('off')
 
 
@@ -996,7 +1026,9 @@ def fig4_fingerprints_main(D):
     IMG_EMB = fp_vs_act(D_img, D_img['fp']['id_targets'])
 
     W, SP = 6.975, 0.13
-    rows = [SP, 1.30, SP, 1.28, SP, 1.18]
+    # rows 2-3 (the CIFAR and ImageNet embedding panels) are stretch-to-fit
+    # scatters/heatmaps, so they can be shorter than row 1 without losing detail.
+    rows = [SP, 1.30, SP, 1.12, SP, 1.12]
     figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='paper',
                    height_to_width_ratio=sum(rows) / W)
     fig = plt.figure()
@@ -1012,18 +1044,33 @@ def fig4_fingerprints_main(D):
     gs_bot = gs[3].subgridspec(1, 3, width_ratios=[1.0, 1.0, 1.12])
     gs_img = gs[5].subgridspec(1, 3, width_ratios=[1.0, 1.0, 1.30])
 
-    # (a) where a fingerprint's entries come from: the trace's factor tree
-    ax_a = fig.add_subplot(gs_top[0, 0])
-    mlp_factor_tree(ax_a, D_mlp)
+    # (a) where a fingerprint's entries come from: the same factor tree lit up by
+    # two different stimuli — a 0 (even) and a 1 (odd). Node shade is how strongly
+    # that digit drives the factor, on one shared scale, so the pair *is* the
+    # fingerprint: the even branch lights for the 0, the odd branch for the 1.
+    A_DIGITS = [0, 1]
+    _Mn = D_mlp['fp_mean_by_digit']
+    _Mn = _Mn / _Mn.sum(1, keepdims=True)
+    _dord = [int(d) for d in D_mlp['digit_order']]
+    A_MAX = max(float(_Mn[_dord.index(d)].max()) for d in A_DIGITS)
+    gsa = gs_top[0, 0].subgridspec(len(A_DIGITS), 1)
+    ax_a = None
+    for _i, _dg in enumerate(A_DIGITS):
+        _axt = fig.add_subplot(gsa[_i, 0])
+        mlp_factor_tree(_axt, D_mlp, digit=_dg, amax=A_MAX,
+                        label=f'digit {_dg}', label_color=DIGIT_COLOR[_dg],
+                        show_layers=(_i == len(A_DIGITS) - 1))
+        if _i == 0:
+            ax_a = _axt
 
     # (b) the fingerprint itself: mean loading per digit over those same factors
     ax_b = fig.add_subplot(gs_top[0, 1])
     mlp_fp_heatmap(ax_b, D_mlp, DIGIT_COLOR)
 
     # (c) the CNN's mean fingerprint per class, columns grouped by output circuit
-    gsc = gs_top[0, 2].subgridspec(1, 2, width_ratios=[1.0, 0.20])
-    ax_c = cnn_fp_heatmap(fig, gsc, D, COL_ORDER, BLK_EDGE, BLK_START, BLOCK_SIZES,
-                          CMAP, CCOL, CLS, N_CLASSES, n_factors, C_BFT)
+    ax_c = fig.add_subplot(gs_top[0, 2])
+    cnn_fp_heatmap(ax_c, D, COL_ORDER, BLK_EDGE, CMAP, CCOL, CLS, N_CLASSES,
+                   n_factors)
 
     # (d, e) the CNN embedding, against the network's own representation
     ax_d = fig.add_subplot(gs_bot[0, 0])
@@ -1039,7 +1086,7 @@ def fig4_fingerprints_main(D):
 
     # (f) the class geometry the fingerprint induces
     ax_f = fig.add_subplot(gs_bot[0, 2])
-    cnn_class_geometry(ax_f, D, CMAP, CCOL, CLS, N_CLASSES)
+    cnn_class_geometry(ax_f, D, CMAP, CCOL, CLS, N_CLASSES, show_between=True)
 
     # ── row 3: the same two codes on ImageNet, and the head-to-head ──────────
     # (g) the ImageNet fingerprint embedding
@@ -1059,59 +1106,62 @@ def fig4_fingerprints_main(D):
         _val_na(ax_h, 'no ImageNet activation\nbaseline in this bundle\n'
                       '(see Fig. M for the\ndimension-matched score)')
 
-    # (i) fingerprint vs. the network's own activations, both datasets, both
-    # reduced to the fingerprint's dimension by PCA — the validation runs measure
-    # this under one protocol, so the two datasets are directly comparable.
+    # (i) fingerprint vs. the network's own activations — a compact recap of the
+    # silhouettes the embeddings above already carry (d/e for CIFAR-10, g/h for
+    # ImageNet), each code measured at its own native dimension.
     ax_i = fig.add_subplot(gs_img[0, 2])
     C_BASE = figstyle.color('baseline')
-    SETS = [('CIFAR-10\nCNN', 'nb09_cnn_cifar_validation'),
-            ('ImageNet\nSqueezeNet', 'nb09_imagenet_cnn_validation')]
-    fp_s, act_s, dim_s, ratio = [], [], [], []
-    for _, bundle in SETS:
-        sep = figdata.load(bundle)['separability']
-        fp_s.append(float(sep['by_fine']['bft_fingerprint']['silhouette']))
-        act_s.append(float(sep['by_fine']['act_matched']['silhouette']))
-        dim_s.append(int(sep['dims']['matched']))
-        ratio.append(fp_s[-1] / max(act_s[-1], 1e-9))
+    cnn_fp_sil = cosine_silhouette(EMB[0], EMB[1]) if EMB is not None else None
+    cnn_act_sil = cosine_silhouette(EMB[2], EMB[3]) if EMB is not None else None
+    img_fp_sil = cosine_silhouette(D_img['fp']['id'], D_img['fp']['id_targets'])
+    img_act_sil = (cosine_silhouette(IMG_EMB[2], IMG_EMB[3])
+                   if IMG_EMB is not None else None)
+    SETS = [('CIFAR-10\nCNN', cnn_fp_sil, cnn_act_sil),
+            ('ImageNet\nSqueezeNet', img_fp_sil, img_act_sil)]
+    SETS = [s for s in SETS if s[1] is not None and s[2] is not None]
+    labels = [s[0] for s in SETS]
+    fp_s = [s[1] for s in SETS]
+    act_s = [s[2] for s in SETS]
     xg = np.arange(len(SETS))
     ax_i.bar(xg - 0.19, fp_s, width=0.36, color=C_BFT, edgecolor='0.25',
              linewidth=0.3, label='BFT fingerprint')
     ax_i.bar(xg + 0.19, act_s, width=0.36, color=C_BASE, edgecolor='0.25',
-             linewidth=0.3, label='activations, dim-matched')
-    for xi, (f_, a_, r_) in enumerate(zip(fp_s, act_s, ratio)):
-        ax_i.text(xi, max(f_, a_) + 0.022, rf'${r_:.1f}\times$', ha='center',
-                  va='bottom', fontsize=6.5, color=C_BFT)
+             linewidth=0.3, label='network activations')
     ax_i.set_xticks(xg)
-    ax_i.set_xticklabels([f'{n}\n({d}-d)' for (n, _), d in zip(SETS, dim_s)],
-                         fontsize=6, linespacing=1.15)
-    ax_i.set_ylim(0, max(fp_s) * 1.30)
+    ax_i.set_xticklabels(labels, fontsize=6, linespacing=1.15)
+    ax_i.set_ylim(0, max(fp_s + act_s) * 1.34)
     ax_i.set_yticks([0, 0.2, 0.4])
     ax_i.set_ylabel('silhouette', labelpad=1)
     ax_i.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_i.spines[s_].set_visible(False)
-    ax_i.legend(fontsize=6, frameon=False, loc='upper left', handlelength=0.8,
+    ax_i.legend(fontsize=6, frameon=False, loc='upper right', handlelength=0.8,
                 handletextpad=0.35, borderpad=0.1, labelspacing=0.18,
-                borderaxespad=0.0, bbox_to_anchor=(0.0, 1.04))
+                borderaxespad=0.0)
 
     figstyle.freeze(fig)
-    emb_lab = ((f'(d) fingerprint, {n_factors}-d',
-                f"(e) {EMB[4]['label'].replace(chr(10), ' ')}, {EMB[4]['dim']}-d")
-               if EMB is not None else ('(d) fingerprint', '(e) activations'))
-    img_lab = ((f"(h) ImageNet {IMG_EMB[4]['label'].replace(chr(10), ' ')}, "
+    # Every label names the dataset it comes from — the rows are not one model
+    # each (row 1 crosses from MNIST to CIFAR-10), so the provenance has to be on
+    # the panel rather than implied by position.
+    emb_lab = ((f'(d) CIFAR-10 · fingerprint, {n_factors}-d',
+                f"(e) CIFAR-10 · {EMB[4]['label'].replace(chr(10), ' ')}, "
+                f"{EMB[4]['dim']}-d")
+               if EMB is not None
+               else ('(d) CIFAR-10 · fingerprint', '(e) CIFAR-10 · activations'))
+    img_lab = ((f"(h) ImageNet · {IMG_EMB[4]['label'].replace(chr(10), ' ')}, "
                 f"{IMG_EMB[4]['dim']}-d") if IMG_EMB is not None
-               else '(h) ImageNet activations')
-    for ax, lab, anchor in ((ax_a, '(a) 8×4 MLP trace: 13 factors', sp1),
-                            (ax_b, '(b) its fingerprint', sp1),
-                            (ax_c, '(c) CNN fingerprint per class', sp1),
+               else '(h) ImageNet · activations')
+    for ax, lab, anchor in ((ax_a, '(a) MNIST · 8×4 MLP trace', sp1),
+                            (ax_b, '(b) MNIST · its fingerprint', sp1),
+                            (ax_c, '(c) CIFAR-10 · fingerprint per class', sp1),
                             (ax_d, emb_lab[0], sp2), (ax_e, emb_lab[1], sp2),
-                            (ax_f, '(f) class geometry', sp2),
-                            (ax_g, f"(g) ImageNet fingerprint, "
+                            (ax_f, '(f) CIFAR-10 · class geometry', sp2),
+                            (ax_g, f"(g) ImageNet · fingerprint, "
                                    f"{int(D_img['n_factors'])}-d", sp3),
                             (ax_h, img_lab, sp3),
-                            (ax_i, '(i) fingerprint vs. activations', sp3)):
+                            (ax_i, '(i) both · fingerprint vs. activations', sp3)):
         fig.text(max(ax.get_position().x0 - 0.004, 0.002),
-                 anchor.get_position().y0, lab, ha='left', va='bottom')
+                 anchor.get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -1138,139 +1188,115 @@ def figC_mlp_fingerprint_details(D):
     SEP = sep_controls(D)
     EMB = fp_vs_act(D, D['fp']['id_digits'])
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.86)
+    # Panels reduced per figure_comments: the two embeddings (former a,b), the
+    # separability bars (c) and the fingerprint PCA plane (e) are dropped; what
+    # remains is the held-out / far-OOD behaviour and the NNLS machinery,
+    # re-lettered a-e over two rows (three plots, then the two matrices).
+    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
+                   height_to_width_ratio=0.60)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
                           hspace=0.03, wspace=0.03)
-    gs = fig.add_gridspec(6, 1, height_ratios=[0.11, 1.0, 0.11, 1.0, 0.11, 1.0],
-                          hspace=0.03)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4)]
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.12, 1.0, 0.12, 1.0], hspace=0.03)
+    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
     for s_ in spacers:
         s_.set_axis_off()
     r1 = gs[1].subgridspec(1, 3)
-    r2 = gs[3].subgridspec(1, 3)
-    r3 = gs[5].subgridspec(1, 3, width_ratios=[1.35, 0.95, 0.95])
+    r2 = gs[3].subgridspec(1, 2, width_ratios=[1.7, 1.0])
     anchors = {}
 
-    # ── row 1: the fingerprint as a digit code ───────────────────────────────
-    # (a) the digit embedding, and (b) the network's own penultimate activations
+    # ── (a) held-out digits track P(odd) ─────────────────────────────────────
     ax_a = fig.add_subplot(r1[0, 0])
-    ax_b = fig.add_subplot(r1[0, 1])
-    if EMB is not None:
-        Xf, lf, Xa, la, rep = EMB
-        pca_panel(ax_a, Xf, lf, DIGIT_COLOR, order=DIGIT_ORDER)
-        pca_panel(ax_b, Xa, la, DIGIT_COLOR, order=DIGIT_ORDER,
-                  note=None if rep['aligned'] else 'independent sample')
-    else:
-        for ax in (ax_a, ax_b):
-            _val_na(ax, 'no activation baseline\nin this bundle')
-    anchors['a'], anchors['b'] = ax_a, ax_b
+    mlp_heldout(ax_a, D, DIGIT_COLOR, C_EVEN, C_ODD, float(D['r_ood']))
+    anchors['a'] = ax_a
 
-    # (c) digit separability against the raw activation layers
+    # ── (b) far-OOD collapse ─────────────────────────────────────────────────
+    ax_b = fig.add_subplot(r1[0, 1])
+    fp_farood_violin(ax_b, COND)
+    anchors['b'] = ax_b
+
+    # ── (c) NNLS round-trip ──────────────────────────────────────────────────
     ax_c = fig.add_subplot(r1[0, 2])
-    mlp_sep_bars(ax_c, SEP)
+    ax_c.hist(rt_sims, bins=np.linspace(0.6, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
+    ax_c.set_yscale('log')
+    ax_c.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
+    ax_c.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
+              rf'{np.mean(rt_sims > 0.99):.1%} above 0.99'.replace('%', r'\%'),
+              transform=ax_c.transAxes, ha='left', va='top', fontsize=6.5,
+              linespacing=1.25)
+    ax_c.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
+    ax_c.set_ylabel('test stimuli', labelpad=1)
+    ax_c.set_xlim(0.6, 1.005)
+    ax_c.tick_params(length=1.5, pad=1)
+    for s in ('top', 'right'):
+        ax_c.spines[s].set_visible(False)
     anchors['c'] = ax_c
 
-    # ── row 2: held-out and out-of-distribution behaviour ────────────────────
-    ax_d = fig.add_subplot(r2[0, 0])          # held-out digits track P(odd)
-    mlp_heldout(ax_d, D, DIGIT_COLOR, C_EVEN, C_ODD, float(D['r_ood']))
-    anchors['d'] = ax_d
-
-    ax_e = fig.add_subplot(r2[0, 1])          # the plane with OOD projected in
-    _fp = D['fp']
-    cond_embedding(ax_e, _fp['id'], _fp['id_digits'], DIGIT_COLOR,
-                   near=_fp['ood'], far=[f['F'] for f in _fp['far']],
-                   c_near=C_NEAR, c_far=C_FAR, order=DIGIT_ORDER,
-                   near_label='held-out digits', id_label='trained digits')
-    anchors['e'] = ax_e
-
-    ax_f = fig.add_subplot(r2[0, 2])          # far-OOD collapse
-    fp_farood_violin(ax_f, COND)
-    anchors['f'] = ax_f
-
-    # ── row 3: the NNLS machinery ────────────────────────────────────────────
-    ax_g = fig.add_subplot(r3[0, 0])          # mean fingerprint per condition
+    # ── (d) mean fingerprint per condition ───────────────────────────────────
+    ax_d = fig.add_subplot(r2[0, 0])
     Mb = np.stack([m for _, m, _ in ROWS])
     Mb = Mb / Mb.sum(1, keepdims=True)
-    ax_g.imshow(Mb[:, COL_ORDER], cmap=CMAP_BFT, aspect='auto', interpolation='nearest',
+    ax_d.imshow(Mb[:, COL_ORDER], cmap=CMAP_BFT, aspect='auto', interpolation='nearest',
                 norm=matplotlib.colors.PowerNorm(0.75, vmin=0, vmax=Mb.max()))
-    ax_g.axvline(N_EV - 0.5, color='0.25', lw=0.8)
+    ax_d.axvline(N_EV - 0.5, color='0.25', lw=0.8)
     for _, _s0, _s1 in GROUP[:-1]:
-        ax_g.axhline(_s1 - 0.5, color='0.25', lw=0.8)
-    ax_g.set_xticks(range(len(COL_ORDER)))
-    ax_g.set_xticklabels([rf'$L_{{{dims[i, 0] + 1}}}f_{{{dims[i, 2]}}}$'
+        ax_d.axhline(_s1 - 0.5, color='0.25', lw=0.8)
+    ax_d.set_xticks(range(len(COL_ORDER)))
+    ax_d.set_xticklabels([rf'$L_{{{dims[i, 0] + 1}}}f_{{{dims[i, 2]}}}$'
                           for i in COL_ORDER], rotation=90, fontsize=6)
-    ax_g.set_yticks(range(len(ROWS)))
-    ax_g.set_yticklabels([r[0] for r in ROWS], fontsize=6)
-    for t, r in zip(ax_g.get_yticklabels(), ROWS):
+    ax_d.set_yticks(range(len(ROWS)))
+    ax_d.set_yticklabels([r[0] for r in ROWS], fontsize=6)
+    for t, r in zip(ax_d.get_yticklabels(), ROWS):
         t.set_color(r[2])
-    ax_g.tick_params(length=1.5, pad=1)
-    for s in ax_g.spines.values():
+    ax_d.tick_params(length=1.5, pad=1)
+    for s in ax_d.spines.values():
         s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_g.text((N_EV - 1) / 2, -0.75, 'even circuit', ha='center', va='bottom',
+    ax_d.text((N_EV - 1) / 2, -0.75, 'even circuit', ha='center', va='bottom',
               color=C_EVEN, fontsize=6.5)
-    ax_g.text((N_EV + len(COL_ORDER) - 1) / 2, -0.75, 'odd circuit', ha='center',
+    ax_d.text((N_EV + len(COL_ORDER) - 1) / 2, -0.75, 'odd circuit', ha='center',
               va='bottom', color=C_ODD, fontsize=6.5)
-    ax_g.set_ylim(len(ROWS) - 0.5, -1.15)
+    ax_d.set_ylim(len(ROWS) - 0.5, -1.15)
     for lab, _s0, _s1 in GROUP:
-        ax_g.text(1.012, (_s0 + _s1 - 1) / 2, lab, transform=ax_g.get_yaxis_transform(),
+        ax_d.text(1.012, (_s0 + _s1 - 1) / 2, lab, transform=ax_d.get_yaxis_transform(),
                   rotation=90, ha='left', va='center', fontsize=6.5, color='0.35')
-    anchors['g'] = ax_g
+    anchors['d'] = ax_d
 
-    ax_h = fig.add_subplot(r3[0, 1])          # NNLS round-trip
-    ax_h.hist(rt_sims, bins=np.linspace(0.6, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
-    ax_h.set_yscale('log')
-    ax_h.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
-    ax_h.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
-              rf'{np.mean(rt_sims > 0.99):.1%} above 0.99'.replace('%', r'\%'),
-              transform=ax_h.transAxes, ha='left', va='top', fontsize=6.5,
-              linespacing=1.25)
-    ax_h.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_h.set_ylabel('test stimuli', labelpad=1)
-    ax_h.set_xlim(0.6, 1.005)
-    ax_h.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax_h.spines[s].set_visible(False)
-    anchors['h'] = ax_h
-
-    ax_i = fig.add_subplot(r3[0, 2])          # fingerprint similarity
+    # ── (e) fingerprint similarity ───────────────────────────────────────────
+    ax_e = fig.add_subplot(r2[0, 1])
     PER = int(D['sel_per_digit'])
     N_VIZ = len(D['fp_sel'])
     _U = unit(D['fp_sel'])
-    ax_i.imshow(_U @ _U.T, cmap=CMAP_BFT, vmin=0, vmax=1, interpolation='nearest')
+    ax_e.imshow(_U @ _U.T, cmap=CMAP_BFT, vmin=0, vmax=1, interpolation='nearest',
+                aspect='auto')
     for b in range(PER, N_VIZ, PER):
-        ax_i.axhline(b - 0.5, color='0.25', lw=0.5)
-        ax_i.axvline(b - 0.5, color='0.25', lw=0.5)
+        ax_e.axhline(b - 0.5, color='0.25', lw=0.5)
+        ax_e.axvline(b - 0.5, color='0.25', lw=0.5)
     ctr = (np.arange(len(DIGIT_ORDER)) + 0.5) * PER
-    ax_i.set_xticks(ctr); ax_i.set_xticklabels(DIGIT_ORDER)
-    ax_i.set_yticks(ctr); ax_i.set_yticklabels(DIGIT_ORDER)
-    for tt in (ax_i.get_xticklabels(), ax_i.get_yticklabels()):
+    ax_e.set_xticks(ctr); ax_e.set_xticklabels(DIGIT_ORDER)
+    ax_e.set_yticks(ctr); ax_e.set_yticklabels(DIGIT_ORDER)
+    for tt in (ax_e.get_xticklabels(), ax_e.get_yticklabels()):
         for t, d in zip(tt, DIGIT_ORDER):
             t.set_color(DIGIT_COLOR[d])
-    ax_i.tick_params(length=0, pad=1)
-    for s in ax_i.spines.values():
+    ax_e.tick_params(length=0, pad=1)
+    for s in ax_e.spines.values():
         s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_i.set_xlabel('stimulus digit', labelpad=1)
-    ax_i.text(0.96, 0.96,
+    ax_e.set_xlabel('stimulus digit', labelpad=1)
+    ax_e.text(0.96, 0.96,
               f"silhouette\n{D['sil_class']:.2f} class\n{D['sil_digit']:.2f} digit",
-              transform=ax_i.transAxes, ha='right', va='top', fontsize=6,
+              transform=ax_e.transAxes, ha='right', va='top', fontsize=6,
               linespacing=1.15, color='0.15',
               bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
-    anchors['i'] = ax_i
+    anchors['e'] = ax_e
 
     figstyle.freeze(fig)
-    sp_of = {'a': 0, 'b': 0, 'c': 0, 'd': 1, 'e': 1, 'f': 1, 'g': 2, 'h': 2, 'i': 2}
-    emb_lab = (('(a) fingerprint embedding', f"(b) {EMB[4]['label']}, {EMB[4]['dim']}-d")
-               if EMB is not None else ('(a) fingerprint', '(b) activations'))
-    labels = {'a': emb_lab[0], 'b': emb_lab[1].replace(chr(10), ' '),
-              'c': '(c) digit separability', 'd': '(d) held-out digits',
-              'e': '(e) fingerprint PCA', 'f': '(f) far-OOD collapse',
-              'g': '(g) mean fingerprint per condition', 'h': '(h) NNLS round-trip',
-              'i': '(i) fingerprint similarity'}
+    sp_of = {'a': 0, 'b': 0, 'c': 0, 'd': 1, 'e': 1}
+    labels = {'a': '(a) held-out digits', 'b': '(b) far-OOD collapse',
+              'c': '(c) NNLS round-trip',
+              'd': '(d) mean fingerprint per condition',
+              'e': '(e) fingerprint similarity'}
     for key, lab in labels.items():
         fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom')
+                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -1460,7 +1486,7 @@ def figB_digit_mlp_details(D):
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0, text, ha='left', va='bottom',
-                 fontsize=7)
+                 fontsize=7, fontweight='bold')
 
     _label('a', 0, '(a) output-layer factors', dx=-0.030)
     _label('b', 0, '(b) un-pooling', dx=-0.030)
@@ -1504,148 +1530,102 @@ def figD_digit_mlp_fingerprint_details(D):
     ROWS = [(r['label'], r['mean'], resolve_color(r['color_key'])) for r in D['rows']]
     GROUP = [(g['label'], int(g['start']), int(g['stop'])) for g in D['group']]
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.86)
+    # Panels reduced per figure_comments: the embedding (former a,b), the
+    # separability bars (c), the Fashion-MNIST agreement (d) and the fingerprint
+    # PCA plane (f) are dropped; what remains is the far-OOD collapse and the
+    # NNLS machinery, re-lettered a-d over two rows.
+    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=2, mode='appendix',
+                   height_to_width_ratio=0.52)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
                           hspace=0.03, wspace=0.03)
-    gs = fig.add_gridspec(6, 1, height_ratios=[0.11, 1.0, 0.11, 1.0, 0.11, 1.0],
-                          hspace=0.03)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4)]
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.12, 1.0, 0.12, 1.0], hspace=0.03)
+    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
     for s_ in spacers:
         s_.set_axis_off()
-    r1 = gs[1].subgridspec(1, 3)
-    r2 = gs[3].subgridspec(1, 3)
-    r3 = gs[5].subgridspec(1, 3, width_ratios=[1.55, 0.72, 0.85])
+    r1 = gs[1].subgridspec(1, 2, width_ratios=[0.80, 1.85])
+    r2 = gs[3].subgridspec(1, 2, width_ratios=[1.25, 1.0])
     anchors = {}
 
-    # ── row 1: the fingerprint as a digit code ───────────────────────────────
+    # ── (a) far-OOD collapse ─────────────────────────────────────────────────
     ax_a = fig.add_subplot(r1[0, 0])
+    fp_farood_violin(ax_a, COND)
+    anchors['a'] = ax_a
+
+    # ── (b) mean fingerprint per condition ───────────────────────────────────
     ax_b = fig.add_subplot(r1[0, 1])
-    if EMB is not None:
-        Xf, lf, Xa, la, rep = EMB
-        pca_panel(ax_a, Xf, lf, DCOL)
-        pca_panel(ax_b, Xa, la, DCOL, note=None if rep['aligned'] else 'independent sample')
-    else:
-        for ax in (ax_a, ax_b):
-            _val_na(ax, 'no activation baseline\nin this bundle')
-    anchors['a'], anchors['b'] = ax_a, ax_b
-
-    ax_c = fig.add_subplot(r1[0, 2])          # digit separability
-    mlp_sep_bars(ax_c, SEP)
-    anchors['c'] = ax_c
-
-    # ── row 2: Fashion-MNIST and out-of-distribution behaviour ───────────────
-    ax_d = fig.add_subplot(r2[0, 0])          # Fashion-MNIST agreement
-    ax_d.plot([0, 1], [0, 1], color='0.7', lw=0.6, ls=(0, (2.5, 2)), zorder=1)
-    ax_d.scatter(P_model.ravel(), P_fprint.ravel(), s=8, color=C_NEAR,
-                 edgecolor='none', alpha=0.85, zorder=2)
-    ax_d.set_xlim(-0.06, 1.06); ax_d.set_ylim(-0.06, 1.06)
-    ax_d.set_xticks([0, 0.5, 1]); ax_d.set_yticks([0, 0.5, 1])
-    ax_d.set_xlabel('P(network says digit $d$)', labelpad=1)
-    ax_d.set_ylabel('P(fingerprint says digit $d$)', labelpad=1)
-    ax_d.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax_d.spines[s].set_visible(False)
-    ax_d.text(0.04, 0.97, f'$r={R_OOD:.2f}$\nagree {AGREE:.2f}',
-              transform=ax_d.transAxes, ha='left', va='top', fontsize=6.5,
-              linespacing=1.2)
-    pref = P_model.argmax(1)
-    top = np.argsort(-np.bincount(pref, minlength=N_CLASSES))
-    parts = [f'{int((pref == d).sum())}' r'$\to$' f'{d}' for d in top
-             if (pref == d).sum()]
-    ax_d.text(0.04, 0.79, 'clothing:\n' + ', '.join(parts),
-              transform=ax_d.transAxes, ha='left', va='top', fontsize=6,
-              color=C_NEAR, linespacing=1.2)
-    anchors['d'] = ax_d
-
-    ax_e = fig.add_subplot(r2[0, 1])          # far-OOD collapse
-    fp_farood_violin(ax_e, COND)
-    anchors['e'] = ax_e
-
-    ax_f = fig.add_subplot(r2[0, 2])          # the plane with OOD projected in
-    _fp = D['fp']
-    cond_embedding(ax_f, _fp['id'], _fp['id_targets'], DCOL,
-                   near=_fp['ood'], far=[f['F'] for f in _fp['far']],
-                   c_near=C_NEAR, c_far=C_FAR, near_label='Fashion-MNIST',
-                   id_label='digits')
-    anchors['f'] = ax_f
-
-    # ── row 3: the NNLS machinery ────────────────────────────────────────────
-    ax_g = fig.add_subplot(r3[0, 0])          # mean fingerprint per condition
     Mb = np.stack([m for _, m, _ in ROWS])
     Mb = Mb / Mb.sum(1, keepdims=True)
-    ax_g.imshow(Mb[:, COL_ORDER], cmap=CMAP, aspect='auto', interpolation='nearest',
+    ax_b.imshow(Mb[:, COL_ORDER], cmap=CMAP, aspect='auto', interpolation='nearest',
                 norm=matplotlib.colors.PowerNorm(0.7, vmin=0, vmax=Mb.max()))
     for e in BLK_EDGE:
-        ax_g.axvline(e - 0.5, color='0.25', lw=0.7)
-    ax_g.axhline(N_CLASSES - 0.5, color='0.25', lw=0.8)
+        ax_b.axvline(e - 0.5, color='0.25', lw=0.7)
+    ax_b.axhline(N_CLASSES - 0.5, color='0.25', lw=0.8)
     for bi, blen in enumerate(BLOCK_SIZES):
         s0 = int(np.concatenate([[0], BLK_EDGE])[bi])
-        ax_g.text(s0 + blen / 2 - 0.5, -0.75, rf'$f_{bi}$', ha='center', va='bottom',
+        ax_b.text(s0 + blen / 2 - 0.5, -0.75, rf'$f_{bi}$', ha='center', va='bottom',
                   fontsize=6.5, color=C_BFT)
-    ax_g.set_xticks([])
-    ax_g.set_yticks(range(len(ROWS)))
-    ax_g.set_yticklabels([r[0] for r in ROWS], fontsize=6)
-    for t, r in zip(ax_g.get_yticklabels(), ROWS):
+    ax_b.set_xticks([])
+    ax_b.set_yticks(range(len(ROWS)))
+    ax_b.set_yticklabels([r[0] for r in ROWS], fontsize=6)
+    for t, r in zip(ax_b.get_yticklabels(), ROWS):
         t.set_color(r[2])
-    ax_g.set_xlabel(f'{n_factors} factors, grouped by circuit', labelpad=2)
-    ax_g.tick_params(length=1.5, pad=1)
-    for s in ax_g.spines.values():
+    ax_b.set_xlabel(f'{n_factors} factors, grouped by circuit', labelpad=2)
+    ax_b.tick_params(length=1.5, pad=1)
+    for s in ax_b.spines.values():
         s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_g.set_ylim(len(ROWS) - 0.5, -1.15)
+    ax_b.set_ylim(len(ROWS) - 0.5, -1.15)
     for lab, _s0, _s1 in GROUP:
-        ax_g.text(1.008, (_s0 + _s1 - 1) / 2, lab, transform=ax_g.get_yaxis_transform(),
+        ax_b.text(1.008, (_s0 + _s1 - 1) / 2, lab, transform=ax_b.get_yaxis_transform(),
                   rotation=90, ha='left', va='center', fontsize=6.5, color='0.35')
-    anchors['g'] = ax_g
+    anchors['b'] = ax_b
 
-    ax_h = fig.add_subplot(r3[0, 1])          # NNLS round-trip
-    ax_h.hist(rt_sims, bins=np.linspace(0.5, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
-    ax_h.set_yscale('log')
-    ax_h.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
-    ax_h.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
+    # ── (c) NNLS round-trip ──────────────────────────────────────────────────
+    ax_c = fig.add_subplot(r2[0, 0])
+    ax_c.hist(rt_sims, bins=np.linspace(0.5, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
+    ax_c.set_yscale('log')
+    ax_c.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
+    ax_c.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
               rf'{np.mean(rt_sims > 0.95):.0%} above 0.95'.replace('%', r'\%'),
-              transform=ax_h.transAxes, ha='left', va='top', fontsize=6.5,
+              transform=ax_c.transAxes, ha='left', va='top', fontsize=6.5,
               linespacing=1.25)
-    ax_h.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_h.set_ylabel('test stimuli', labelpad=1)
-    ax_h.set_xlim(0.5, 1.005)
-    ax_h.tick_params(length=1.5, pad=1)
+    ax_c.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
+    ax_c.set_ylabel('test stimuli', labelpad=1)
+    ax_c.set_xlim(0.5, 1.005)
+    ax_c.tick_params(length=1.5, pad=1)
     for s in ('top', 'right'):
-        ax_h.spines[s].set_visible(False)
-    anchors['h'] = ax_h
+        ax_c.spines[s].set_visible(False)
+    anchors['c'] = ax_c
 
-    ax_i = fig.add_subplot(r3[0, 2])          # fingerprint similarity
+    # ── (d) fingerprint similarity ───────────────────────────────────────────
+    ax_d = fig.add_subplot(r2[0, 1])
     PER = int(D['sel_per_digit'])
     _U = unit(D['fp_sel'])
-    ax_i.imshow(_U @ _U.T, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest')
+    ax_d.imshow(_U @ _U.T, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest',
+                aspect='auto')
     for b in range(PER, PER * N_CLASSES, PER):
-        ax_i.axhline(b - 0.5, color='0.35', lw=0.3)
-        ax_i.axvline(b - 0.5, color='0.35', lw=0.3)
+        ax_d.axhline(b - 0.5, color='0.35', lw=0.3)
+        ax_d.axvline(b - 0.5, color='0.35', lw=0.3)
     ctr = (np.arange(N_CLASSES) + 0.5) * PER
-    ax_i.set_xticks(ctr); ax_i.set_xticklabels(range(N_CLASSES), fontsize=6)
-    ax_i.set_yticks(ctr); ax_i.set_yticklabels(range(N_CLASSES), fontsize=6)
-    ax_i.tick_params(length=0, pad=1)
-    for sp_ in ax_i.spines.values():
+    ax_d.set_xticks(ctr); ax_d.set_xticklabels(range(N_CLASSES), fontsize=6)
+    ax_d.set_yticks(ctr); ax_d.set_yticklabels(range(N_CLASSES), fontsize=6)
+    ax_d.tick_params(length=0, pad=1)
+    for sp_ in ax_d.spines.values():
         sp_.set_color('0.6'); sp_.set_linewidth(0.4)
-    ax_i.set_xlabel('stimulus digit', labelpad=1)
-    ax_i.text(0.96, 0.96, f"silhouette {D['sil']:.2f}", transform=ax_i.transAxes,
+    ax_d.set_xlabel('stimulus digit', labelpad=1)
+    ax_d.text(0.96, 0.96, f"silhouette {D['sil']:.2f}", transform=ax_d.transAxes,
               ha='right', va='top', fontsize=6, color='0.15',
               bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
-    anchors['i'] = ax_i
+    anchors['d'] = ax_d
 
     figstyle.freeze(fig)
-    sp_of = {'a': 0, 'b': 0, 'c': 0, 'd': 1, 'e': 1, 'f': 1, 'g': 2, 'h': 2, 'i': 2}
-    emb_lab = ((f'(a) fingerprint, {n_factors}-d',
-                f"(b) {EMB[4]['label'].replace(chr(10), ' ')}, {EMB[4]['dim']}-d")
-               if EMB is not None else ('(a) fingerprint', '(b) activations'))
-    labels = {'a': emb_lab[0], 'b': emb_lab[1], 'c': '(c) digit separability',
-              'd': '(d) Fashion-MNIST', 'e': '(e) far-OOD collapse',
-              'f': '(f) fingerprint PCA', 'g': '(g) mean fingerprint per condition',
-              'h': '(h) NNLS round-trip', 'i': '(i) fingerprint similarity'}
+    sp_of = {'a': 0, 'b': 0, 'c': 1, 'd': 1}
+    labels = {'a': '(a) far-OOD collapse',
+              'b': '(b) mean fingerprint per condition',
+              'c': '(c) NNLS round-trip', 'd': '(d) fingerprint similarity'}
     for key, lab in labels.items():
         fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom')
+                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -1654,6 +1634,11 @@ def figD_digit_mlp_fingerprint_details(D):
 CNN_LAYER_LABEL = {'classifier': 'classifier', 'features.12': 'conv4',
                    'features.8': 'conv3', 'features.4': 'conv2',
                    'features.0': 'conv1'}
+
+# depth labels L_1 (pixels) .. L_5 (classifier), matching Fig. 6's convention
+CNN_LI_LABEL = {'classifier': r'$L_5$', 'features.12': r'$L_4$',
+                'features.8': r'$L_3$', 'features.4': r'$L_2$',
+                'features.0': r'$L_1$'}
 
 
 def cifar_rgb(D, x):
@@ -1812,16 +1797,24 @@ def fig6_cnn_circuits(D):
     CLASS_COLOR = class_colors(range(len(CLS)))
 
     SHOW = [0, 1, 9]           # trees in (b): car (automobile), horse, airplane
+    # which conv4 sub-factors to open per circuit: the horse's f0/f1 are near
+    # duplicates, so f1/f2 make the split between the two groups legible.
+    SUB = {0: [0, 1], 1: [1, 2], 9: [0, 1]}
     LEAF = (9, 0, 0, 0)        # the conv1 node panel (c) opens
-    N_TREE = 2                 # the two strongest conv4 sub-factors per circuit
+    N_TREE = 2                 # two conv4 sub-factors per circuit
 
     # row heights in inches, derived from the image grids they hold
     W = 6.975
     s_a = W / n_root                                   # (a) montage side, square
     ha = s_a + 0.30 + 0.13                             # montage + class bars + label
-    PAD_B, GAP_B = 0.28, 0.85                          # (b) side pad / inter-tree gap
-    s_b = W / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B + 2 * PAD_B)
-    hb = 0.30 + s_b + 0.16                             # node + subfactor + label
+    # wider side/inter-tree gaps hold the sub-factor montages to a size closer to
+    # the (a) and (c) montages (they were the largest images in the figure), which
+    # trims the row's height; tighter label rows save a little more.
+    PAD_B, GAP_B, GAP_IN = 0.24, 0.75, 0.14            # side / inter-tree / intra-pair
+    NODE_H, FLAB_H = 0.24, 0.13                        # node-label / f-label rows
+    s_b = W / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B
+               + len(SHOW) * GAP_IN + 2 * PAD_B)
+    hb = NODE_H + s_b + FLAB_H                          # node label + image + f label
     n_leaf = by_path[LEAF]['n_factors']
     s_c = 0.60                                         # (c) conv1 montage side
     hbot = s_c + 0.17                                  # montage + purity number
@@ -1853,7 +1846,6 @@ def fig6_cnn_circuits(D):
         ax = stim_panel(fig, gsa[0, k], D, root['top_images'][k], 2, 2)
         prof = root['class_profile'][k]
         c = int(np.argmax(prof))
-        tag(ax, rf'$f_{{{k}}}$')
         axb = fig.add_subplot(gsa[1, k])                # class distribution, 10 bars
         axb.bar(range(len(CLS)), prof, width=0.9, edgecolor='none',
                 color=[CLASS_COLOR[i] for i in range(len(CLS))])
@@ -1861,6 +1853,11 @@ def fig6_cnn_circuits(D):
         axb.set_xticks([]); axb.set_yticks([])
         for s_ in axb.spines.values():
             s_.set_visible(False)
+        # f label rides below the stimuli (on the bar chart), not over a
+        # photograph where it is unreadable — matching Fig. 8(a)
+        axb.text(0.0, 1.02, rf'$f_{{{k}}}$', transform=axb.transAxes, ha='left',
+                 va='top', fontsize=6.5, color=C_BFT,
+                 bbox=dict(fc='white', ec='none', alpha=0.75, pad=0.4))
         lab = fig.add_subplot(gsa[2, k]); lab.set_axis_off()
         lab.text(0.5, 1.0, f'{CLS[c]} {prof[c]:.2f}', ha='center', va='top',
                  fontsize=6, color='0.2')
@@ -1868,34 +1865,38 @@ def fig6_cnn_circuits(D):
             anchors['a'] = ax
 
     # ── (b) traceback: each output factor splits into conv4 sub-factors ──────
-    # columns: side pad, then per circuit N_TREE sub-factor cells, inter-tree gaps
+    # columns per circuit: two image cells with a small gap between them (so the
+    # two sub-factors read as distinct), circuits separated by a wider gap.
     widths, col_of = [PAD_B], {}
     for j_ in range(len(SHOW)):
         col_of[j_] = len(widths)
-        widths += [1.0] * N_TREE
+        widths += [1.0, GAP_IN, 1.0]
         widths += [GAP_B] if j_ < len(SHOW) - 1 else [PAD_B]
-    gsb = gs[3].subgridspec(2, len(widths), height_ratios=[0.34, 1.0],
+    gsb = gs[3].subgridspec(3, len(widths), height_ratios=[NODE_H, s_b, FLAB_H],
                             width_ratios=widths)
     tree = []                                           # (node_ax, [sub_ax, ...])
     for j_, r in enumerate(SHOW):
         node = by_path[(r,)]
         own = int(np.argmax(root['class_profile'][r]))
         base = col_of[j_]
-        node_ax = fig.add_subplot(gsb[0, base:base + N_TREE]); node_ax.set_axis_off()
-        node_ax.text(0.5, 0.30, rf'$f_{{{r}}}$ · {CLS[own]}', ha='center', va='center',
+        node_ax = fig.add_subplot(gsb[0, base:base + 3]); node_ax.set_axis_off()
+        node_ax.text(0.5, 0.32, rf'$f_{{{r}}}$ · {CLS[own]}', ha='center', va='center',
                      fontsize=6.5, color='white',
                      bbox=dict(boxstyle='round,pad=0.28', fc=C_BFT, ec='none'))
         subs = []
-        for k in range(N_TREE):
+        for slot, k in enumerate(SUB[r]):               # slot 0/1 -> columns base, base+2
+            col = base + 2 * slot
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[1, base + k], D, node['top_images'][k], 2, 2,
+            ax = stim_panel(fig, gsb[1, col], D, node['top_images'][k], 2, 2,
                             ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
-            tag(ax, rf'$f_{{{k}}}$', size=6)
             if off:                                     # flag only a cross-class group
                 tag(ax, CLS[c][:5], x=0.5, y=0.04, size=6, color=C_X)
                 ax.texts[-1].set(ha='center', va='bottom')
+            flab = fig.add_subplot(gsb[2, col]); flab.set_axis_off()
+            flab.text(0.5, 0.92, rf'$f_{{{k}}}$', ha='center', va='top', fontsize=6.5,
+                      color=C_BFT)
             subs.append(ax)
         tree.append((node_ax, subs))
         if j_ == 0:
@@ -1920,7 +1921,10 @@ def fig6_cnn_circuits(D):
     stats, rand = cnn_depth_stats(D)
     x = np.arange(len(stats))
     chance = 1.0 / D['n_classes']
-    xt = [CNN_LAYER_LABEL[st['layer']] for st in stats]
+    # generic depth labels L_1 (nearest the pixels) .. L_N (output), matching the
+    # convention of Fig. 2; stats run output-first, so the ticks descend
+    n_lay = len(stats)
+    xt = [rf'$L_{{{n_lay - i}}}$' for i in range(n_lay)]
 
     ax_d = fig.add_subplot(gsc[0, 1])
     pur = [lam_weighted(st['purity'], st['lam']) for st in stats]
@@ -1931,11 +1935,11 @@ def fig6_cnn_circuits(D):
     ax_d.plot(x, pur, color=C_BFT, marker='o', ms=3.0, lw=1.4, zorder=3)
     ax_d.set_ylim(0, 1.0); ax_d.set_yticks([0, 0.5, 1.0])
     ax_d.set_yticklabels(['0', '.5', '1'])
-    ax_d.set_ylabel('class purity', color=C_BFT, labelpad=1)
+    ax_d.set_ylabel('class purity', color=C_BFT, labelpad=1, fontsize=6)
     ax_d.text(len(stats) - 0.9, chance + 0.03, 'chance', fontsize=6, color='0.45',
               ha='right', va='bottom')
     ax_d.set_xlim(-0.35, len(stats) - 0.65); ax_d.set_xticks(x)
-    ax_d.set_xticklabels(xt, fontsize=6, rotation=30, ha='right')
+    ax_d.set_xticklabels(xt, fontsize=6)
     ax_d.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_d.spines[s_].set_visible(False)
@@ -1947,11 +1951,11 @@ def fig6_cnn_circuits(D):
     ax_e.plot(x, spread, color=C_BASE, marker='s', ms=2.6, lw=1.4, zorder=3)
     ax_e.set_ylim(0, 0.34); ax_e.set_yticks([0, 0.1, 0.2, 0.3])
     ax_e.set_yticklabels(['0', '', '.2', ''])
-    ax_e.set_ylabel('color spread', color=C_BASE, labelpad=1)
+    ax_e.set_ylabel('color spread', color=C_BASE, labelpad=1, fontsize=6)
     ax_e.text(len(stats) - 0.1, rand - 0.012, 'random', fontsize=6,
               color=tint(C_BASE, 0.3), ha='right', va='top')
     ax_e.set_xlim(-0.35, len(stats) - 0.65); ax_e.set_xticks(x)
-    ax_e.set_xticklabels(xt, fontsize=6, rotation=30, ha='right')
+    ax_e.set_xticklabels(xt, fontsize=6)
     ax_e.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_e.spines[s_].set_visible(False)
@@ -1972,11 +1976,11 @@ def fig6_cnn_circuits(D):
     def _label(key, spacer, text, dx=0.0, **kw):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
-                 va='bottom', fontsize=7, **kw)
+                 va='bottom', fontsize=7, fontweight='bold', **kw)
 
     _label('a', 0, '(a) output factors, with class distribution', dx=-0.004)
-    _label('b', 1, '(b) traceback to conv4: two strongest sub-factors', dx=-0.020)
-    _label('c', 2, '(c) conv1 factors of $f_9$', dx=-0.004)
+    _label('b', 1, r'(b) traceback to $L_4$', dx=-0.010)
+    _label('c', 2, r'(c) $L_1$ factors of $f_9$ (class purity below)', dx=-0.004)
     _label('d', 2, '(d) class purity', dx=-0.030)
     _label('e', 2, '(e) color spread', dx=-0.030)
     return fig
@@ -1993,15 +1997,26 @@ def figE_cnn_details(D):
     CASCADE = [(9,), (9, 0), (9, 0, 0), (9, 0, 0, 0)]      # the traced spine of f9
     chance = 1.0 / D['n_classes']
 
-    N_SHOW, N_EX = 2, 4            # (b): sub-factors per circuit, examples each (2x2)
-    PER_ROW = 5                    # circuits per gallery row
-    LAB_W, GAP_W = 0.40, 0.24      # gallery label / inter-circuit column widths
+    N_SHOW = 2                     # (b): sub-factors per circuit
+    EX_R, EX_C = 2, 3              # example stimuli per sub-factor (6 of the 8 stored)
+    PER_ROW = 2                    # circuits per gallery row (wavg + examples is wide)
+    LAB_W, AVG_W = 0.55, 1.0       # circuit-label / weighted-average column widths
+    EX_W = EX_C / EX_R             # keep every example tile square
+    SUBGAP, CIRCGAP, FLAB = 0.14, 0.42, 0.20   # gaps, and the f-label row height
 
     # row heights in inches, derived from the image grids they hold
     W, SP = 6.975, 0.15
-    n_gal_rows = n_root // PER_ROW
-    s_g = W / (PER_ROW * (LAB_W + N_SHOW) + (PER_ROW - 1) * GAP_W)   # montage side
-    h_b = n_gal_rows * s_g + 0.04
+    n_gal_rows = -(-n_root // PER_ROW)
+    # columns of one circuit: label, then [weighted-avg, examples] per sub-factor
+    circ_cols = [LAB_W]
+    for _s in range(N_SHOW):
+        circ_cols += [AVG_W, EX_W] + ([SUBGAP] if _s < N_SHOW - 1 else [])
+    col_w, col_base = [], []
+    for _b in range(PER_ROW):
+        col_base.append(len(col_w))
+        col_w += circ_cols + ([CIRCGAP] if _b < PER_ROW - 1 else [])
+    s_g = W / sum(col_w)                                    # montage side
+    h_b = n_gal_rows * (s_g + FLAB) + 0.04
     n_spine = 2 + sum(by_path[p_]['n_factors'] for p_ in CASCADE[1:])
     h_c = W * (65.0 + 33.0) / (n_spine * 65.0 + (n_spine - 5) * 6.0 + 4 * 24.0)
     rows = [SP, 1.05, SP, h_b, SP, h_c]
@@ -2045,39 +2060,50 @@ def figE_cnn_details(D):
         ax.tick_params(length=1.5, pad=1)
         for s_ in ('top', 'right'):
             ax.spines[s_].set_visible(False)
-        ax.set_title(f'{CNN_LAYER_LABEL[name]}\n({len(nodes)} node'
-                     f"{'s' if len(nodes) > 1 else ''})", pad=1.5, fontsize=6.5,
-                     linespacing=1.1)
+        ax.set_title(CNN_LI_LABEL[name], pad=1.5, fontsize=6.5)
         if i == 0:
             ax.set_ylabel(r'$\lambda$ share', labelpad=1)
             anchors['a'] = ax
         if i == len(LAYERS) // 2:
             ax.set_xlabel('factor $f$', labelpad=1)
 
-    # ── (b) gallery: the two strongest conv4 sub-factors of every circuit ─────
-    widths = []
-    for b in range(PER_ROW):
-        widths += [LAB_W] + [1.0] * N_SHOW + ([GAP_W] if b < PER_ROW - 1 else [])
-    gsb = gs[3].subgridspec(n_gal_rows, len(widths), width_ratios=widths)
+    # ── (b) gallery: each output circuit's strongest L4 sub-factors, shown as
+    #        the weighted-average stimulus (framed, the factor's prototype)
+    #        beside real top stimuli; all factor labels sit below the images ────
+    row_h = []
+    for _ in range(n_gal_rows):
+        row_h += [s_g, FLAB]
+    gsb = gs[3].subgridspec(2 * n_gal_rows, len(col_w), width_ratios=col_w,
+                            height_ratios=row_h)
     for r in range(n_root):
-        row, blk = r // PER_ROW, r % PER_ROW
-        base = blk * (N_SHOW + 2)
+        grow, blk = r // PER_ROW, r % PER_ROW
+        irow, lrow = 2 * grow, 2 * grow + 1
+        base = col_base[blk]
         own = int(np.argmax(root['class_profile'][r]))
-        lab = fig.add_subplot(gsb[row, base]); lab.set_axis_off()
-        lab.text(1.0, 0.5, rf'$f_{{{r}}}$' + '\n' + CLS[own][:5], ha='right',
+        lab = fig.add_subplot(gsb[irow, base]); lab.set_axis_off()
+        lab.text(1.0, 0.5, rf'$f_{{{r}}}$' + '\n' + CLS[own][:6], ha='right',
                  va='center', fontsize=6, linespacing=1.2)
+        if r == 0:
+            anchors['b'] = lab
         node = CONV4[r]
         for k in range(N_SHOW):
+            ac, ec = base + 1 + 3 * k, base + 2 + 3 * k        # avg / examples cols
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[row, base + 1 + k], D, node['top_images'][k], 2, 2,
-                            ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
-            tag(ax, rf'$f_{{{k}}}$')
-            if off:
-                tag(ax, CLS[c][:5], x=0.5, y=0.05, color=C_X, ha='center', va='bottom')
-            if r == 0 and k == 0:
-                anchors['b'] = ax
+            axa = fig.add_subplot(gsb[irow, ac])               # weighted-avg stimulus
+            axa.imshow(cifar_rgb(D, node['wavg'][k]), interpolation='nearest')
+            axa.set_xticks([]); axa.set_yticks([])
+            for s_ in axa.spines.values():
+                s_.set_color(C_BFT); s_.set_linewidth(1.0)
+            stim_panel(fig, gsb[irow, ec], D, node['top_images'][k], EX_R, EX_C,
+                       ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
+            la = fig.add_subplot(gsb[lrow, ac]); la.set_axis_off()
+            la.text(0.5, 0.95, 'avg', ha='center', va='top', fontsize=6,
+                    color='0.45')
+            le = fig.add_subplot(gsb[lrow, ec]); le.set_axis_off()
+            le.text(0.5, 0.95, rf'$f_{{{k}}}$' + (f' → {CLS[c][:5]}' if off else ''),
+                    ha='center', va='top', fontsize=6, color=C_X if off else '0.2')
 
     # ── (c) the traced spine of one circuit, root to conv1 ───────────────────
     spine = [root] + [by_path[p_] for p_ in CASCADE]
@@ -2112,7 +2138,7 @@ def figE_cnn_details(D):
         if j_ == 0 or meta[j_ - 1][0] != i:
             first_x = x
         if j_ == len(meta) - 1 or meta[j_ + 1][0] != i:
-            name = 'classifier' if i == 0 else CNN_LAYER_LABEL[n['layer_name']]
+            name = r'$L_5$' if i == 0 else CNN_LI_LABEL[n['layer_name']]
             ax_c.text((first_x + x + side) / 2, -3, name, ha='center', va='bottom',
                       fontsize=6.5, color='0.35')
         x += side + gaps[j_]
@@ -2123,12 +2149,13 @@ def figE_cnn_details(D):
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.002, text, ha='left',
-                 va='bottom', fontsize=7)
+                 va='bottom', fontsize=7, fontweight='bold')
 
     _label('a', 0, r'(a) $\lambda$ spectra by layer', dx=-0.026)
-    _label('b', 1, '(b) conv4 gallery: two strongest sub-factors per circuit',
-           dx=-0.020)
-    _label('c', 2, r'(c) traced spine of $f_9$, root to conv1 — class purity below '
+    _label('b', 1, r'(b) $L_4$ gallery: each output circuit $f_r$ traced back to its '
+                   r'two strongest $L_4$ sub-factors $f_k$ — weighted-avg. stimulus '
+                   r'(framed) then top stimuli', dx=-0.004)
+    _label('c', 2, r'(c) traced spine of $f_9$, $L_5\to L_1$ — class purity below '
                    f'each factor (chance {chance:.2f})', dx=-0.004)
     return fig
 
@@ -2172,13 +2199,11 @@ def _cnn_fp_ood(D):
     return P_model, P_fprint, float(np.mean(near == pred)), near
 
 
-def cnn_fp_heatmap(fig, gsa, D, COL_ORDER, BLK_EDGE, BLK_START, BLOCK_SIZES,
-                   CMAP, CCOL, CLS, N_CLASSES, n_factors, C_BFT):
-    """Mean fingerprint per class (columns grouped by output circuit, each scaled
-    to its top class) plus the class-by-circuit block strip. gsa is a 1x2 subgrid
-    (heatmap, strip). Returns the heatmap axes; its y-tick colors are the class
+def cnn_fp_heatmap(ax_a, D, COL_ORDER, BLK_EDGE, CMAP, CCOL, CLS, N_CLASSES,
+                   n_factors):
+    """Mean fingerprint per class, columns grouped by output circuit and each
+    scaled to its top class. Returns the axes; its y-tick colors are the class
     legend the embedding panels reuse."""
-    ax_a = fig.add_subplot(gsa[0, 0])
     M = D['fp_mean_by_class']
     M = M / M.sum(1, keepdims=True)
     Mc = M[:, COL_ORDER]
@@ -2195,27 +2220,14 @@ def cnn_fp_heatmap(fig, gsa, D, COL_ORDER, BLK_EDGE, BLK_START, BLOCK_SIZES,
     ax_a.tick_params(length=1.5, pad=1)
     for s_ in ax_a.spines.values():
         s_.set_color('0.6'); s_.set_linewidth(0.4)
-
-    ax_ab = fig.add_subplot(gsa[0, 1])
-    B = np.stack([M[:, COL_ORDER][:, BLK_START[b]:BLK_START[b] + BLOCK_SIZES[b]].sum(1)
-                  for b in range(len(BLOCK_SIZES))], axis=1)
-    ax_ab.imshow(B, cmap=CMAP, aspect='auto', interpolation='nearest',
-                 vmin=B.min(), vmax=B.max())
-    ax_ab.set_xticks([]); ax_ab.set_yticks([])
-    for s_ in ax_ab.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    for c_ in range(N_CLASSES):
-        if B.argmax(1)[c_] == c_:
-            ax_ab.add_patch(matplotlib.patches.Rectangle(
-                (c_ - 0.5, c_ - 0.5), 1, 1, fill=False, edgecolor='white',
-                linewidth=0.7, zorder=4))
-    ax_ab.set_xlabel('own circuit', labelpad=2, fontsize=6, color=C_BFT)
     return ax_a
 
 
-def cnn_class_geometry(ax, D, CMAP, CCOL, CLS, N_CLASSES):
+def cnn_class_geometry(ax, D, CMAP, CCOL, CLS, N_CLASSES, show_between=False):
     """Pairwise cosine of the test fingerprints, sorted by class — the block
-    diagonal behind the class silhouette."""
+    diagonal behind the class silhouette. With `show_between` the panel also
+    reports the mean between-class cosine, and both numbers move to the top
+    right (where the matrix is emptiest)."""
     fp = D['fp']
     order = np.argsort(fp['id_targets'], kind='stable')
     U = unit(fp['id'][order])
@@ -2234,11 +2246,19 @@ def cnn_class_geometry(ax, D, CMAP, CCOL, CLS, N_CLASSES):
     ax.tick_params(length=0, pad=1)
     for s_ in ax.spines.values():
         s_.set_color('0.6'); s_.set_linewidth(0.4)
-    within = np.mean([S[a:b, a:b].mean() for a, b in
-                      zip(np.concatenate([[0], cuts[:-1]]), cuts)])
-    ax.text(0.97, 0.03, f'within-class $\\cos$ {within:.2f}',
-            transform=ax.transAxes, ha='right', va='bottom', fontsize=6,
-            color='0.15', bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.0))
+    starts = np.concatenate([[0], cuts[:-1]])
+    within = np.mean([S[a:b, a:b].mean() for a, b in zip(starts, cuts)])
+    if show_between:
+        cls_of = np.repeat(np.arange(len(n_per)), n_per)   # class of each sorted row
+        between = float(S[cls_of[:, None] != cls_of[None, :]].mean())
+        txt = f'within-class $\\cos$ {within:.2f}\nbetween-class {between:.2f}'
+        ax.text(0.97, 0.975, txt, transform=ax.transAxes, ha='right', va='top',
+                fontsize=6, color='0.15', linespacing=1.25,
+                bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.0))
+    else:
+        ax.text(0.97, 0.03, f'within-class $\\cos$ {within:.2f}',
+                transform=ax.transAxes, ha='right', va='bottom', fontsize=6,
+                color='0.15', bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.0))
 
 
 def cnn_cifar100(ax, P_model, P_fprint, agree, r_ood, N_CLASSES, C_NEAR):
@@ -2291,20 +2311,24 @@ def figF_cnn_fingerprint_details(D):
     P_model, P_fprint, agree, _ = _cnn_fp_ood(D)
     r_ood = float(np.corrcoef(P_model.ravel(), P_fprint.ravel())[0, 1])
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.90)
+    # Panels reduced per figure_comments: the fingerprint PCA (former c), the
+    # CIFAR-100 agreement (d), the classes-vs-OOD map (h) and the mass-by-layer
+    # bars (i) are dropped; what remains is the round-trip, the per-condition
+    # means, the far-OOD collapse, the distance to the classes and the
+    # train/test reproduction, re-lettered a-e over two rows.
+    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
+                   height_to_width_ratio=0.62)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
                           hspace=0.02, wspace=0.03)
-    gs = fig.add_gridspec(6, 1, height_ratios=[0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
-                          hspace=0.02)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4)]
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 1.0, 0.10, 1.0], hspace=0.02)
+    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
     for s_ in spacers:
         s_.set_axis_off()
-    sp1, sp2, sp3 = spacers
+    sp1, sp2 = spacers
     gs_top = gs[1].subgridspec(1, 3, width_ratios=[0.72, 1.60, 0.78])
-    gs_mid = gs[3].subgridspec(1, 3)
-    gs_bot = gs[5].subgridspec(1, 3, width_ratios=[1.0, 1.05, 1.25])
+    gs_bot = gs[3].subgridspec(1, 2, width_ratios=[1.05, 1.0])
+    anchors = {}
 
     # ── (a) NNLS round-trip: the honest number ──────────────────────────────
     ax_a = fig.add_subplot(gs_top[0, 0])
@@ -2320,6 +2344,7 @@ def figF_cnn_fingerprint_details(D):
               f'{int((v > 0.95).sum())} of {len(v)} above 0.95',
               transform=ax_a.transAxes, ha='left', va='top', fontsize=6,
               linespacing=1.25)
+    anchors['a'] = ax_a
 
     # ── (b) mean fingerprint of every condition ─────────────────────────────
     ax_b = fig.add_subplot(gs_top[0, 1])
@@ -2340,24 +2365,15 @@ def figF_cnn_fingerprint_details(D):
     ax_b.tick_params(length=1.5, pad=1)
     for s_ in ax_b.spines.values():
         s_.set_color('0.6'); s_.set_linewidth(0.4)
+    anchors['b'] = ax_b
 
-    # ── (c) where the OOD conditions land in the plane of the classes ───────
-    ax_emb = fig.add_subplot(gs_top[0, 2])
-    cond_embedding(ax_emb, fp['id'], fp['id_targets'], class_colors(range(N_CLASSES)),
-                   near=fp['ood'], far=[f['F'] for f in FAR],
-                   c_near=C_NEAR, c_far=C_FAR, near_label='CIFAR-100',
-                   id_label='CIFAR-10')
-
-    # ── (d) CIFAR-100: the fingerprint names the class the network names ─────
-    ax_d100 = fig.add_subplot(gs_mid[0, 0])
-    cnn_cifar100(ax_d100, P_model, P_fprint, agree, r_ood, N_CLASSES, C_NEAR)
-
-    # ── (e) far-OOD: every stimulus collapses onto one fingerprint ───────────
-    ax_far = fig.add_subplot(gs_mid[0, 1])
+    # ── (c) far-OOD: every stimulus collapses onto one fingerprint ───────────
+    ax_far = fig.add_subplot(gs_top[0, 2])
     fp_farood_violin(ax_far, COND)
+    anchors['c'] = ax_far
 
-    # ── (f) how close each OOD condition gets to any trained class ──────────
-    ax_e = fig.add_subplot(gs_mid[0, 2])
+    # ── (d) how close each OOD condition gets to any trained class ──────────
+    ax_e = fig.add_subplot(gs_bot[0, 0])
     pos = np.arange(len(LIKE))[::-1]
     for p_, (lab, vals, c_) in zip(pos, LIKE):
         parts = ax_e.violinplot([vals], positions=[p_], vert=False, widths=0.82,
@@ -2374,9 +2390,10 @@ def figF_cnn_fingerprint_details(D):
     ax_e.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_e.spines[s_].set_visible(False)
+    anchors['d'] = ax_e
 
-    # ── (g) the code survives the train/test split ──────────────────────────
-    ax_c = fig.add_subplot(gs_bot[0, 0])
+    # ── (e) the code survives the train/test split ──────────────────────────
+    ax_c = fig.add_subplot(gs_bot[0, 1])
     Ttr = unit(np.stack([fp['train'][fp['train_targets'] == c].mean(0)
                          for c in range(N_CLASSES)]))
     Tte = unit(np.stack([fp['id'][fp['id_targets'] == c].mean(0)
@@ -2394,68 +2411,16 @@ def figF_cnn_fingerprint_details(D):
                     f'{S[~np.eye(N_CLASSES, dtype=bool)].mean():.2f}, '
                     f'{n_hit}/{N_CLASSES} nearest',
                     labelpad=2, fontsize=6, color='0.35', linespacing=1.25)
-
-    # ── (d) how close each OOD condition sits to each class ─────────────────
-    ax_d = fig.add_subplot(gs_bot[0, 1])
-    CENT = unit(D['fp_mean_by_class'])
-    conds = [('CIFAR-100', D['fp_mean_ood'])] + [(f['label'], f['F'].mean(0))
-                                                 for f in FAR]
-    Sc = CENT @ unit(np.stack([c[1] for c in conds])).T
-    ax_d.imshow(Sc, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
-    ax_d.set_xticks(range(len(conds)))
-    ax_d.set_xticklabels([c[0] for c in conds], rotation=90, fontsize=6)
-    for t_, c_ in zip(ax_d.get_xticklabels(), conds):
-        t_.set_color(C_NEAR if c_[0] == 'CIFAR-100' else C_FAR)
-    ax_d.set_yticks(range(N_CLASSES)); ax_d.set_yticklabels(CLS, fontsize=6)
-    ax_d.tick_params(length=0, pad=1)
-    style_matrix_axes(ax_d)
-    ax_d.set_xlabel(f'CIFAR-100 up to {Sc[:, 0].max():.2f},\n'
-                    f'far-OOD up to {Sc[:, 1:].max():.2f}', labelpad=2, fontsize=6,
-                    color='0.35', linespacing=1.25)
-
-    # ── (i) where in the network the fingerprint mass sits ──────────────────
-    ax_f = fig.add_subplot(gs_bot[0, 2])
-    lay = dims[:, 0]
-    layers = sorted(np.unique(lay))[::-1]                  # output first
-    shades = [tint(C_BFT, 0.72 * i / max(len(layers) - 1, 1)) for i in
-              range(len(layers))]
-    sets = [('ID test', fp['id'], '0.2'), ('CIFAR-100', fp['ood'], C_NEAR)] + \
-           [(f['label'], f['F'], C_FAR) for f in FAR]
-    x = np.arange(len(sets))
-    bot = np.zeros(len(sets))
-    for li, l_ in enumerate(layers):
-        share = np.array([float((X / (X.sum(1, keepdims=True) + 1e-12))[:, lay == l_]
-                                .sum(1).mean()) for _, X, _ in sets])
-        ax_f.bar(x, share, bottom=bot, color=shades[li], width=0.78,
-                 edgecolor='white', linewidth=0.3,
-                 label=f'{CNN_FP_LAYER[int(l_)]} ({int((lay == l_).sum())})')
-        bot += share
-    ax_f.set_xticks(x)
-    ax_f.set_xticklabels([s_[0] for s_ in sets], rotation=90, fontsize=6)
-    for t_, s_ in zip(ax_f.get_xticklabels(), sets):
-        t_.set_color(s_[2])
-    ax_f.set_ylim(0, 1); ax_f.set_yticks([0, 0.5, 1])
-    ax_f.set_yticklabels(['0', '.5', '1'])
-    ax_f.set_ylabel('mass share', labelpad=1)
-    ax_f.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_f.spines[s_].set_visible(False)
-    ax_f.legend(fontsize=6, frameon=False, loc='center left',
-                bbox_to_anchor=(1.0, 0.5), handlelength=0.7, handletextpad=0.35,
-                borderpad=0.1, labelspacing=0.25, borderaxespad=0.0)
+    anchors['e'] = ax_c
 
     figstyle.freeze(fig)
-    for ax, lab, sp_ in ((ax_a, '(a) NNLS round-trip', sp1),
-                         (ax_b, '(b) mean fingerprint per condition', sp1),
-                         (ax_emb, '(c) fingerprint PCA', sp1),
-                         (ax_d100, '(d) CIFAR-100', sp2),
-                         (ax_far, '(e) far-OOD collapse', sp2),
-                         (ax_e, '(f) distance to the classes', sp2),
-                         (ax_c, '(g) train vs test', sp3),
-                         (ax_d, '(h) classes vs OOD', sp3),
-                         (ax_f, '(i) mass by layer', sp3)):
-        fig.text(max(ax.get_position().x0 - 0.004, 0.002),
-                 sp_.get_position().y0, lab, ha='left', va='bottom')
+    sp_of = {'a': sp1, 'b': sp1, 'c': sp1, 'd': sp2, 'e': sp2}
+    labels = {'a': '(a) NNLS round-trip', 'b': '(b) mean fingerprint per condition',
+              'c': '(c) far-OOD collapse', 'd': '(d) distance to the classes',
+              'e': '(e) train vs test'}
+    for key, lab in labels.items():
+        fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
+                 sp_of[key].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -2669,7 +2634,7 @@ def figG_vit_circuits(D):
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0, text, ha='left', va='bottom',
-                 fontsize=7)
+                 fontsize=7, fontweight='bold')
 
     _label('a', 0, '(a) informativity spectra, by layer of the block', dx=-0.030)
     _label('b', 0, '(b) output circuits', dx=-0.028)
@@ -2951,7 +2916,7 @@ def figH_vit_fingerprints(D):
             (ax_f, '(f) far-OOD collapse', spacers[2], 0.0),
             (ax_g, '(g) distance to a trained class', spacers[2], -0.030)):
         fig.text(max(ax.get_position().x0 - 0.004 + dx, 0.002),
-                 anchor.get_position().y0, lab, ha='left', va='bottom')
+                 anchor.get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -2999,55 +2964,6 @@ def _val_causal_nodes(D):
     return None, None, None
 
 
-def _val_axes(ax, *, xlab=None, ylab=None):
-    ax.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax.spines[s].set_visible(False)
-    if xlab:
-        ax.set_xlabel(xlab, labelpad=1.5)
-    if ylab:
-        ax.set_ylabel(ylab, labelpad=1.5)
-
-
-def _val_note(ax, text, *, loc='lower right'):
-    va, y = ('bottom', 0.03) if 'lower' in loc else ('top', 0.97)
-    ha, x = ('right', 0.97) if 'right' in loc else ('left', 0.03)
-    ax.text(x, y, text, transform=ax.transAxes, ha=ha, va=va, fontsize=6,
-            color='0.25', linespacing=1.2,
-            bbox=dict(fc='white', ec='none', alpha=0.8, pad=0.8))
-
-
-def _seed_spread(D, key):
-    """Model-seed std of a headline number, or None when only one model was traced."""
-    sr = D.get('seed_repeats')
-    if not isinstance(sr, dict) or not isinstance(sr.get('model_seed'), dict):
-        return None
-    m = sr['model_seed'].get(key)
-    if not isinstance(m, dict) or int(m.get('n', 0)) < 2:
-        return None
-    return float(m['mean']), float(m['std']), int(m['n'])
-
-
-def _boot_incumbent(D):
-    """Notebook 10's paired stimulus-subsampling record for the *incumbent* config.
-
-    The incumbent row is ``bft()`` at the registry defaults, which is exactly the
-    configuration every measurement panel of this figure was traced at — so its
-    interval is the one that may be drawn on those panels, never the selected
-    configuration's. Two models (pretrained SqueezeNet, TinyViT) have a single
-    checkpoint and can never have a model-seed error bar; this is the only spread
-    they will ever get. Returns None when notebook 10 never ran for this model.
-
-    The bundle writer replaces '.' in dict keys, so the incumbent's name has to be
-    sanitized the same way before it is looked up.
-    """
-    bt = D.get('bootstrap')
-    if not isinstance(bt, dict) or not isinstance(bt.get('per_config'), dict):
-        return None
-    rec = bt['per_config'].get(str(bt.get('incumbent', '')).replace('.', '_'))
-    return rec if isinstance(rec, dict) else None
-
-
 def _cfg_label(name):
     """Sweep row id -> something a caption can carry: 'rank=rank x1.3' -> 'rank ×1.3'."""
     return (str(name).replace('rank=rank ', 'rank ').replace('=', ' ')
@@ -3064,342 +2980,9 @@ def _executed_k_max(k_max):
     return [max(2, int(v)) for v in k_max]
 
 
-def _val_header_lines(D, boot, g_boot):
-    """Subtitle lines under a validation figure's title.
-
-    The nine panels are traced at the registry defaults, while the settings in the
-    subtitle are what the sweep *selected* — a distinction that only starts to
-    matter once notebook 10 both finished the grid and put an interval on it, so
-    the extra lines appear exactly then. Built before the layout because the
-    header row has to be sized for however many lines come back.
-    """
-    hp = D.get('final_hp') if isinstance(D.get('final_hp'), dict) else {}
-    kw = hp.get('bft_kwargs', {})
-    lines = [f"$n={int(D['config']['n_samples'])}$ stimuli"
-             + (f", selected $K_{{\\max}}={_executed_k_max(kw['k_max'])}$"
-                if 'k_max' in kw else '')
-             + (f", threshold ${float(kw['stimulus_threshold']):g}$"
-                if 'stimulus_threshold' in kw else '')
-             + (f", {int(hp['fingerprint_dim'])}-d fingerprint"
-                if 'fingerprint_dim' in hp else '')]
-    if not boot:
-        return lines
-    if hp.get('selected_config'):
-        n_cfg = len(D.get('HP_sweep', {}).get('configs', []) or [])
-        ci = hp.get('silhouette_ci')
-        lines.append(
-            f"selection: {_cfg_label(hp['selected_config'])}"
-            + (f' of {n_cfg} swept configurations' if n_cfg else '')
-            + f", silhouette {float(hp['silhouette']):.3f}"
-            + (f" [{float(ci[0]):.3f}, {float(ci[1]):.3f}]"
-               if ci is not None and ci[0] is not None else '')
-            + f" against {float(boot['mean']):.3f} at the registry defaults, "
-              'which is what every panel below is traced at')
-    if g_boot:                                  # usetex: a bare % comments the line
-        lines.append('error bar in (g): paired 80\\,\\% stimulus subsample — this model '
-                     'has a single checkpoint, so no model-seed spread exists')
-    return lines
-
-
 def _layer_shades(n, base):
     """Input layer darkest -> output layer lightest, so depth is readable."""
     return [tint(base, 0.62 * i / max(n - 1, 1)) for i in range(n)]
-
-
-def fig_validation(D):
-    """Appendix validation figure — faithfulness, robustness, baselines.
-
-    Drawn from a ``nb09_<exp>_validation`` bundle; the same function renders all
-    five models (the bundle carries the model's name, its capability flags and
-    every number notebook 09 measured).
-    """
-    C_BFT, C_BASE = figstyle.color('ours'), figstyle.color('baseline')
-    C_CEIL, C_RAND = figstyle.color('ceiling'), figstyle.color('random')
-    caps = D['caps']
-    boot = _boot_incumbent(D)         # notebook 10's interval, or None if it never ran
-    sil_sp = _seed_spread(D, 'silhouette')
-    # one checkpoint => no model-seed spread ever; fall back to notebook 10's paired
-    # stimulus subsample, which is measured at exactly the configuration (g) shows
-    g_boot = boot if not sil_sp else None
-    sub_lines = _val_header_lines(D, boot, g_boot)
-
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.80)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.014, w_pad=0.016,
-                          hspace=0.03, wspace=0.03)
-    # the header row has to grow with the subtitle, or an extra line lands on (a)
-    gs = fig.add_gridspec(7, 3,
-                          height_ratios=[0.20 + 0.11 * (len(sub_lines) - 1),
-                                         0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
-                          hspace=0.06)
-    header = fig.add_subplot(gs[0, :]); header.set_axis_off()
-    spacers = [fig.add_subplot(gs[r, :]) for r in (1, 3, 5)]
-    for sp in spacers:
-        sp.set_axis_off()
-    ax = {(r, c): fig.add_subplot(gs[2 + 2 * r, c]) for r in range(3) for c in range(3)}
-
-    # ── (a) causal reconstruction against a floor and two ceilings ────────────
-    a = ax[(0, 0)]
-    if caps['recon'] and isinstance(D['recon_controls'], dict):
-        VARIANTS = [('random, rank $R$', 'random_R', C_RAND),
-                    ('act.-only NMF', 'act_nmf_K', C_BASE),
-                    ('BFT', 'bft', C_BFT),
-                    ('SVD, rank $R$', 'svd_R', C_CEIL),
-                    ('exact', 'exact', tint(C_CEIL, 0.45))]
-        nodes = list(D['recon_controls'].values())
-        pos = np.arange(len(VARIANTS))[::-1]
-        for p, (lab, key, c) in zip(pos, VARIANTS):
-            v = [float(n[key]['preact_r2']) for n in nodes if key in n]
-            a.barh(p, np.mean(v), height=0.66, color=c, edgecolor='none',
-                   alpha=0.85 if key != 'bft' else 1.0)
-            if len(v) > 1:
-                a.scatter(np.clip(v, -1.02, 1.02), np.full(len(v), p), s=4.5, color='0.15',
-                          zorder=3, edgecolor='none', alpha=0.75)
-        a.axvline(0, color='0.4', lw=0.5)
-        a.set_yticks(pos); a.set_yticklabels([v[0] for v in VARIANTS])
-        for t, v in zip(a.get_yticklabels(), VARIANTS):
-            t.set_color(v[2] if v[1] != 'exact' else C_CEIL)
-        a.set_xlim(-1.05, 1.05); a.set_xticks([-1, -0.5, 0, 0.5, 1])
-        _val_axes(a, xlab=r'pre-activation $R^2$')
-        a.spines['left'].set_visible(False); a.tick_params(axis='y', length=0)
-    else:
-        _val_na(a, VAL_NA['recon'])
-
-    # ── (b) every reconstructable node, by depth ──────────────────────────────
-    b = ax[(0, 1)]
-    li, r2, src = _val_causal_nodes(D)
-    if li is not None:
-        FLOOR = -0.25                       # a node can reconstruct arbitrarily badly
-        layers = sorted(set(li.tolist()))
-        rng = np.random.default_rng(0)
-        for j, l in enumerate(layers):
-            y = r2[li == l]
-            x = j + (rng.random(len(y)) - 0.5) * (0.24 if len(y) > 1 else 0.0)
-            ok = y >= FLOOR
-            b.scatter(x[ok], y[ok], s=11, color=C_BFT, edgecolor='none', alpha=0.85,
-                      zorder=3)
-            b.scatter(x[~ok], np.full((~ok).sum(), FLOOR), s=13, marker='v',
-                      color=C_BFT, edgecolor='none', alpha=0.85, zorder=3)
-            b.plot([j - 0.28, j + 0.28], [np.median(y)] * 2, color='0.2', lw=0.9,
-                   zorder=4)
-        b.set_xticks(range(len(layers)))
-        b.set_xticklabels([f'$L_{{{l}}}$' for l in layers])
-        b.set_xlim(-0.5, len(layers) - 0.5)
-        if r2.min() < 0:                    # only spend the space when it is used
-            b.axhline(0, color='0.6', lw=0.5, zorder=1)
-            b.set_ylim(FLOOR - 0.04, 1.02)
-        else:
-            b.set_ylim(0, 1.02)
-        b.set_yticks([0, 0.5, 1])
-        _val_axes(b, xlab='layer (input $\\to$ output)',
-                  ylab=r'pre-activation $R^2$')
-        txt = (f'median {np.median(r2):.3f}, min {r2.min():.3f}\n'
-               f"{len(r2)} node{'s' if len(r2) != 1 else ''}")
-        if src == 'FU2':
-            txt += ' (fc nodes only)'
-        sp = _seed_spread(D, 'median_preact_r2')
-        if sp:
-            txt += f'\n{sp[2]} model seeds: {sp[0]:.3f}$\\pm${sp[1]:.3f}'
-        ctrl = D['recon_controls']
-        ho = [(n['refit_heldout']['preact_r2'], n['refit_insample']['preact_r2'])
-              for n in ctrl.values() if 'refit_heldout' in n] if isinstance(
-                  ctrl, dict) else []
-        if ho:
-            txt += (f'\nheld-out {np.mean([x[0] for x in ho]):.3f} / in-sample '
-                    f'{np.mean([x[1] for x in ho]):.3f}')
-        if (r2 < FLOOR).any():
-            txt += (f'\n{int((r2 < FLOOR).sum())} off scale below, '
-                    f'min {r2.min():.1f}')
-        _val_note(b, txt, loc='upper right' if r2.max() < 0.75 else 'lower right')
-    else:
-        _val_na(b, VAL_NA['recon'])
-
-    # ── (c) NNLS round-trip: do the fixed factors re-explain held-out stimuli ──
-    c = ax[(0, 2)]
-    rt = D.get('roundtrip')
-    if caps['roundtrip'] and isinstance(rt, dict):
-        edges, cnt = np.asarray(rt['bin_edges']), np.asarray(rt['counts'])
-        c.bar(edges[:-1], cnt, width=np.diff(edges), align='edge', color=C_BFT,
-              edgecolor='none', alpha=0.9)
-        c.axvline(rt['median'], color='0.2', lw=0.8, ls='--')
-        c.set_yscale('log')
-        _val_axes(c, xlab='round-trip cosine', ylab='stimuli')
-        c.set_xlim(min(float(edges[0]), 0.75), 1.002)
-        _val_note(c, f"median {rt['median']:.3f}\nmin {rt['min']:.3f}\n"
-                     f"$n={int(rt['n'])}$", loc='upper left')
-    else:
-        _val_na(c, VAL_NA['roundtrip'])
-
-    # ── (d) do the factors survive a different NMF seed ───────────────────────
-    d = ax[(1, 0)]
-    per_layer = D['stability']['per_layer']
-    keys = sorted(per_layer, key=int)
-    shades = _layer_shades(len(keys), C_BFT)
-    mu = np.array([per_layer[k]['mean'] for k in keys])
-    sd = np.array([per_layer[k]['std'] for k in keys])
-    d.bar(np.arange(len(keys)), mu, yerr=sd, color=shades, edgecolor='none',
-          width=0.7, error_kw=dict(ecolor='0.25', elinewidth=0.7, capsize=1.4))
-    for i, k in enumerate(keys):
-        d.text(i, 0.035, f"$K{{=}}{int(per_layer[k]['k'])}$", ha='center', va='bottom',
-               fontsize=6, color='white' if mu[i] > 0.25 else '0.3', rotation=90)
-    d.axhline(0.85, color='0.35', lw=0.7, ls=':')     # the 0.85 stability gate
-    d.set_xticks(range(len(keys)))
-    # a 10-layer spine cannot carry 10 tick labels at this width
-    step = 1 if len(keys) <= 6 else 2
-    d.set_xticklabels([f'$L_{{{k}}}$' if i % step == 0 else ''
-                       for i, k in enumerate(keys)])
-    d.set_ylim(0, 1.06); d.set_yticks([0, 0.5, 1])
-    _val_axes(d, xlab='layer (input $\\to$ output)',
-              ylab='matched cosine, %d NMF seeds' % int(D['config']['stab_seeds']))
-
-    # ── (e) and a different rank ──────────────────────────────────────────────
-    e = ax[(1, 1)]
-    ks = D['stability']['k_sensitivity']
-    COLS = [('$K^{*}-1$', np.asarray(ks['k_minus1']), tint(C_BFT, 0.45)),
-            ('$K^{*}$', np.asarray(ks['k_star']), C_BFT),
-            ('$K^{*}+1$', np.asarray(ks['k_plus1']), tint(C_BFT, 0.45))]
-    rng = np.random.default_rng(1)
-    for i, (lab, v, col) in enumerate(COLS):
-        x = i + (rng.random(len(v)) - 0.5) * 0.3
-        e.scatter(x, v, s=9, color=col, edgecolor='none', alpha=0.8, zorder=3)
-        e.plot([i - 0.3, i + 0.3], [np.median(v)] * 2, color='0.2', lw=0.9, zorder=4)
-    e.set_xticks(range(3)); e.set_xticklabels([c[0] for c in COLS])
-    e.set_xlim(-0.5, 2.5); e.set_ylim(0, 1.05); e.set_yticks([0, 0.5, 1])
-    _val_axes(e, xlab='rank of the re-run NMF',
-              ylab='cosine to the $K^{*}$ factors')
-    _val_note(e, f"{len(COLS[0][1])} node{'s' if len(COLS[0][1]) != 1 else ''}",
-              loc='lower left')
-
-    # ── (f) how much of the arbor each rank explains ──────────────────────────
-    f = ax[(1, 2)]
-    fu = D['FU1_rank_sweep']['per_layer']
-    fkeys = sorted(fu, key=int)
-    fshades = _layer_shades(len(fkeys), C_BFT)
-    for k, col in zip(fkeys, fshades):
-        sw = fu[k]['sweep']
-        K = np.array([s['K'] for s in sw]); R = np.array([s['recon_r2'] for s in sw])
-        f.plot(K, R, color=col, lw=0.8, alpha=0.9, zorder=2)
-        dk = int(fu[k]['default_k'])
-        if dk in K:
-            f.scatter([dk], [R[list(K).index(dk)]], s=13, color=col, zorder=4,
-                      edgecolor='white', linewidth=0.4)
-    f.set_ylim(0, 1.05); f.set_yticks([0, 0.5, 1])
-    _val_axes(f, xlab='NMF rank $K$', ylab=r'arbor reconstruction $R^2$')
-    f.text(0.97, 0.06, 'dot: rank used\nline shade: layer depth', transform=f.transAxes,
-           ha='right', va='bottom', fontsize=6, color='0.25', linespacing=1.2)
-
-    # ── (g) is the fingerprint a better code than the activations ─────────────
-    g = ax[(2, 0)]
-    sep = D['separability']['by_fine']
-    dims = D['separability']['dims']
-    ROWS = [('BFT fingerprint', 'bft_fingerprint', C_BFT, dims['fingerprint']),
-            ('BFT, dim-matched', 'bft_matched', tint(C_BFT, 0.42), dims['matched']),
-            ('activations', 'raw_activations', C_BASE, dims['activations']),
-            ('act., dim-matched', 'act_matched', tint(C_BASE, 0.42), dims['matched']),
-            ('act., rand. proj.', 'act_randproj', tint(C_BASE, 0.68), dims['matched'])]
-    ROWS = [r for r in ROWS if r[1] in sep]
-    ROWS.append(('shuffled labels', None, C_RAND, None))
-    pos = np.arange(len(ROWS))[::-1]
-    sil_err = sil_sp[1] if sil_sp else (float(g_boot['sd']) if g_boot else None)
-    for p, (lab, key, col, dim) in zip(pos, ROWS):
-        rec = sep[key] if key else D['separability']['null_shuffled_labels']
-        s, kn = float(rec['silhouette']), float(rec['knn_acc'])
-        err = sil_err if key == 'bft_fingerprint' else None
-        g.barh(p, s, height=0.66, color=col, edgecolor='none',
-               xerr=err, error_kw=dict(ecolor='0.25', elinewidth=0.7, capsize=1.4))
-        g.text(max(s, 0) + (err or 0) + 0.03, p, f'{kn:.2f}', va='center', ha='left', fontsize=6,
-               color='0.3')
-    g.axvline(0, color='0.4', lw=0.5)
-    g.set_yticks(pos)
-    g.set_yticklabels([f'{r[0]} ({r[3]}d)' if r[3] else r[0] for r in ROWS])
-    for t, r in zip(g.get_yticklabels(), ROWS):
-        t.set_color(r[2])
-    g.set_xlim(-0.08, 1.0)
-    _val_axes(g, xlab='silhouette (bar) and 5-NN accuracy (number),\nfine-grained class')
-    g.spines['left'].set_visible(False); g.tick_params(axis='y', length=0)
-    # What kind of interval that error bar is goes in the header — this panel is
-    # a third of the figure wide and every corner of it already holds a bar or a
-    # k-NN number.
-
-    # ── (h) does multiplying the weights in earn its place ────────────────────
-    h = ax[(2, 1)]
-    a1 = D['A1_weight_vs_activation']
-    fps = a1['fingerprint_separability']
-    pl = a1['per_layer']
-    GROUPS = [('fingerprint silhouette', 'o', 22,
-               [(fps['activation_nmf']['silhouette'], fps['arbor_nmf']['silhouette'])]),
-              ('class selectivity', 's', 11,
-               [(v['selectivity_act'], v['selectivity_arbor'])
-                for v in pl.values()]),
-              ('NMF stability', '^', 11,
-               [(v['stability_act'], v['stability_arbor']) for v in pl.values()])]
-    h.plot([0, 1], [0, 1], color='0.6', lw=0.6, ls='--', zorder=1)
-    for lab, mk, size, pts in GROUPS:
-        xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
-        h.scatter(xs, ys, s=size, marker=mk, color=C_BFT, edgecolor='white',
-                  linewidth=0.4, zorder=3, label=lab)
-    h.set_xlim(0, 1.03); h.set_ylim(0, 1.03)
-    h.set_xticks([0, 0.5, 1]); h.set_yticks([0, 0.5, 1])
-    _val_axes(h, xlab='activation-only NMF',
-              ylab=r'BFT arbor NMF ($W\!\cdot\!a$)')
-    h.legend(fontsize=6, frameon=False, loc='lower right', handlelength=0.6,
-             handletextpad=0.2, borderpad=0.1, labelspacing=0.2, borderaxespad=0.2,
-             scatterpoints=1)
-    # mid-left, above the diagonal: empty in all five models
-    h.text(0.04, 0.58, 'above the diagonal:\nthe weight term helps',
-           transform=h.transAxes, ha='left', va='bottom', fontsize=6, color='0.3',
-           linespacing=1.2)
-
-    # ── (i) against pixel-attribution methods ─────────────────────────────────
-    i_ax = ax[(2, 2)]
-    att = D['attribution']
-    ORDER = [('BFT input map', 'BFT', C_BFT), ('integrated grad.', 'IG', C_BASE),
-             ('saliency', 'Saliency', tint(C_BASE, 0.42)),
-             ('input magnitude', 'input_mag', tint(C_BASE, 0.68))]
-    disc = att['discriminability_fine']
-    rows = [(lab, disc[k], col) for lab, k, col in ORDER if k in disc]
-    pos = np.arange(len(rows))[::-1]
-    for p, (lab, v, col) in zip(pos, rows):
-        i_ax.barh(p, v, height=0.66, color=col, edgecolor='none')
-    chance = float(D['separability']['null_shuffled_labels']['knn_acc'])
-    i_ax.axvline(chance, color='0.35', lw=0.7, ls=':')
-    i_ax.text(chance + 0.012, pos[-1] - 0.55, 'chance', fontsize=6, color='0.35',
-              ha='left', va='bottom')
-    i_ax.set_yticks(pos); i_ax.set_yticklabels([r[0] for r in rows])
-    for t, r in zip(i_ax.get_yticklabels(), rows):
-        t.set_color(r[2])
-    i_ax.set_xlim(0, 1.0)
-    # room above the bars for the note when BFT has no pixel-shaped input layer
-    i_ax.set_ylim(pos[-1] - 0.75, pos[0] + (1.3 if 'BFT' not in disc else 0.5))
-    _val_axes(i_ax, xlab='3-NN accuracy')
-    i_ax.spines['left'].set_visible(False); i_ax.tick_params(axis='y', length=0)
-    if 'BFT' not in disc:
-        _val_note(i_ax, 'BFT input map needs a pixel-shaped\ninput layer (MLPs only)',
-                  loc='upper left')
-
-    figstyle.freeze(fig)
-    hp_pos = header.get_position()
-    fig.text(0.002, hp_pos.y1, f"{D['label']} — {D['arch']}", ha='left', va='top',
-             fontweight='bold')
-    for i, line in enumerate(sub_lines):
-        fig.text(0.002, hp_pos.y1 - 0.021 - 0.015 * i, line, ha='left', va='top',
-                 fontsize=6, color='0.35')
-
-    # the row's claim rides on its leading panel label — a separate row header
-    # would either cost a text line or collide with the right-hand panel labels
-    LABELS = [('(a) faithful: reconstruction controls',
-               '(b) reconstruction per node', '(c) projection round-trip'),
-              ('(d) robust: stability across NMF seeds',
-               '(e) sensitivity to the rank', '(f) rank vs. arbor explained'),
-              ('(g) vs. baselines: fingerprint or activations',
-               '(h) weights vs. activations only', '(i) vs. pixel attribution')]
-    for r, labs in enumerate(LABELS):
-        y = spacers[r].get_position().y0
-        for cix, lab in enumerate(labs):
-            fig.text(max(ax[(r, cix)].get_position().x0 - 0.004, 0.002), y, lab,
-                     ha='left', va='bottom', fontweight='bold')
-    return fig
 
 
 # ── Figure 8 / Appendix N — SqueezeNet on ImageNet, read through its stimuli ──
@@ -3420,6 +3003,20 @@ IMAGENET_LAYER_LABEL = {
 
 def imagenet_layer_label(name):
     return IMAGENET_LAYER_LABEL.get(str(name), str(name))
+
+
+# depth labels L_1 (pixels) .. L_10 (classifier), matching Fig. 8's convention
+IMAGENET_LI_LABEL = {
+    'classifier.1': r'$L_{10}$', 'classifier': r'$L_{10}$',
+    'features.12.squeeze': r'$L_9$', 'features.11.squeeze': r'$L_8$',
+    'features.10.squeeze': r'$L_7$', 'features.9.squeeze': r'$L_6$',
+    'features.7.squeeze': r'$L_5$', 'features.6.squeeze': r'$L_4$',
+    'features.4.squeeze': r'$L_3$', 'features.3.squeeze': r'$L_2$',
+    'features.0': r'$L_1$'}
+
+
+def imagenet_li_label(name):
+    return IMAGENET_LI_LABEL.get(str(name), str(name))
 
 
 # fingerprint dims store the BFT layer index; map it to the same fire-module name.
@@ -3474,18 +3071,24 @@ def fig8_imagenet_circuits(D):
     # with a sub-tree can be traced, and the root entry of n_branches (5) decides
     # how many there are, so f0-f4 are the candidates.
     SHOW = [0, 1, 2]
-    N_TREE = 2                 # the two strongest fire8 sub-factors per circuit
+    N_TREE = 2                 # two fire8 sub-factors per circuit
 
     # row heights in inches, derived from the image grids they hold
     W = 6.975
     s_a = W / n_root                                   # (a) montage side, square
     ha = s_a + 0.30 + 0.13                             # montage + class bars + label
-    W_PUR = 1.95                                       # (c) purity plot width
-    PAD_B, GAP_B = 0.15, 0.50
-    s_b = (W - W_PUR) / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B + 2 * PAD_B)
-    hb = 0.30 + s_b + 0.16
-    sp = 0.13
-    rows = [sp, ha, sp, hb]
+    W_PUR = 1.50                                       # (c) purity plot width
+    # a narrower (c) plus tighter inter-tree/side gaps hand the sub-factor
+    # montages more width, so the stimuli in (b) read larger; a short pill row
+    # and a small a->b spacer then pull (b) up against (a) so the bigger images
+    # cost no height.
+    PAD_B, GAP_B, GAP_IN = 0.10, 0.38, 0.11            # side / inter-tree / intra-pair
+    NODE_H, FLAB_H = 0.16, 0.13                        # node-label / f-label rows
+    s_b = (W - W_PUR) / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B
+                         + len(SHOW) * GAP_IN + 2 * PAD_B)
+    hb = NODE_H + s_b + FLAB_H                          # node label + image + f label
+    sp, sp_ab = 0.13, 0.10                             # top label / a->b gap
+    rows = [sp, ha, sp_ab, hb]
     total = sum(rows)
 
     figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='paper',
@@ -3532,33 +3135,39 @@ def fig8_imagenet_circuits(D):
 
     # ── row 2: (b) traceback | (c) category purity by depth ──────────────────
     gs_row = gs[3].subgridspec(1, 2, width_ratios=[W - W_PUR, W_PUR])
+    # two image cells per circuit with a small gap between them (so the two
+    # sub-factors read as distinct), circuits separated by a wider gap.
     widths, col_of = [PAD_B], {}
     for j_ in range(len(SHOW)):
         col_of[j_] = len(widths)
-        widths += [1.0] * N_TREE
+        widths += [1.0, GAP_IN, 1.0]
         widths += [GAP_B] if j_ < len(SHOW) - 1 else [PAD_B]
-    gsb = gs_row[0, 0].subgridspec(2, len(widths), height_ratios=[0.34, 1.0],
+    gsb = gs_row[0, 0].subgridspec(3, len(widths),
+                                   height_ratios=[NODE_H, s_b, FLAB_H],
                                    width_ratios=widths)
     tree = []
     for j_, r in enumerate(SHOW):
         node = by_path[(r,)]
         own = int(np.argmax(root['class_profile'][r]))
         base = col_of[j_]
-        node_ax = fig.add_subplot(gsb[0, base:base + N_TREE]); node_ax.set_axis_off()
-        node_ax.text(0.5, 0.30, rf'$f_{{{r}}}$ · {CLS[own][:8]}', ha='center',
+        node_ax = fig.add_subplot(gsb[0, base:base + 3]); node_ax.set_axis_off()
+        node_ax.text(0.5, 0.32, rf'$f_{{{r}}}$ · {CLS[own][:8]}', ha='center',
                      va='center', fontsize=6.5, color='white',
                      bbox=dict(boxstyle='round,pad=0.28', fc=C_BFT, ec='none'))
         subs = []
-        for k in range(N_TREE):
+        for slot, k in enumerate(range(N_TREE)):        # slot -> columns base, base+2
+            col = base + 2 * slot
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[1, base + k], D, node['top_images'][k], 2, 2,
+            ax = stim_panel(fig, gsb[1, col], D, node['top_images'][k], 2, 2,
                             ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
-            tag(ax, rf'$f_{{{k}}}$', size=6)
             if off:
                 tag(ax, CLS[c][:6], x=0.5, y=0.04, size=6, color=C_X)
                 ax.texts[-1].set(ha='center', va='bottom')
+            flab = fig.add_subplot(gsb[2, col]); flab.set_axis_off()
+            flab.text(0.5, 0.92, rf'$f_{{{k}}}$', ha='center', va='top', fontsize=6.5,
+                      color=C_BFT)
             subs.append(ax)
         tree.append((node_ax, subs))
         if j_ == 0:
@@ -3568,7 +3177,10 @@ def fig8_imagenet_circuits(D):
     stats = imagenet_depth_purity(D)
     x = np.arange(len(stats))
     chance = 1.0 / N_CLASSES
-    xt = [imagenet_layer_label(st['layer']) for st in stats]
+    # generic depth labels L_1 (nearest the pixels) .. L_N (output), matching the
+    # convention of Fig. 2; stats run output-first, so the ticks descend
+    n_lay = len(stats)
+    xt = [rf'$L_{{{n_lay - i}}}$' for i in range(n_lay)]
     ax_c = fig.add_subplot(gs_row[0, 1])
     pur = [lam_weighted(st['purity'], st['lam']) for st in stats]
     ax_c.axhline(chance, color='0.65', lw=0.6, ls=(0, (3, 2)), zorder=0)
@@ -3582,7 +3194,7 @@ def fig8_imagenet_circuits(D):
     ax_c.text(-0.3, chance + 0.03, 'chance', fontsize=6, color='0.45',
               ha='left', va='bottom')
     ax_c.set_xlim(-0.5, len(stats) - 0.5); ax_c.set_xticks(x)
-    ax_c.set_xticklabels(xt, fontsize=6.0, rotation=90)
+    ax_c.set_xticklabels(xt, fontsize=6.0)
     ax_c.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_c.spines[s_].set_visible(False)
@@ -3602,10 +3214,10 @@ def fig8_imagenet_circuits(D):
     def _label(key, spacer, text, dx=0.0, **kw):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
-                 va='bottom', fontsize=7, **kw)
+                 va='bottom', fontsize=7, fontweight='bold', **kw)
 
     _label('a', 0, '(a) output factors, with category distribution', dx=-0.004)
-    _label('b', 1, '(b) traceback to fire8: two strongest sub-factors', dx=-0.010)
+    _label('b', 1, r'(b) traceback to $L_9$', dx=-0.010)
     _label('c', 1, '(c) category purity by depth', dx=-0.030)
     return fig
 
@@ -3636,28 +3248,45 @@ def figN_imagenet_details(D):
     SPINE_CIRC = 1                                          # airplane, for (c)
     chance = 1.0 / N_CLASSES
 
-    N_SHOW, N_EX = 3, 4            # (b): sub-factors per circuit, examples each (2x2)
-    LAB_W, GAP_W = 0.42, 0.30
+    N_SHOW = 3                     # (b): sub-factors per circuit
+    EX_R, EX_C = 2, 3              # example stimuli per sub-factor (6 of the 8 stored)
+    PER_ROW = 1                    # one circuit per gallery row (wavg + examples wide)
+    LAB_W, AVG_W = 0.55, 1.0       # circuit-label / weighted-average column widths
+    EX_W = EX_C / EX_R             # keep every example tile square
+    SUBGAP, CIRCGAP, FLAB = 0.14, 0.42, 0.20   # gaps, and the f-label row height
+    S_MAX = 0.75                   # cap the gallery montage side (else the row is huge)
+
     n_c = len(CIRC)
     W, SP = 6.975, 0.15
-    s_g = W / (n_c * (LAB_W + N_SHOW) + (n_c - 1) * GAP_W)  # gallery montage side
-    h_b = s_g + 0.04
+    n_gal_rows = -(-n_c // PER_ROW)
+    # columns of one circuit: label, then [weighted-avg, examples] per sub-factor
+    circ_cols = [LAB_W]
+    for _s in range(N_SHOW):
+        circ_cols += [AVG_W, EX_W] + ([SUBGAP] if _s < N_SHOW - 1 else [])
+    inner = []
+    for _b in range(PER_ROW):
+        inner += circ_cols + ([CIRCGAP] if _b < PER_ROW - 1 else [])
+    s_g = min(W / sum(inner), S_MAX)                       # montage side
+    pad = max((W / s_g - sum(inner)) / 2, 0.0)             # side padding to centre
+    col_w, col_base = [pad], []
+    for _b in range(PER_ROW):
+        col_base.append(len(col_w))
+        col_w += circ_cols + ([CIRCGAP] if _b < PER_ROW - 1 else [])
+    col_w += [pad]
+    h_b = n_gal_rows * (s_g + FLAB) + 0.04
     spine = imagenet_spine(NODES, SPINE_CIRC)
     n_sp = len(spine)
     s_sp = W / (n_sp + (n_sp - 1) * 0.14)                   # spine montage side
     h_c = s_sp + 0.34
-    n_per_d = 2                                            # (d) overlays per circuit
-    s_m = W / (n_c * n_per_d)
-    h_d = s_m + 0.16
-    rows = [SP, 1.05, SP, h_b, SP, h_c, SP, h_d]
+    rows = [SP, 1.05, SP, h_b, SP, h_c]
 
     figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='appendix',
                    height_to_width_ratio=sum(rows) / W)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.008, w_pad=0.008,
                           hspace=0.02, wspace=0.02)
-    gs = fig.add_gridspec(8, 1, height_ratios=rows, hspace=0.0)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4, 6)]
+    gs = fig.add_gridspec(6, 1, height_ratios=rows, hspace=0.0)
+    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4)]
     for s_ in spacers:
         s_.set_axis_off()
     anchors = {}
@@ -3676,53 +3305,64 @@ def figN_imagenet_details(D):
         for j_, n in enumerate(nodes):
             L[j_, :n['n_factors']] = n['lam_share']
         x = np.arange(kmax)
+        # a single-factor node otherwise draws one panel-filling block; keep that
+        # bar as narrow as the multi-factor bars elsewhere
         ax.bar(x, np.nanmean(L, 0), color=tint(C_BFT, 0.45), edgecolor='0.25',
-               linewidth=0.3, width=0.75, zorder=1)
+               linewidth=0.3, width=(0.3 if kmax == 1 else 0.75), zorder=1)
         if len(nodes) > 1:
             for row in L:
                 ax.scatter(x, row, s=1.4, color=C_BFT, zorder=2, edgecolor='none')
         ax.set_ylim(0, 1.05); ax.set_yticks([0, 0.5, 1.0])
         ax.set_yticklabels(['0', '.5', '1'] if i == 0 else [])
-        ax.set_xticks(x)
+        ax.set_xticks(x); ax.set_xlim(-0.6, kmax - 0.4)
         step = 2 if kmax > 6 else 1
         ax.set_xticklabels([str(v) if v % step == 0 else '' for v in x], fontsize=6)
         ax.tick_params(length=1.5, pad=1)
         for s_ in ('top', 'right'):
             ax.spines[s_].set_visible(False)
-        ax.set_title(f'{imagenet_layer_label(name)}\n({len(nodes)} node'
-                     f"{'s' if len(nodes) > 1 else ''})", pad=1.5, fontsize=6.5,
-                     linespacing=1.1)
+        ax.set_title(imagenet_li_label(name), pad=1.5, fontsize=6.5)
         if i == 0:
             ax.set_ylabel(r'$\lambda$ share', labelpad=1)
             anchors['a'] = ax
         if i == len(LAYERS) // 2:
             ax.set_xlabel('factor $f$', labelpad=1)
 
-    # ── (b) gallery: the strongest fire8 sub-factors of every circuit ────────
-    widths = []
-    for b in range(n_c):
-        widths += [LAB_W] + [1.0] * N_SHOW + ([GAP_W] if b < n_c - 1 else [])
-    gsb = gs[3].subgridspec(1, len(widths), width_ratios=widths)
+    # ── (b) gallery: each output circuit's strongest L8 sub-factors, shown as
+    #        the weighted-average stimulus (framed, the factor's prototype)
+    #        beside real top stimuli; all factor labels sit below the images ────
+    row_h = []
+    for _ in range(n_gal_rows):
+        row_h += [s_g, FLAB]
+    gsb = gs[3].subgridspec(2 * n_gal_rows, len(col_w), width_ratios=col_w,
+                            height_ratios=row_h)
     for bi, r in enumerate(CIRC):
-        base = bi * (N_SHOW + 1) + bi * 0                  # LAB + N_SHOW per block
-        base = sum(1 + N_SHOW + (1 if k < n_c - 1 else 0) for k in range(bi))
+        grow, blk = bi // PER_ROW, bi % PER_ROW
+        irow, lrow = 2 * grow, 2 * grow + 1
+        base = col_base[blk]
         own = int(np.argmax(root['class_profile'][r]))
-        base = sum(1 + N_SHOW + (1 if k < n_c - 1 else 0) for k in range(bi))
-        lab = fig.add_subplot(gsb[0, base]); lab.set_axis_off()
+        lab = fig.add_subplot(gsb[irow, base]); lab.set_axis_off()
         lab.text(1.0, 0.5, rf'$f_{{{r}}}$' + '\n' + CLS[own][:8], ha='right',
                  va='center', fontsize=6, linespacing=1.2)
+        if bi == 0:
+            anchors['b'] = lab
         cnode = by_path[(r,)]
         for k in range(N_SHOW):
+            ac, ec = base + 1 + 3 * k, base + 2 + 3 * k        # avg / examples cols
             prof = cnode['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[0, base + 1 + k], D, cnode['top_images'][k], 2, 2,
-                            ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
-            tag(ax, rf'$f_{{{k}}}$')
-            if off:
-                tag(ax, CLS[c][:5], x=0.5, y=0.05, color=C_X, ha='center', va='bottom')
-            if bi == 0 and k == 0:
-                anchors['b'] = ax
+            axa = fig.add_subplot(gsb[irow, ac])               # weighted-avg stimulus
+            axa.imshow(cifar_rgb(D, cnode['wavg'][k]), interpolation='nearest')
+            axa.set_xticks([]); axa.set_yticks([])
+            for s_ in axa.spines.values():
+                s_.set_color(C_BFT); s_.set_linewidth(1.0)
+            stim_panel(fig, gsb[irow, ec], D, cnode['top_images'][k], EX_R, EX_C,
+                       ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
+            la = fig.add_subplot(gsb[lrow, ac]); la.set_axis_off()
+            la.text(0.5, 0.95, 'avg', ha='center', va='top', fontsize=6, color='0.45')
+            le = fig.add_subplot(gsb[lrow, ec]); le.set_axis_off()
+            le.text(0.5, 0.95, rf'$f_{{{k}}}$' + (f' → {CLS[c][:6]}' if off else ''),
+                    ha='center', va='top', fontsize=6, color=C_X if off else '0.2')
 
     # ── (c) the traced spine of one circuit, classifier to conv1 ─────────────
     tiles, gaps, meta = [], [], []
@@ -3749,46 +3389,24 @@ def figN_imagenet_details(D):
                     (xs, side - 4), frac * side, 4, facecolor=colr, edgecolor='none',
                     zorder=5))
                 xs += frac * side
-        ax_c.text(x + side / 2, -3, imagenet_layer_label(n['layer_name']),
+        ax_c.text(x + side / 2, -3, imagenet_li_label(n['layer_name']),
                   ha='center', va='bottom', fontsize=6.5, color='0.35', rotation=0)
         x += side + 10
     anchors['c'] = ax_c
-
-    # ── (d) spatial activation maps: each circuit fires on its own object ─────
-    ncol = n_c * n_per_d
-    gsd = gs[7].subgridspec(2, ncol, height_ratios=[s_m, 0.16])
-    for bi, r in enumerate(CIRC):
-        node = by_path[(r,)]
-        sp = node['spatial']
-        own = int(np.argmax(root['class_profile'][r]))
-        for t in range(n_per_d):
-            ax = fig.add_subplot(gsd[0, bi * n_per_d + t])
-            ax.imshow(spatial_overlay(D, sp['images'][t], sp['maps'][t]),
-                      interpolation='nearest')
-            ax.set_xticks([]); ax.set_yticks([])
-            for s_ in ax.spines.values():
-                s_.set_color('0.6'); s_.set_linewidth(0.4)
-            if t == 0:
-                tag(ax, rf'$f_{{{r}}}$')
-                if bi == 0:
-                    anchors['d'] = ax
-        lab = fig.add_subplot(gsd[1, bi * n_per_d:bi * n_per_d + n_per_d])
-        lab.set_axis_off()
-        lab.text(0.5, 1.0, CLS[own][:8], ha='center', va='top', fontsize=6,
-                 color='0.2')
 
     figstyle.freeze(fig)
 
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.002, text, ha='left',
-                 va='bottom', fontsize=7)
+                 va='bottom', fontsize=7, fontweight='bold')
 
     _label('a', 0, r'(a) $\lambda$ spectra by layer', dx=-0.026)
-    _label('b', 1, '(b) fire8 gallery: strongest sub-factors per circuit', dx=-0.020)
-    _label('c', 2, '(c) airplane circuit traced to conv1 '
+    _label('b', 1, r'(b) $L_8$ gallery: each output circuit $f_r$ traced back to its '
+                   r'strongest $L_8$ sub-factors $f_k$ — weighted-avg. stimulus '
+                   r'(framed) then top stimuli', dx=-0.004)
+    _label('c', 2, r'(c) airplane circuit traced $L_{10}\to L_1$ '
                    rf'(purity below, $\rightarrow$ chance {chance:.2f})', dx=-0.004)
-    _label('d', 3, '(d) spatial maps: where each circuit fires', dx=-0.004)
     return fig
 
 
@@ -3818,40 +3436,27 @@ def figO_imagenet_fingerprint_details(D):
     rows += [(f['label'], f['F'].mean(0), C_FAR) for f in FAR]
     R = np.stack([r[1] for r in rows]); R = R / R.sum(1, keepdims=True)
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.92)
+    # Panels reduced per figure_comments: the NNLS round-trip (former a), the
+    # far-OOD-vs-centroid map (g), the mass-by-layer bars (h) and the factors-per-
+    # layer bars (i) are dropped; what remains is the per-condition means, the
+    # class geometry, the far-OOD collapse, the distance to any category and the
+    # val-split reproduction, re-lettered a-e over two rows.
+    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
+                   height_to_width_ratio=0.60)
     fig = plt.figure()
     fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
                           hspace=0.02, wspace=0.03)
-    gs = fig.add_gridspec(6, 1, height_ratios=[0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
-                          hspace=0.02)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4)]
+    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 1.0, 0.10, 1.0], hspace=0.02)
+    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
     for s_ in spacers:
         s_.set_axis_off()
-    sp1, sp2, sp3 = spacers
-    gs_top = gs[1].subgridspec(1, 3, width_ratios=[0.72, 1.65, 0.80])
-    gs_mid = gs[3].subgridspec(1, 3)
-    gs_bot = gs[5].subgridspec(1, 3, width_ratios=[1.0, 1.15, 1.05])
+    sp1, sp2 = spacers
+    gs_top = gs[1].subgridspec(1, 2, width_ratios=[1.90, 1.0])
+    gs_bot = gs[3].subgridspec(1, 3)
     anchors = {}
 
-    # ── (a) NNLS round-trip ──────────────────────────────────────────────────
-    ax_a = fig.add_subplot(gs_top[0, 0])
-    v = D['rt_sims']
-    ax_a.hist(v, bins=24, color=tint(C_BFT, 0.4), edgecolor=C_BFT, linewidth=0.4)
-    ax_a.axvline(v.mean(), color=C_BFT, lw=1.0)
-    ax_a.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_a.set_ylabel('stimuli', labelpad=1)
-    ax_a.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_a.spines[s_].set_visible(False)
-    ax_a.text(0.03, 0.97, f'mean {v.mean():.3f}\nmin {v.min():.3f}\n'
-              f'{int((v > 0.9).sum())} of {len(v)} above 0.9',
-              transform=ax_a.transAxes, ha='left', va='top', fontsize=6,
-              linespacing=1.25)
-    anchors['a'] = ax_a
-
-    # ── (b) mean fingerprint of every condition ──────────────────────────────
-    ax_b = fig.add_subplot(gs_top[0, 1])
+    # ── (a) mean fingerprint of every condition ──────────────────────────────
+    ax_b = fig.add_subplot(gs_top[0, 0])
     Rc = R[:, COL_ORDER]; Rc = Rc / (Rc.max(0, keepdims=True) + 1e-12)
     ax_b.imshow(Rc, cmap=CMAP, aspect='auto', interpolation='nearest',
                 norm=matplotlib.colors.PowerNorm(0.8, vmin=0, vmax=1))
@@ -3867,21 +3472,20 @@ def figO_imagenet_fingerprint_details(D):
     ax_b.tick_params(length=1.5, pad=1)
     for s_ in ax_b.spines.values():
         s_.set_color('0.6'); s_.set_linewidth(0.4)
-    anchors['b'] = ax_b
+    anchors['a'] = ax_b
 
-    # ── (c) the block class geometry the fingerprint induces ─────────────────
-    # (was the far-OOD plane, which duplicated Fig. 4g and collided with the
-    # bear class color; the OOD story is carried by (d), (e) and (g).)
-    ax_c = fig.add_subplot(gs_top[0, 2])
+    # ── (b) the block class geometry the fingerprint induces ─────────────────
+    ax_c = fig.add_subplot(gs_top[0, 1])
     cnn_class_geometry(ax_c, D, CMAP, CCOL, CLS, N_CLASSES)
-    anchors['c'] = ax_c
+    anchors['b'] = ax_c
 
-    # ── (d) far-OOD collapse; (e) distance to any category ───────────────────
-    ax_d = fig.add_subplot(gs_mid[0, 0])
+    # ── (c) far-OOD collapse ─────────────────────────────────────────────────
+    ax_d = fig.add_subplot(gs_bot[0, 0])
     fp_farood_violin(ax_d, COND)
-    anchors['d'] = ax_d
+    anchors['c'] = ax_d
 
-    ax_e = fig.add_subplot(gs_mid[0, 1])
+    # ── (d) how close each OOD condition gets to any category ────────────────
+    ax_e = fig.add_subplot(gs_bot[0, 1])
     pos = np.arange(len(LIKE))[::-1]
     for p_, (lab, vals, c_) in zip(pos, LIKE):
         parts = ax_e.violinplot([vals], positions=[p_], vert=False, widths=0.82,
@@ -3898,10 +3502,10 @@ def figO_imagenet_fingerprint_details(D):
     ax_e.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
         ax_e.spines[s_].set_visible(False)
-    anchors['e'] = ax_e
+    anchors['d'] = ax_e
 
-    # ── (f) the code reproduces across an independent val split ──────────────
-    ax_f = fig.add_subplot(gs_mid[0, 2])
+    # ── (e) the code reproduces across an independent val split ──────────────
+    ax_f = fig.add_subplot(gs_bot[0, 2])
     sc = D['split_cross']
     M, bs = sc['matrix'], [int(b) for b in sc['block_sizes']]
     ax_f.imshow(M, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
@@ -3924,86 +3528,368 @@ def figO_imagenet_fingerprint_details(D):
                     fontsize=6, color='0.35', linespacing=1.25)
     for s_ in ax_f.spines.values():
         s_.set_color('0.6'); s_.set_linewidth(0.4)
-    anchors['f'] = ax_f
-
-    # ── (g) how close each far-OOD condition gets to a category ──────────────
-    ax_g = fig.add_subplot(gs_bot[0, 0])
-    CENT = unit(D['fp_mean_by_class'])
-    Sc = CENT @ unit(np.stack([f['F'].mean(0) for f in FAR])).T
-    ax_g.imshow(Sc, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
-    ax_g.set_xticks(range(len(FAR)))
-    ax_g.set_xticklabels([f['label'] for f in FAR], rotation=90, fontsize=6,
-                         color=C_FAR)
-    ax_g.set_yticks(range(N_CLASSES)); ax_g.set_yticklabels(CLS, fontsize=6)
-    for t_, c_ in zip(ax_g.get_yticklabels(), range(N_CLASSES)):
-        t_.set_color(CCOL[c_])
-    ax_g.tick_params(length=0, pad=1)
-    style_matrix_axes(ax_g)
-    ax_g.set_xlabel(f'far-OOD up to {Sc.max():.2f}', labelpad=2, fontsize=6,
-                    color='0.35')
-    anchors['g'] = ax_g
-
-    # ── (h) where in the network the fingerprint mass sits ───────────────────
-    ax_h = fig.add_subplot(gs_bot[0, 1])
-    lay = dims[:, 0]
-    layers = sorted(np.unique(lay))[::-1]
-    shades = [tint(C_BFT, 0.72 * i / max(len(layers) - 1, 1)) for i in
-              range(len(layers))]
-    sets = [('ID val', fp['id'], '0.2')] + [(f['label'], f['F'], C_FAR) for f in FAR]
-    x = np.arange(len(sets)); bot = np.zeros(len(sets))
-    for li, l_ in enumerate(layers):
-        share = np.array([float((X / (X.sum(1, keepdims=True) + 1e-12))[:, lay == l_]
-                                .sum(1).mean()) for _, X, _ in sets])
-        ax_h.bar(x, share, bottom=bot, color=shades[li], width=0.78,
-                 edgecolor='white', linewidth=0.3,
-                 label=f'{IMAGENET_FP_LAYER.get(int(l_), int(l_))} '
-                       f'({int((lay == l_).sum())})')
-        bot += share
-    ax_h.set_xticks(x)
-    ax_h.set_xticklabels([s_[0] for s_ in sets], rotation=90, fontsize=6)
-    for t_, s_ in zip(ax_h.get_xticklabels(), sets):
-        t_.set_color(s_[2])
-    ax_h.set_ylim(0, 1); ax_h.set_yticks([0, 0.5, 1]); ax_h.set_yticklabels(['0', '.5', '1'])
-    ax_h.set_ylabel('mass share', labelpad=1)
-    ax_h.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_h.spines[s_].set_visible(False)
-    ax_h.legend(fontsize=6.0, frameon=False, loc='center left',
-                bbox_to_anchor=(1.0, 0.5), handlelength=0.6, handletextpad=0.3,
-                borderpad=0.1, labelspacing=0.12, borderaxespad=0.0)
-    anchors['h'] = ax_h
-
-    # ── (i) how many factors each layer contributes ─────────────────────────
-    ax_i = fig.add_subplot(gs_bot[0, 2])
-    cnt = [int((lay == l_).sum()) for l_ in layers]
-    y = np.arange(len(layers))
-    ax_i.barh(y, cnt, color=[shades[i] for i in range(len(layers))],
-              edgecolor='0.25', linewidth=0.3)
-    ax_i.set_yticks(y)
-    ax_i.set_yticklabels([IMAGENET_FP_LAYER.get(int(l_), int(l_)) for l_ in layers],
-                         fontsize=6)
-    ax_i.invert_yaxis()
-    ax_i.set_xlabel('factors', labelpad=1)
-    ax_i.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_i.spines[s_].set_visible(False)
-    for yi, ci in zip(y, cnt):
-        ax_i.text(ci + 1, yi, str(ci), va='center', ha='left', fontsize=6, color='0.3')
-    ax_i.set_xlim(0, max(cnt) * 1.15)
-    anchors['i'] = ax_i
+    anchors['e'] = ax_f
 
     figstyle.freeze(fig)
-    sp_of = {'a': sp1, 'b': sp1, 'c': sp1, 'd': sp2, 'e': sp2, 'f': sp2,
-             'g': sp3, 'h': sp3, 'i': sp3}
-    labels = {'a': '(a) NNLS round-trip', 'b': '(b) mean fingerprint per condition',
-              'c': '(c) class geometry', 'd': '(d) far-OOD collapse',
-              'e': '(e) distance to any category',
-              'f': '(f) reproduction across a val split',
-              'g': '(g) far-OOD vs. category centroids',
-              'h': '(h) fingerprint mass by layer', 'i': '(i) factors per layer'}
+    sp_of = {'a': sp1, 'b': sp1, 'c': sp2, 'd': sp2, 'e': sp2}
+    labels = {'a': '(a) mean fingerprint per condition', 'b': '(b) class geometry',
+              'c': '(c) far-OOD collapse', 'd': '(d) distance to any category',
+              'e': '(e) reproduction across a val split'}
     for key, lab in labels.items():
         fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 sp_of[key].get_position().y0, lab, ha='left', va='bottom')
+                 sp_of[key].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
+    return fig
+
+
+# ── Appendix P — the fingerprint's separability under every fair setting ──────
+
+def _faith_row(name, bundle):
+    """One model's faithfulness numbers from its nb09 bundle: causal
+    reconstruction (with its random-rank floor and exact ceiling), NNLS
+    round-trip, and NMF-seed stability. A metric a model cannot supply is None
+    (no causal reconstruction for the pretrained SqueezeNet, no round-trip for
+    the ViT's attention nodes)."""
+    from src import figdata
+    D = figdata.load(bundle)
+    caps = D['caps']
+    li, r2, src = _val_causal_nodes(D)
+    rc = D['recon_controls']
+
+    def cv(key):
+        vs = ([float(n[key]['preact_r2']) for n in rc.values() if key in n]
+              if isinstance(rc, dict) else [])
+        return float(np.mean(vs)) if vs else None
+
+    stab = D['stability']['per_layer']
+    rt = D.get('roundtrip')
+    return dict(name=name, src=src,
+                recon=float(np.median(r2)) if li is not None else None,
+                floor=cv('random_R'), ceil=cv('exact'),
+                rt=(float(rt['median']) if caps['roundtrip'] and isinstance(rt, dict)
+                    else None),
+                stab=float(np.mean([stab[k]['mean'] for k in stab])))
+
+
+def figP_faithfulness(D):
+    """Message: on every model the decomposition is faithful — the causal
+    reconstruction sits between a random-rank floor and the exact ceiling, the
+    NNLS projection round-trip re-explains held-out stimuli, and the factors
+    survive reseeding above the 0.85 gate; the two honest gaps (no causal
+    reconstruction for the pretrained SqueezeNet, no round-trip for the ViT's
+    attention nodes) are shown as n/a rather than hidden."""
+    rows = [_faith_row(*m) for m in _VAL_MODELS]
+    C_BFT = figstyle.color('ours')
+    C_RAND, C_CEIL = figstyle.color('random'), figstyle.color('ceiling')
+    y = np.arange(len(rows))[::-1]
+
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=3, mode='appendix',
+                   height_to_width_ratio=0.42)
+    fig = plt.figure()
+    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.06, wspace=0.06)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.32, 1.0, 1.0])
+    ax_r, ax_t, ax_s = [fig.add_subplot(gs[0, c]) for c in range(3)]
+
+    def barpanel(ax, key, title, *, gate=None, left=False):
+        for yi, r in zip(y, rows):
+            v = r[key]
+            if v is None:
+                ax.text(0.03, yi, 'n/a', va='center', ha='left', fontsize=6.2,
+                        color='0.6', style='italic')
+                continue
+            ax.barh(yi, v, height=0.62, color=C_BFT, edgecolor='0.25', lw=0.3, zorder=3)
+            ax.text(min(v, 1.0) + 0.02, yi, f'{v:.2f}', va='center', ha='left',
+                    fontsize=6.2, color='0.3')
+        if gate is not None:
+            ax.axvline(gate, color='0.4', lw=0.8, ls=':', zorder=2)
+            ax.text(gate, len(rows) - 0.35, f'{gate:g}\ngate', ha='center', va='top',
+                    fontsize=6.0, color='0.4', linespacing=1.0)
+        ax.set_xlim(0, 1.2); ax.set_xticks([0, 0.5, 1.0]); ax.set_xticklabels(['0', '', '1'])
+        ax.set_ylim(-0.7, len(rows) - 0.3)
+        ax.set_title(title, fontsize=7, pad=3, fontweight='bold')
+        ax.tick_params(length=1.5, pad=1.5)
+        for s_ in ('top', 'right'):
+            ax.spines[s_].set_visible(False)
+        ax.set_yticks(y)
+        ax.set_yticklabels([r['name'] for r in rows] if left else [], fontsize=6.4)
+
+    # (a) causal reconstruction, bracketed by the random floor and the exact ceiling
+    barpanel(ax_r, 'recon', r'(a) causal recon. $R^2$', left=True)
+    for yi, r in zip(y, rows):
+        if r['recon'] is None:
+            continue
+        if r['floor'] is not None:
+            ax_r.scatter(max(r['floor'], 0.0), yi, marker='|', s=42, color=C_RAND,
+                         linewidths=1.1, zorder=5)
+        if r['ceil'] is not None:
+            ax_r.scatter(min(r['ceil'], 1.19), yi, marker='|', s=42, color=C_CEIL,
+                         linewidths=1.1, zorder=5)
+    barpanel(ax_t, 'rt', '(b) NNLS round-trip')
+    barpanel(ax_s, 'stab', '(c) NMF-seed stability', gate=0.85)
+
+    handles = [matplotlib.patches.Patch(fc=C_BFT, ec='0.25', lw=0.3, label='BFT'),
+               matplotlib.lines.Line2D([], [], color=C_RAND, lw=1.1, marker='|',
+                                       ls='none', ms=7, label='random-rank floor (a)'),
+               matplotlib.lines.Line2D([], [], color=C_CEIL, lw=1.1, marker='|',
+                                       ls='none', ms=7, label='exact ceiling (a)'),
+               matplotlib.lines.Line2D([], [], color='0.4', lw=0.8, ls=':',
+                                       label='0.85 stability gate (c)')]
+    fig.legend(handles=handles, loc='outside upper center', ncol=4, fontsize=6.5,
+               frameon=False, handlelength=1.2, handletextpad=0.4, columnspacing=1.3)
+    return fig
+
+
+# ── Appendix Q — fair separability across all five models ─────────────────────
+
+# name, bundle, fp label key, whether the labels are (or reduce to) parity
+def _draw_ranksens(ax, D, *, ylab=False):
+    """Panel-e drawing for one model: how close the re-run factors stay to the
+    K* factors when the rank is set to K*-1, K* and K*+1 — the factors are a
+    property of the arbor, not of the exact rank."""
+    C_BFT = figstyle.color('ours')
+    ks = D['stability']['k_sensitivity']
+    COLS = [(r'$-1$', np.asarray(ks['k_minus1']), tint(C_BFT, 0.45)),
+            (r'$K^{*}$', np.asarray(ks['k_star']), C_BFT),
+            (r'$+1$', np.asarray(ks['k_plus1']), tint(C_BFT, 0.45))]
+    rng = np.random.default_rng(1)
+    for i, (lab, v, col) in enumerate(COLS):
+        x = i + (rng.random(len(v)) - 0.5) * 0.3
+        ax.scatter(x, v, s=7, color=col, edgecolor='none', alpha=0.8, zorder=3)
+        ax.plot([i - 0.3, i + 0.3], [np.median(v)] * 2, color='0.2', lw=0.9, zorder=4)
+    ax.set_xticks(range(3)); ax.set_xticklabels([c[0] for c in COLS], fontsize=6)
+    ax.set_xlim(-0.5, 2.5); ax.set_ylim(0, 1.05); ax.set_yticks([0, 0.5, 1])
+    ax.set_yticklabels(['0', '.5', '1'] if ylab else [])
+    ax.tick_params(length=1.5, pad=1.5)
+    for s_ in ('top', 'right'):
+        ax.spines[s_].set_visible(False)
+    if ylab:
+        ax.set_ylabel(r'cosine to $K^{*}$', fontsize=6.5, labelpad=1)
+
+
+def _draw_ranksweep(ax, D, *, ylab=False):
+    """Panel-f drawing for one model: arbor reconstruction R^2 against the NMF
+    rank K for every layer (dot: the rank used) — the choice sits on a plateau,
+    not a cliff."""
+    C_BFT = figstyle.color('ours')
+    fu = D['FU1_rank_sweep']['per_layer']
+    fkeys = sorted(fu, key=int)
+    fshades = _layer_shades(len(fkeys), C_BFT)
+    for k, col in zip(fkeys, fshades):
+        sw = fu[k]['sweep']
+        K = np.array([s['K'] for s in sw]); R = np.array([s['recon_r2'] for s in sw])
+        ax.plot(K, R, color=col, lw=0.8, alpha=0.9, zorder=2)
+        dk = int(fu[k]['default_k'])
+        if dk in K:
+            ax.scatter([dk], [R[list(K).index(dk)]], s=11, color=col, zorder=4,
+                       edgecolor='white', linewidth=0.4)
+    ax.set_ylim(0, 1.05); ax.set_yticks([0, 0.5, 1])
+    ax.set_yticklabels(['0', '.5', '1'] if ylab else [])
+    ax.tick_params(length=1.5, pad=1.5)
+    for s_ in ('top', 'right'):
+        ax.spines[s_].set_visible(False)
+    ax.set_xlabel(r'rank $K$', fontsize=6.5, labelpad=1)
+    if ylab:
+        ax.set_ylabel(r'arbor $R^2$', fontsize=6.5, labelpad=1)
+
+
+def figQ_rank_sensitivity(D):
+    """Message: the factors are a property of the arbor, not of the exact NMF
+    rank — on every model re-running the factorization at K*±1 recovers nearly
+    the same factors (top row) and the arbor reconstruction sits on a plateau in
+    K rather than a cliff (bottom row)."""
+    from src import figdata
+    Ds = [(name, figdata.load(b)) for name, b in _VAL_MODELS]
+    n = len(Ds)
+
+    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=n, mode='appendix',
+                   height_to_width_ratio=0.48)
+    fig = plt.figure()
+    fig.set_layout_engine('constrained', h_pad=0.04, w_pad=0.04, hspace=0.04, wspace=0.06)
+    gs = fig.add_gridspec(4, n, height_ratios=[0.13, 1.0, 0.13, 1.0], hspace=0.04)
+    sp_a = fig.add_subplot(gs[0, :]); sp_a.set_axis_off()
+    sp_b = fig.add_subplot(gs[2, :]); sp_b.set_axis_off()
+    for c, (name, Dm) in enumerate(Ds):
+        ae = fig.add_subplot(gs[1, c])
+        _draw_ranksens(ae, Dm, ylab=(c == 0))
+        ae.set_title(name, fontsize=7, pad=2)
+        af = fig.add_subplot(gs[3, c])
+        _draw_ranksweep(af, Dm, ylab=(c == 0))
+    figstyle.freeze(fig)
+    fig.text(0.004, sp_a.get_position().y0, r'(a) sensitivity to the rank '
+             r'($K^{*}\!\pm\!1$)', ha='left', va='bottom', fontsize=7,
+             fontweight='bold')
+    fig.text(0.004, sp_b.get_position().y0, '(b) rank vs. arbor reconstruction '
+             '(dot: rank used, line shade: layer depth)', ha='left', va='bottom',
+             fontsize=7, fontweight='bold')
+    return fig
+
+
+# ── Appendix R — cross-model validation summary ───────────────────────────────
+
+_VAL_MODELS = [
+    ('MLP even/odd', 'nb09_mlp_even_odd_validation'),
+    ('MLP digit', 'nb09_mlp_digit_validation'),
+    ('CIFAR-10 CNN', 'nb09_cnn_cifar_validation'),
+    ('TinyViT', 'nb09_vit_mnist_validation'),
+    ('ImageNet', 'nb09_imagenet_cnn_validation'),
+]
+
+
+def _sil_row(name, bundle):
+    """One model's silhouette numbers from its nb09 bundle: the BFT fingerprint
+    against the dimension-matched activations (the separability claim), and the
+    weight-term advantage — the same NMF run on the arbor ($W\\!\\cdot\\!a$) vs on
+    the activations alone."""
+    from src import figdata
+    D = figdata.load(bundle)
+    sep = D['separability']['by_fine']
+    a1 = D['A1_weight_vs_activation']['fingerprint_separability']
+    return dict(name=name,
+                fp_sil=float(sep['bft_fingerprint']['silhouette']),
+                act_sil=float(sep['act_matched']['silhouette']),
+                arbor_nmf=float(a1['arbor_nmf']['silhouette']),
+                act_nmf=float(a1['activation_nmf']['silhouette']))
+
+
+def figR_silhouette(D):
+    """Message: the BFT fingerprint is the more class-separable code on every
+    model — (a) it out-silhouettes the dimension-matched activations, and (b) the
+    weight term earns its place: the same NMF run on the arbor ($W\\!\\cdot\\!a$)
+    separates classes at least as well as run on the activations alone."""
+    rows = [_sil_row(*m) for m in _VAL_MODELS]
+    C_BFT, C_ACT = figstyle.color('ours'), figstyle.color('baseline')
+    xg = np.arange(len(rows)); w = 0.36
+
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=2, mode='appendix',
+                   height_to_width_ratio=0.34)
+    fig = plt.figure()
+    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.06, wspace=0.08)
+    gs = fig.add_gridspec(1, 2)
+    ax_a, ax_b = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
+
+    def grouped(ax, k0, k1, c0, c1, l0, l1):
+        top = max(max(r[k0], r[k1]) for r in rows)
+        ax.bar(xg - w / 2, [r[k0] for r in rows], w, color=c0, edgecolor='0.25',
+               lw=0.3, zorder=3, label=l0)
+        ax.bar(xg + w / 2, [r[k1] for r in rows], w, color=c1, edgecolor='0.25',
+               lw=0.3, zorder=3, label=l1)
+        ax.set_ylim(0, top * 1.18); ax.set_yticks([0, 0.5, 1.0])
+        ax.set_ylabel('cosine silhouette', fontsize=7, labelpad=2)
+        ax.set_xticks(xg)
+        ax.set_xticklabels([r['name'] for r in rows], fontsize=6.0, linespacing=1.1,
+                           rotation=20, ha='right')
+        ax.tick_params(length=1.5, pad=1.5)
+        for s_ in ('top', 'right'):
+            ax.spines[s_].set_visible(False)
+        ax.legend(fontsize=6.2, frameon=False, loc='upper right', handlelength=0.8,
+                  handletextpad=0.35, borderpad=0.1, labelspacing=0.2)
+
+    grouped(ax_a, 'fp_sil', 'act_sil', C_BFT, C_ACT,
+            'BFT fingerprint', 'dim-matched act.')
+    ax_a.set_title('(a) fingerprint vs. network activations', fontsize=7.5, pad=3,
+                   fontweight='bold')
+    grouped(ax_b, 'arbor_nmf', 'act_nmf', C_BFT, tint(C_ACT, 0.5),
+            r'arbor NMF ($W\!\cdot\!a$)', 'activation-only NMF')
+    ax_b.set_title('(b) the weight term earns its place', fontsize=7.5, pad=3,
+                   fontweight='bold')
+    return fig
+
+
+# ── Appendix S — cross-model OOD signature ────────────────────────────────────
+
+_OOD_MODELS = [
+    ('$8\\times4$ MLP', 'nb01_fingerprints'),
+    ('digit MLP', 'nb02_fingerprints'),
+    ('CIFAR-10 CNN', 'nb03_fingerprints'),
+    ('TinyViT', 'nb04_fingerprints'),
+    ('ImageNet', 'nb05_fingerprints'),
+]
+
+
+def _cos_to_mean(X):
+    """Mean cosine of each fingerprint to its set's mean — how tightly a condition
+    collapses onto a single fingerprint (1 = one point, lower = spread out)."""
+    U = unit(np.asarray(X, float))
+    m = unit(U.mean(0, keepdims=True))
+    return float((U @ m.T).mean())
+
+
+def ood_signature_one(name, bundle):
+    """The OOD signature of one model: how far each condition collapses, and how
+    close its mean fingerprint sits to a trained-class centroid. Near-OOD is the
+    model's held-out real distribution (held-out digits / Fashion-MNIST /
+    CIFAR-100); the pretrained SqueezeNet ships none, so its near bars are absent."""
+    from src import figdata
+    D = figdata.load(bundle); fp = D['fp']
+    y = np.asarray(fp['id_targets']); X = unit(np.asarray(fp['id'], float))
+    cents = unit(np.stack([X[y == c].mean(0) for c in np.unique(y)]))
+
+    def maxc(v):
+        return float((unit(np.asarray(v, float)[None]) @ cents.T).max())
+
+    near = fp.get('ood')
+    if near is None:
+        near = fp.get('fmnist')
+    far = fp['far']
+    out = dict(name=name,
+               collapse_id=_cos_to_mean(fp['id']),
+               collapse_far=float(np.mean([_cos_to_mean(f['F']) for f in far])),
+               cent_far=float(np.mean([maxc(np.asarray(f['F']).mean(0)) for f in far])),
+               cent_id=float(np.mean([maxc(X[i])
+                                      for i in range(0, len(X), max(1, len(X) // 80))])))
+    if near is not None:
+        near = np.asarray(near, float)
+        out['collapse_near'] = _cos_to_mean(near)
+        out['cent_near'] = maxc(near.mean(0))
+    else:
+        out['collapse_near'] = out['cent_near'] = None
+    return out
+
+
+def figS_ood_signature(D):
+    """Message: every model in the paper shows the same OOD signature. In-distribution
+    and near-OOD (real held-out data) fingerprints stay spread out and land on a
+    trained class; the four synthetic far-OOD conditions collapse onto essentially
+    one fingerprint and, for the deeper nets, sit off every class — so a fingerprint
+    that is both concentrated and far from any centroid flags 'nothing I know'."""
+    rows = [ood_signature_one(*m) for m in _OOD_MODELS]
+    C_ID = figstyle.color('baseline')
+    C_NEAR, C_FAR = figstyle.color('near_ood'), figstyle.color('far_ood')
+
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=2, mode='appendix',
+                   height_to_width_ratio=0.40)
+    fig, (ax_a, ax_b) = plt.subplots(1, 2)
+    fig.set_layout_engine('constrained', h_pad=0.04, w_pad=0.06)
+
+    xg = np.arange(len(rows)); w = 0.26
+
+    def triplet(ax, id_key, near_key, far_key):
+        ax.bar(xg - w, [r[id_key] for r in rows], w, color=C_ID, edgecolor='0.25',
+               lw=0.3, zorder=3, label='in-distribution')
+        for i, r in enumerate(rows):                # near-OOD, skipped where absent
+            if r[near_key] is not None:
+                ax.bar(i, r[near_key], w, color=C_NEAR, edgecolor='0.25', lw=0.3,
+                       zorder=3, label='near-OOD (real)' if i == 0 else None)
+        ax.bar(xg + w, [r[far_key] for r in rows], w, color=C_FAR, edgecolor='0.25',
+               lw=0.3, zorder=3, label='far-OOD (synthetic)')
+        ax.set_xticks(xg)
+        ax.set_xticklabels([r['name'] for r in rows], fontsize=6.2, rotation=18,
+                           ha='right')
+        ax.set_ylim(0, 1.04); ax.set_yticks([0, 0.5, 1.0])
+        ax.tick_params(length=1.5, pad=1.5)
+        for s_ in ('top', 'right'):
+            ax.spines[s_].set_visible(False)
+
+    triplet(ax_a, 'collapse_id', 'collapse_near', 'collapse_far')
+    ax_a.set_ylabel('mean cosine to condition mean', fontsize=7, labelpad=2)
+    ax_a.set_title('(a) collapse onto one fingerprint', fontsize=7.5, pad=3,
+                   fontweight='bold')
+    ax_a.legend(fontsize=6.2, frameon=False, loc='lower left', handlelength=0.9,
+                handletextpad=0.35, borderpad=0.15, labelspacing=0.25)
+
+    triplet(ax_b, 'cent_id', 'cent_near', 'cent_far')
+    ax_b.set_ylabel('max cosine to a trained-class centroid', fontsize=7, labelpad=2)
+    ax_b.set_title('(b) distance to any trained class', fontsize=7.5, pad=3,
+                   fontweight='bold')
     return fig
 
 
@@ -4030,13 +3916,12 @@ FIGURES = {
                                           'appendix'),
     'figG_vit_circuits': ('nb04_circuits', figG_vit_circuits, 'appendix'),
     'figH_vit_fingerprints': ('nb04_fingerprints', figH_vit_fingerprints, 'appendix'),
-    'figI_validation_mlp_even_odd': ('nb09_mlp_even_odd_validation',
-                                     fig_validation, 'appendix'),
-    'figJ_validation_mlp_digit': ('nb09_mlp_digit_validation',
-                                  fig_validation, 'appendix'),
-    'figK_validation_cnn_cifar': ('nb09_cnn_cifar_validation',
-                                  fig_validation, 'appendix'),
-    'figL_validation_vit': ('nb09_vit_mnist_validation', fig_validation, 'appendix'),
-    'figM_validation_imagenet': ('nb09_imagenet_cnn_validation',
-                                 fig_validation, 'appendix'),
+    # cross-model validation, one figure per topic (the former per-model figI--M
+    # are merged into these three; each loads all five nb09 bundles internally)
+    'figP_faithfulness': ('nb09_mlp_even_odd_validation', figP_faithfulness,
+                          'appendix'),
+    'figQ_rank_sensitivity': ('nb09_mlp_even_odd_validation', figQ_rank_sensitivity,
+                              'appendix'),
+    'figR_silhouette': ('nb09_mlp_even_odd_validation', figR_silhouette, 'appendix'),
+    'figS_ood_signature': ('nb01_fingerprints', figS_ood_signature, 'appendix'),
 }
