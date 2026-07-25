@@ -169,7 +169,7 @@ kbd {
 /* ── factor grid ─────────────────────────────────────────── */
 .factor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 16px;
 }
 .card {
@@ -183,20 +183,16 @@ kbd {
   border-color: var(--accent); transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0,0,0,.35);
 }
-.card-top { display: flex; gap: 14px; }
-.wavg-wrap { position: relative; flex: none; }
+.card-top { display: flex; gap: 12px; align-items: flex-start; }
+.wavg-wrap { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .wavg-wrap canvas {
-  border-radius: 9px; border: 1px solid var(--border-2); background: #000;
+  border-radius: 8px; border: 1px solid var(--border-2); background: #000;
   display: block;
 }
-.wavg-wrap .zoom {
-  position: absolute; right: 6px; bottom: 6px;
-  width: 24px; height: 24px; border-radius: 6px;
-  background: rgba(10,11,15,.72); border: 1px solid var(--border-2);
-  color: var(--text); font-size: 12px; cursor: pointer;
-  display: grid; place-items: center; opacity: 0; transition: opacity .13s ease;
+.avg-cap {
+  font-size: 9px; color: var(--faint); text-transform: uppercase;
+  letter-spacing: .04em; text-align: center; line-height: 1.15; max-width: 52px;
 }
-.card:hover .zoom { opacity: 1; }
 .card-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .flabel { font-size: 15px; font-weight: 640; line-height: 1.25; }
 .imp {
@@ -214,10 +210,17 @@ kbd {
 .profile .ptrack > i { display: block; height: 100%; background: var(--accent-2); border-radius: 3px; }
 .profile .pval { width: 30px; color: var(--faint); font-family: var(--mono); flex: none; text-align: right; }
 
-.examples { display: flex; flex-direction: column; gap: 6px; }
-.examples .ex-label { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
-.examples .ex-row { display: flex; gap: 5px; flex-wrap: wrap; }
-.examples canvas { border-radius: 5px; border: 1px solid var(--border); background: #000; display: block; }
+.examples { display: flex; flex-direction: column; gap: 8px; }
+.ex-head { display: flex; align-items: center; justify-content: space-between; }
+.examples .ex-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.ex-inspect {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 9px; cursor: pointer; transition: all .13s ease;
+}
+.ex-inspect:hover { color: var(--text); border-color: var(--border-2); }
+.examples .ex-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.examples canvas { border-radius: 7px; border: 1px solid var(--border-2); background: #000; display: block; }
 
 .card-foot {
   display: flex; align-items: center; justify-content: space-between;

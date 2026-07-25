@@ -235,11 +235,8 @@ async function renderFactors() {
 
     const top = el("div", "card-top");
     const wavgWrap = el("div", "wavg-wrap");
-    wavgWrap.appendChild(makeTile(img, cur, f.k, 0, 116, smooth));
-    const zoom = el("button", "zoom", "⤢");
-    zoom.title = "Inspect";
-    zoom.onclick = (ev) => { ev.stopPropagation(); openModal(cur, f); };
-    wavgWrap.appendChild(zoom);
+    wavgWrap.appendChild(makeTile(img, cur, f.k, 0, 46, smooth));
+    wavgWrap.appendChild(el("div", "avg-cap", "weighted avg"));
     top.appendChild(wavgWrap);
 
     const info = el("div", "card-info");
@@ -255,12 +252,18 @@ async function renderFactors() {
     top.appendChild(info);
     card.appendChild(top);
 
-    // example stimuli
+    // hero: the real example stimuli that drive this factor
     const nEx = Math.min(f.n_ex, 6);
     const exWrap = el("div", "examples");
-    exWrap.appendChild(el("div", "ex-label", "top example stimuli"));
+    const exHead = el("div", "ex-head");
+    exHead.appendChild(el("div", "ex-label", "top example stimuli"));
+    const inspect = el("button", "ex-inspect", "⤢ inspect");
+    inspect.title = "Inspect this factor";
+    inspect.onclick = (ev) => { ev.stopPropagation(); openModal(cur, f); };
+    exHead.appendChild(inspect);
+    exWrap.appendChild(exHead);
     const exRow = el("div", "ex-row");
-    for (let t = 0; t < nEx; t++) exRow.appendChild(makeTile(img, cur, f.k, 1 + t, 40, smooth));
+    for (let t = 0; t < nEx; t++) exRow.appendChild(makeTile(img, cur, f.k, 1 + t, 62, smooth));
     exWrap.appendChild(exRow);
     card.appendChild(exWrap);
 
@@ -305,10 +308,17 @@ async function openModal(node, factor) {
     (factor.child != null ? ""
       : (isInputLayer(node) ? " · input-layer leaf" : " · trace leaf (not expanded)"))));
 
-  const body = el("div", "m-body");
+  // hero: the real example stimuli
+  card.appendChild(el("div", "m-section-label", "top example stimuli"));
+  const exs = el("div", "m-examples");
+  for (let t = 0; t < factor.n_ex; t++) exs.appendChild(makeTile(img, node, factor.k, 1 + t, 104, smooth));
+  card.appendChild(exs);
+
+  // secondary: weighted-average image + class profile
+  const body = el("div", "m-body"); body.style.marginTop = "18px";
   const left = el("div");
-  left.appendChild(el("div", "m-section-label", "weighted-average image"));
-  left.appendChild(makeTile(img, node, factor.k, 0, 200, smooth));
+  left.appendChild(el("div", "m-section-label", "weighted average"));
+  left.appendChild(makeTile(img, node, factor.k, 0, 116, smooth));
   body.appendChild(left);
 
   const right = el("div"); right.style.flex = "1"; right.style.minWidth = "200px";
@@ -316,12 +326,6 @@ async function openModal(node, factor) {
   right.appendChild(profileEl(node, factor));
   body.appendChild(right);
   card.appendChild(body);
-
-  const exLabel = el("div", "m-section-label"); exLabel.style.marginTop = "16px";
-  exLabel.textContent = "top example stimuli"; card.appendChild(exLabel);
-  const exs = el("div", "m-examples");
-  for (let t = 0; t < factor.n_ex; t++) exs.appendChild(makeTile(img, node, factor.k, 1 + t, 66, smooth));
-  card.appendChild(exs);
 
   if (factor.child != null) {
     const child = state.nodeById.get(factor.child);
