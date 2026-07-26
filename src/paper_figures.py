@@ -677,8 +677,8 @@ def act_rep(D, which=-1):
     if not act:
         return None
     rep = act['reps'][which]
-    # same layer-index shift sep_controls applies, so a layer is named the same
-    # in the separability panel and in the embedding panel
+    # the bundle names a hidden layer one index higher than the circuit figures do
+    # (it counts the pixels as $L_1$), so shift it down to match what the reader sees
     label = re.sub(r'\$L_(\d)\$', lambda m: f'$L_{int(m.group(1)) - 1}$',
                    str(rep['label']))
     return dict(X=rep['X'], label=label, dim=int(rep['dim']),
@@ -697,22 +697,6 @@ def fp_vs_act(D, fp_labels, which=-1):
                 rep['X'], np.asarray(fp_labels)[idx], rep)
     return (D['fp']['id'], np.asarray(fp_labels), rep['X'],
             np.asarray(rep['labels']), rep)
-
-
-def sep_controls(D):
-    """Activation-control rows of a fingerprints bundle, as plot-ready tuples.
-
-    The bundle names a hidden layer's activations one index higher than the circuit
-    figures do (it counts the pixels as $L_1$), so a 784->40->20->10 net exports its
-    40-unit layer as "$L_2$ act." while Fig. 3 draws that same layer as $L_1$. The
-    figures are what the reader sees side by side, so the index is shifted down here.
-    """
-    out = []
-    for s in D['sep']:
-        lab = re.sub(r'\$L_(\d)\$', lambda m: f'$L_{int(m.group(1)) - 1}$', s['label'])
-        out.append((lab, s['silhouette'], s['knn'], int(s['dim']),
-                    resolve_color(s['color_key'])))
-    return out
 
 
 def ramp_cmap(hex_color, name):
@@ -784,28 +768,6 @@ def style_matrix_axes(ax):
 
 
 # ── shared fingerprint panel drawers (used by the main figure and appendices) ─
-
-def fp_farood_violin(ax, COND):
-    """Cosine of each fingerprint to its condition's mean: in-distribution and
-    near-OOD stay spread, far-OOD collapses onto one point. COND rows are
-    ``(label, values, color)``."""
-    pos = np.arange(len(COND))[::-1]
-    for p_, (lab, vals, c_) in zip(pos, COND):
-        parts = ax.violinplot([vals], positions=[p_], vert=False, widths=0.82,
-                              showextrema=False, showmedians=False)
-        for b_ in parts['bodies']:
-            b_.set_facecolor(c_); b_.set_edgecolor('none'); b_.set_alpha(0.5)
-        ax.scatter(np.median(vals), p_, s=9, marker='D', color=c_, zorder=3,
-                   edgecolor='none')
-    ax.set_yticks(pos); ax.set_yticklabels([c_[0] for c_ in COND])
-    for t_, c_ in zip(ax.get_yticklabels(), COND):
-        t_.set_color(c_[2])
-    ax.set_xlim(0.42, 1.045); ax.set_xticks([0.5, 0.75, 1.0])
-    ax.set_xlabel('cos. to condition mean', labelpad=1)
-    ax.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax.spines[s_].set_visible(False)
-
 
 def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
                     show_layers=True):
@@ -933,32 +895,6 @@ def mlp_fp_heatmap(ax, D, digit_color):
     ax.text((N_EV + len(COL_ORDER) - 1) / 2, -0.72, 'odd circuit', ha='center',
             va='bottom', color=C_ODD, fontsize=6.5)
     ax.set_ylim(len(DIGIT_ORDER) + 0.25, -1.1)
-
-
-def mlp_sep_bars(ax, SEP):
-    """Digit separability (silhouette + 5-NN accuracy) of the fingerprint against
-    the network's raw activation layers."""
-    y = np.arange(len(SEP))[::-1]
-    ax.barh(y + 0.2, [s[1] for s in SEP], height=0.38, color=[s[4] for s in SEP],
-            edgecolor='none')
-    ax.barh(y - 0.2, [s[2] for s in SEP], height=0.38, color=[s[4] for s in SEP],
-            edgecolor='none', alpha=0.45)
-    _h = [matplotlib.patches.Patch(fc='0.5', ec='none', label='silhouette'),
-          matplotlib.patches.Patch(fc='0.5', ec='none', alpha=0.45,
-                                   label='5-NN accuracy')]
-    ax.set_yticks(y)
-    ax.set_yticklabels([f"{s[0].replace(chr(10), ' ')} ({s[3]}d)" for s in SEP],
-                       fontsize=6)
-    ax.get_yticklabels()[0].set_color(SEP[0][4])
-    ax.set_xlim(0, 1.04); ax.set_xticks([0, 0.5, 1.0])
-    ax.set_ylim(-0.6, len(SEP) - 0.05)
-    ax.set_xlabel('digit separability', labelpad=1)
-    ax.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax.spines[s].set_visible(False)
-    ax.legend(handles=_h, fontsize=6, frameon=False, loc='lower right',
-              handlelength=0.8, handletextpad=0.35, borderpad=0.1, labelspacing=0.2,
-              borderaxespad=0.0)
 
 
 def mlp_heldout(ax, D, digit_color, c_even, c_odd, r_ood):
@@ -1111,22 +1047,27 @@ def fig4_fingerprints_main(D):
     # ImageNet), each code measured at its own native dimension.
     ax_i = fig.add_subplot(gs_img[0, 2])
     C_BASE = figstyle.color('baseline')
-    cnn_fp_sil = cosine_silhouette(EMB[0], EMB[1]) if EMB is not None else None
-    cnn_act_sil = cosine_silhouette(EMB[2], EMB[3]) if EMB is not None else None
-    img_fp_sil = cosine_silhouette(D_img['fp']['id'], D_img['fp']['id_targets'])
-    img_act_sil = (cosine_silhouette(IMG_EMB[2], IMG_EMB[3])
-                   if IMG_EMB is not None else None)
-    SETS = [('CIFAR-10\nCNN', cnn_fp_sil, cnn_act_sil),
-            ('ImageNet\nSqueezeNet', img_fp_sil, img_act_sil)]
+    # point + 95% stimulus-bootstrap CI for each native-dimension silhouette
+    cnn_fp = silhouette_ci(EMB[0], EMB[1]) if EMB is not None else None
+    cnn_act = silhouette_ci(EMB[2], EMB[3]) if EMB is not None else None
+    img_fp = silhouette_ci(D_img['fp']['id'], D_img['fp']['id_targets'])
+    img_act = silhouette_ci(IMG_EMB[2], IMG_EMB[3]) if IMG_EMB is not None else None
+    SETS = [('CIFAR-10\nCNN', cnn_fp, cnn_act),
+            ('ImageNet\nSqueezeNet', img_fp, img_act)]
     SETS = [s for s in SETS if s[1] is not None and s[2] is not None]
     labels = [s[0] for s in SETS]
-    fp_s = [s[1] for s in SETS]
-    act_s = [s[2] for s in SETS]
+    fp_s = [s[1][0] for s in SETS];  act_s = [s[2][0] for s in SETS]
+    fp_err = np.array([[s[1][0] - s[1][1], s[1][2] - s[1][0]] for s in SETS]).T
+    act_err = np.array([[s[2][0] - s[2][1], s[2][2] - s[2][0]] for s in SETS]).T
     xg = np.arange(len(SETS))
     ax_i.bar(xg - 0.19, fp_s, width=0.36, color=C_BFT, edgecolor='0.25',
              linewidth=0.3, label='BFT fingerprint')
     ax_i.bar(xg + 0.19, act_s, width=0.36, color=C_BASE, edgecolor='0.25',
              linewidth=0.3, label='network activations')
+    ax_i.errorbar(xg - 0.19, fp_s, yerr=fp_err, fmt='none', ecolor='0.2',
+                  elinewidth=0.7, capsize=1.6, capthick=0.7, zorder=5)
+    ax_i.errorbar(xg + 0.19, act_s, yerr=act_err, fmt='none', ecolor='0.2',
+                  elinewidth=0.7, capsize=1.6, capthick=0.7, zorder=5)
     ax_i.set_xticks(xg)
     ax_i.set_xticklabels(labels, fontsize=6, linespacing=1.15)
     ax_i.set_ylim(0, max(fp_s + act_s) * 1.34)
@@ -1162,141 +1103,6 @@ def fig4_fingerprints_main(D):
                             (ax_i, '(i) both · fingerprint vs. activations', sp3)):
         fig.text(max(ax.get_position().x0 - 0.004, 0.002),
                  anchor.get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
-    return fig
-
-
-# ── Appendix C — fingerprint details for the 8x4 MLP ──────────────────────────
-
-def figC_mlp_fingerprint_details(D):
-    """Message: the full fingerprint analysis of the 8x4 MLP that the main figure only
-    introduces — the digit embedding and its separability against the raw activations,
-    the held-out and far-OOD behaviour, and the well-conditioned NNLS machinery
-    (round-trip, per-condition means, the digit blocks behind the silhouette)."""
-    DIGIT_ORDER = list(D['digit_order'])
-    COL_ORDER, N_EV = list(D['col_order']), int(D['n_ev'])
-    dims = D['dims']
-    C_EVEN, C_ODD = figstyle.color('even'), figstyle.color('odd')
-    C_BFT, C_NEAR, C_FAR = (figstyle.color('ours'), figstyle.color('near_ood'),
-                            figstyle.color('far_ood'))
-    DIGIT_COLOR = digit_colors(DIGIT_ORDER, C_EVEN, C_ODD)
-    CMAP_BFT = ramp_cmap(C_BFT, 'bft')
-    rt_sims = D['rt_sims']
-    ROWS = [(r['label'], r['mean'], resolve_color(r['color_key'], DIGIT_COLOR))
-            for r in D['rows']]
-    GROUP = [(g['label'], int(g['start']), int(g['stop'])) for g in D['group']]
-    COND = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['cond']]
-    SEP = sep_controls(D)
-    EMB = fp_vs_act(D, D['fp']['id_digits'])
-
-    # Panels reduced per figure_comments: the two embeddings (former a,b), the
-    # separability bars (c) and the fingerprint PCA plane (e) are dropped; what
-    # remains is the held-out / far-OOD behaviour and the NNLS machinery,
-    # re-lettered a-e over two rows (three plots, then the two matrices).
-    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.60)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
-                          hspace=0.03, wspace=0.03)
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.12, 1.0, 0.12, 1.0], hspace=0.03)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
-    for s_ in spacers:
-        s_.set_axis_off()
-    r1 = gs[1].subgridspec(1, 3)
-    r2 = gs[3].subgridspec(1, 2, width_ratios=[1.7, 1.0])
-    anchors = {}
-
-    # ── (a) held-out digits track P(odd) ─────────────────────────────────────
-    ax_a = fig.add_subplot(r1[0, 0])
-    mlp_heldout(ax_a, D, DIGIT_COLOR, C_EVEN, C_ODD, float(D['r_ood']))
-    anchors['a'] = ax_a
-
-    # ── (b) far-OOD collapse ─────────────────────────────────────────────────
-    ax_b = fig.add_subplot(r1[0, 1])
-    fp_farood_violin(ax_b, COND)
-    anchors['b'] = ax_b
-
-    # ── (c) NNLS round-trip ──────────────────────────────────────────────────
-    ax_c = fig.add_subplot(r1[0, 2])
-    ax_c.hist(rt_sims, bins=np.linspace(0.6, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
-    ax_c.set_yscale('log')
-    ax_c.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
-    ax_c.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
-              rf'{np.mean(rt_sims > 0.99):.1%} above 0.99'.replace('%', r'\%'),
-              transform=ax_c.transAxes, ha='left', va='top', fontsize=6.5,
-              linespacing=1.25)
-    ax_c.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_c.set_ylabel('test stimuli', labelpad=1)
-    ax_c.set_xlim(0.6, 1.005)
-    ax_c.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax_c.spines[s].set_visible(False)
-    anchors['c'] = ax_c
-
-    # ── (d) mean fingerprint per condition ───────────────────────────────────
-    ax_d = fig.add_subplot(r2[0, 0])
-    Mb = np.stack([m for _, m, _ in ROWS])
-    Mb = Mb / Mb.sum(1, keepdims=True)
-    ax_d.imshow(Mb[:, COL_ORDER], cmap=CMAP_BFT, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.75, vmin=0, vmax=Mb.max()))
-    ax_d.axvline(N_EV - 0.5, color='0.25', lw=0.8)
-    for _, _s0, _s1 in GROUP[:-1]:
-        ax_d.axhline(_s1 - 0.5, color='0.25', lw=0.8)
-    ax_d.set_xticks(range(len(COL_ORDER)))
-    ax_d.set_xticklabels([rf'$L_{{{dims[i, 0] + 1}}}f_{{{dims[i, 2]}}}$'
-                          for i in COL_ORDER], rotation=90, fontsize=6)
-    ax_d.set_yticks(range(len(ROWS)))
-    ax_d.set_yticklabels([r[0] for r in ROWS], fontsize=6)
-    for t, r in zip(ax_d.get_yticklabels(), ROWS):
-        t.set_color(r[2])
-    ax_d.tick_params(length=1.5, pad=1)
-    for s in ax_d.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_d.text((N_EV - 1) / 2, -0.75, 'even circuit', ha='center', va='bottom',
-              color=C_EVEN, fontsize=6.5)
-    ax_d.text((N_EV + len(COL_ORDER) - 1) / 2, -0.75, 'odd circuit', ha='center',
-              va='bottom', color=C_ODD, fontsize=6.5)
-    ax_d.set_ylim(len(ROWS) - 0.5, -1.15)
-    for lab, _s0, _s1 in GROUP:
-        ax_d.text(1.012, (_s0 + _s1 - 1) / 2, lab, transform=ax_d.get_yaxis_transform(),
-                  rotation=90, ha='left', va='center', fontsize=6.5, color='0.35')
-    anchors['d'] = ax_d
-
-    # ── (e) fingerprint similarity ───────────────────────────────────────────
-    ax_e = fig.add_subplot(r2[0, 1])
-    PER = int(D['sel_per_digit'])
-    N_VIZ = len(D['fp_sel'])
-    _U = unit(D['fp_sel'])
-    ax_e.imshow(_U @ _U.T, cmap=CMAP_BFT, vmin=0, vmax=1, interpolation='nearest',
-                aspect='auto')
-    for b in range(PER, N_VIZ, PER):
-        ax_e.axhline(b - 0.5, color='0.25', lw=0.5)
-        ax_e.axvline(b - 0.5, color='0.25', lw=0.5)
-    ctr = (np.arange(len(DIGIT_ORDER)) + 0.5) * PER
-    ax_e.set_xticks(ctr); ax_e.set_xticklabels(DIGIT_ORDER)
-    ax_e.set_yticks(ctr); ax_e.set_yticklabels(DIGIT_ORDER)
-    for tt in (ax_e.get_xticklabels(), ax_e.get_yticklabels()):
-        for t, d in zip(tt, DIGIT_ORDER):
-            t.set_color(DIGIT_COLOR[d])
-    ax_e.tick_params(length=0, pad=1)
-    for s in ax_e.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_e.set_xlabel('stimulus digit', labelpad=1)
-    ax_e.text(0.96, 0.96,
-              f"silhouette\n{D['sil_class']:.2f} class\n{D['sil_digit']:.2f} digit",
-              transform=ax_e.transAxes, ha='right', va='top', fontsize=6,
-              linespacing=1.15, color='0.15',
-              bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
-    anchors['e'] = ax_e
-
-    figstyle.freeze(fig)
-    sp_of = {'a': 0, 'b': 0, 'c': 0, 'd': 1, 'e': 1}
-    labels = {'a': '(a) held-out digits', 'b': '(b) far-OOD collapse',
-              'c': '(c) NNLS round-trip',
-              'd': '(d) mean fingerprint per condition',
-              'e': '(e) fingerprint similarity'}
-    for key, lab in labels.items():
-        fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
     return fig
 
 
@@ -1503,132 +1309,6 @@ def figB_digit_mlp_details(D):
     return fig
 
 
-# ── Figure 5 — factor fingerprints in the 40x20 digit MLP ─────────────────────
-
-# ── Appendix D — fingerprints in the 40x20 digit MLP (merged main + details) ──
-
-def figD_digit_mlp_fingerprint_details(D):
-    """Message: at ten classes the fingerprint stays class-structured and still reports
-    the network's own decision on Fashion-MNIST, but it is no longer the most separable
-    code — the 20-d penultimate activations are; it buys traceability, not separability.
-    Merges the former main figure (embedding, separability, Fashion-MNIST, far-OOD)
-    with its detail (NNLS round-trip, per-condition means, the digit similarity blocks)."""
-    N_CLASSES = int(D['n_classes'])
-    COL_ORDER, BLK_EDGE = list(D['col_order']), list(D['blk_edge'])
-    BLOCK_SIZES = list(D['block_sizes'])
-    C_BFT, C_NEAR, C_FAR = (figstyle.color('ours'), figstyle.color('near_ood'),
-                            figstyle.color('far_ood'))
-    CMAP = ramp_cmap(C_BFT, 'bft')
-    R_OOD, AGREE = D['r_ood'], D['agree']
-    P_model, P_fprint = D['p_model'], D['p_fprint']
-    SEP = sep_controls(D)
-    COND = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['cond']]
-    n_factors = int(D['n_factors'])
-    DCOL = class_colors(range(N_CLASSES))
-    EMB = fp_vs_act(D, D['fp']['id_targets'])
-    rt_sims = D['rt_sims']
-    ROWS = [(r['label'], r['mean'], resolve_color(r['color_key'])) for r in D['rows']]
-    GROUP = [(g['label'], int(g['start']), int(g['stop'])) for g in D['group']]
-
-    # Panels reduced per figure_comments: the embedding (former a,b), the
-    # separability bars (c), the Fashion-MNIST agreement (d) and the fingerprint
-    # PCA plane (f) are dropped; what remains is the far-OOD collapse and the
-    # NNLS machinery, re-lettered a-d over two rows.
-    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=2, mode='appendix',
-                   height_to_width_ratio=0.52)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
-                          hspace=0.03, wspace=0.03)
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.12, 1.0, 0.12, 1.0], hspace=0.03)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
-    for s_ in spacers:
-        s_.set_axis_off()
-    r1 = gs[1].subgridspec(1, 2, width_ratios=[0.80, 1.85])
-    r2 = gs[3].subgridspec(1, 2, width_ratios=[1.25, 1.0])
-    anchors = {}
-
-    # ── (a) far-OOD collapse ─────────────────────────────────────────────────
-    ax_a = fig.add_subplot(r1[0, 0])
-    fp_farood_violin(ax_a, COND)
-    anchors['a'] = ax_a
-
-    # ── (b) mean fingerprint per condition ───────────────────────────────────
-    ax_b = fig.add_subplot(r1[0, 1])
-    Mb = np.stack([m for _, m, _ in ROWS])
-    Mb = Mb / Mb.sum(1, keepdims=True)
-    ax_b.imshow(Mb[:, COL_ORDER], cmap=CMAP, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.7, vmin=0, vmax=Mb.max()))
-    for e in BLK_EDGE:
-        ax_b.axvline(e - 0.5, color='0.25', lw=0.7)
-    ax_b.axhline(N_CLASSES - 0.5, color='0.25', lw=0.8)
-    for bi, blen in enumerate(BLOCK_SIZES):
-        s0 = int(np.concatenate([[0], BLK_EDGE])[bi])
-        ax_b.text(s0 + blen / 2 - 0.5, -0.75, rf'$f_{bi}$', ha='center', va='bottom',
-                  fontsize=6.5, color=C_BFT)
-    ax_b.set_xticks([])
-    ax_b.set_yticks(range(len(ROWS)))
-    ax_b.set_yticklabels([r[0] for r in ROWS], fontsize=6)
-    for t, r in zip(ax_b.get_yticklabels(), ROWS):
-        t.set_color(r[2])
-    ax_b.set_xlabel(f'{n_factors} factors, grouped by circuit', labelpad=2)
-    ax_b.tick_params(length=1.5, pad=1)
-    for s in ax_b.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_b.set_ylim(len(ROWS) - 0.5, -1.15)
-    for lab, _s0, _s1 in GROUP:
-        ax_b.text(1.008, (_s0 + _s1 - 1) / 2, lab, transform=ax_b.get_yaxis_transform(),
-                  rotation=90, ha='left', va='center', fontsize=6.5, color='0.35')
-    anchors['b'] = ax_b
-
-    # ── (c) NNLS round-trip ──────────────────────────────────────────────────
-    ax_c = fig.add_subplot(r2[0, 0])
-    ax_c.hist(rt_sims, bins=np.linspace(0.5, 1.0, 60), color=C_BFT, alpha=0.85, lw=0)
-    ax_c.set_yscale('log')
-    ax_c.axvline(rt_sims.mean(), color='0.25', lw=0.7, ls=(0, (2.5, 2)))
-    ax_c.text(0.03, 0.97, f'mean {rt_sims.mean():.3f}\nmin {rt_sims.min():.3f}\n'
-              rf'{np.mean(rt_sims > 0.95):.0%} above 0.95'.replace('%', r'\%'),
-              transform=ax_c.transAxes, ha='left', va='top', fontsize=6.5,
-              linespacing=1.25)
-    ax_c.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_c.set_ylabel('test stimuli', labelpad=1)
-    ax_c.set_xlim(0.5, 1.005)
-    ax_c.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax_c.spines[s].set_visible(False)
-    anchors['c'] = ax_c
-
-    # ── (d) fingerprint similarity ───────────────────────────────────────────
-    ax_d = fig.add_subplot(r2[0, 1])
-    PER = int(D['sel_per_digit'])
-    _U = unit(D['fp_sel'])
-    ax_d.imshow(_U @ _U.T, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest',
-                aspect='auto')
-    for b in range(PER, PER * N_CLASSES, PER):
-        ax_d.axhline(b - 0.5, color='0.35', lw=0.3)
-        ax_d.axvline(b - 0.5, color='0.35', lw=0.3)
-    ctr = (np.arange(N_CLASSES) + 0.5) * PER
-    ax_d.set_xticks(ctr); ax_d.set_xticklabels(range(N_CLASSES), fontsize=6)
-    ax_d.set_yticks(ctr); ax_d.set_yticklabels(range(N_CLASSES), fontsize=6)
-    ax_d.tick_params(length=0, pad=1)
-    for sp_ in ax_d.spines.values():
-        sp_.set_color('0.6'); sp_.set_linewidth(0.4)
-    ax_d.set_xlabel('stimulus digit', labelpad=1)
-    ax_d.text(0.96, 0.96, f"silhouette {D['sil']:.2f}", transform=ax_d.transAxes,
-              ha='right', va='top', fontsize=6, color='0.15',
-              bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
-    anchors['d'] = ax_d
-
-    figstyle.freeze(fig)
-    sp_of = {'a': 0, 'b': 0, 'c': 1, 'd': 1}
-    labels = {'a': '(a) far-OOD collapse',
-              'b': '(b) mean fingerprint per condition',
-              'c': '(c) NNLS round-trip', 'd': '(d) fingerprint similarity'}
-    for key, lab in labels.items():
-        fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 spacers[sp_of[key]].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
-    return fig
-
-
 # ── Figure 6 / Appendix E — the CNN on CIFAR-10, read through its stimuli ─────
 
 CNN_LAYER_LABEL = {'classifier': 'classifier', 'features.12': 'conv4',
@@ -1787,6 +1467,50 @@ def lam_weighted(v, w):
     return float((v * w).sum() / w.sum())
 
 
+def purity_ci_by_layer(D, labels, n_boot=800, seed=0):
+    """Per layer (output first): (point, lo, hi) of the lambda-weighted class
+    purity with a 95% stimulus-bootstrap CI. Reconstructs each factor's class
+    profile from per-stimulus loadings + labels so the resample is honest; labels
+    come from the aligned fingerprint bundle. Numpy only (Appendix stats)."""
+    labels = np.asarray(labels); classes = np.unique(labels)
+    rng = np.random.default_rng(seed)
+    out = []
+    for _name, nodes in cnn_layers(D['nodes']):
+        packs = []
+        for nd in nodes:
+            H = np.asarray(nd['img_factors'], float)
+            lam = np.asarray(nd['lam_share'], float)
+            lab = (labels[np.asarray(nd['stim_idx'])]
+                   if 'stim_idx' in nd and H.shape[0] != len(labels) else labels)
+            packs.append((H, lam, lab))
+        joint = len({p[0].shape[0] for p in packs}) == 1
+
+        def wp(ridx):
+            purs, lams = [], []
+            for H, lam, lab in packs:
+                if ridx is None:
+                    Hs, labs = H, lab
+                else:
+                    r = ridx if joint else rng.integers(0, len(lab), len(lab))
+                    Hs, labs = H[r], lab[r]
+                prof = np.zeros((H.shape[1], len(classes)))
+                for j, c in enumerate(classes):
+                    m = labs == c
+                    if m.any():
+                        prof[:, j] = Hs[m].mean(0)
+                prof = prof / (prof.sum(1, keepdims=True) + 1e-12)
+                purs.append(prof.max(1)); lams.append(lam)
+            return lam_weighted(np.concatenate(purs), np.concatenate(lams))
+
+        point = wp(None)
+        n0 = packs[0][0].shape[0]
+        vals = np.array([wp(rng.integers(0, n0, n0) if joint else True)
+                         for _ in range(n_boot)])
+        lo, hi = np.percentile(vals, [2.5, 97.5])
+        out.append((point, float(lo), float(hi)))
+    return out
+
+
 def fig6_cnn_circuits(D):
     NODES, CLS = D['nodes'], list(D['class_names'])
     by_path = {tuple(n['path'].tolist()): n for n in NODES}
@@ -1932,6 +1656,13 @@ def fig6_cnn_circuits(D):
     for i_, st in enumerate(stats):
         ax_d.scatter(np.full(len(st['purity']), i_), st['purity'], s=2.0, color=C_BFT,
                      alpha=0.28, edgecolor='none', zorder=2)
+    # 95% stimulus-bootstrap CI on the lambda-weighted purity (Appendix stats)
+    from src import figdata as _fd
+    _lab = np.asarray(_fd.load('nb03_fingerprints')['fp']['id_targets'])
+    _ci = purity_ci_by_layer(D, _lab)
+    _yerr = np.array([[max(p - lo, 0), max(hi - p, 0)] for p, lo, hi in _ci]).T
+    ax_d.errorbar(x, pur, yerr=_yerr, fmt='none', ecolor='0.25', elinewidth=0.7,
+                  capsize=1.6, capthick=0.7, zorder=4)
     ax_d.plot(x, pur, color=C_BFT, marker='o', ms=3.0, lw=1.4, zorder=3)
     ax_d.set_ylim(0, 1.0); ax_d.set_yticks([0, 0.5, 1.0])
     ax_d.set_yticklabels(['0', '.5', '1'])
@@ -1997,16 +1728,22 @@ def figE_cnn_details(D):
     CASCADE = [(9,), (9, 0), (9, 0, 0), (9, 0, 0, 0)]      # the traced spine of f9
     chance = 1.0 / D['n_classes']
 
-    N_SHOW = 2                     # (b): sub-factors per circuit
+    # the gallery shows six circuits at four sub-factors each; the four animal
+    # circuits below (cat/deer/dog/frog) are dropped to make room
+    SKIP = {'cat', 'deer', 'dog', 'frog'}
+    GAL = [r for r in range(n_root)
+           if CLS[int(np.argmax(root['class_profile'][r]))] not in SKIP]
+
+    N_SHOW = 4                     # (b): sub-factors per circuit
     EX_R, EX_C = 2, 3              # example stimuli per sub-factor (6 of the 8 stored)
-    PER_ROW = 2                    # circuits per gallery row (wavg + examples is wide)
+    PER_ROW = 1                    # circuits per gallery row (four sub-factors is wide)
     LAB_W, AVG_W = 0.55, 1.0       # circuit-label / weighted-average column widths
     EX_W = EX_C / EX_R             # keep every example tile square
     SUBGAP, CIRCGAP, FLAB = 0.14, 0.42, 0.20   # gaps, and the f-label row height
 
     # row heights in inches, derived from the image grids they hold
     W, SP = 6.975, 0.15
-    n_gal_rows = -(-n_root // PER_ROW)
+    n_gal_rows = -(-len(GAL) // PER_ROW)
     # columns of one circuit: label, then [weighted-avg, examples] per sub-factor
     circ_cols = [LAB_W]
     for _s in range(N_SHOW):
@@ -2075,15 +1812,15 @@ def figE_cnn_details(D):
         row_h += [s_g, FLAB]
     gsb = gs[3].subgridspec(2 * n_gal_rows, len(col_w), width_ratios=col_w,
                             height_ratios=row_h)
-    for r in range(n_root):
-        grow, blk = r // PER_ROW, r % PER_ROW
+    for idx, r in enumerate(GAL):
+        grow, blk = idx // PER_ROW, idx % PER_ROW
         irow, lrow = 2 * grow, 2 * grow + 1
         base = col_base[blk]
         own = int(np.argmax(root['class_profile'][r]))
         lab = fig.add_subplot(gsb[irow, base]); lab.set_axis_off()
         lab.text(1.0, 0.5, rf'$f_{{{r}}}$' + '\n' + CLS[own][:6], ha='right',
                  va='center', fontsize=6, linespacing=1.2)
-        if r == 0:
+        if idx == 0:
             anchors['b'] = lab
         node = CONV4[r]
         for k in range(N_SHOW):
@@ -2153,7 +1890,7 @@ def figE_cnn_details(D):
 
     _label('a', 0, r'(a) $\lambda$ spectra by layer', dx=-0.026)
     _label('b', 1, r'(b) $L_4$ gallery: each output circuit $f_r$ traced back to its '
-                   r'two strongest $L_4$ sub-factors $f_k$ — weighted-avg. stimulus '
+                   r'four strongest $L_4$ sub-factors $f_k$ — weighted-avg. stimulus '
                    r'(framed) then top stimuli', dx=-0.004)
     _label('c', 2, r'(c) traced spine of $f_9$, $L_5\to L_1$ — class purity below '
                    f'each factor (chance {chance:.2f})', dx=-0.004)
@@ -2179,24 +1916,6 @@ def _cnn_fp_blocks(D):
     edges = list(np.cumsum(sizes)[:-1])
     return [c for b in blocks for c in b], edges, \
         np.concatenate([[0], edges]), sizes
-
-
-def _cnn_fp_ood(D):
-    """CIFAR-100: what the network says vs what the fingerprint says, per
-    CIFAR-100 class (rows) and CIFAR-10 class (columns)."""
-    fp = D['fp']
-    cent = unit(D['fp_mean_by_class'])
-    near = (unit(fp['ood']) @ cent.T).argmax(1)
-    pred, tgt = fp['ood_preds'], fp['ood_targets']
-    labels = np.unique(tgt)
-    n_c = int(D['n_classes'])
-    P_model = np.zeros((len(labels), n_c))
-    P_fprint = np.zeros((len(labels), n_c))
-    for j, t in enumerate(labels):
-        m = tgt == t
-        P_model[j] = np.bincount(pred[m], minlength=n_c) / m.sum()
-        P_fprint[j] = np.bincount(near[m], minlength=n_c) / m.sum()
-    return P_model, P_fprint, float(np.mean(near == pred)), near
 
 
 def cnn_fp_heatmap(ax_a, D, COL_ORDER, BLK_EDGE, CMAP, CCOL, CLS, N_CLASSES,
@@ -2259,169 +1978,6 @@ def cnn_class_geometry(ax, D, CMAP, CCOL, CLS, N_CLASSES, show_between=False):
         ax.text(0.97, 0.03, f'within-class $\\cos$ {within:.2f}',
                 transform=ax.transAxes, ha='right', va='bottom', fontsize=6,
                 color='0.15', bbox=dict(fc='white', ec='none', alpha=0.85, pad=1.0))
-
-
-def cnn_cifar100(ax, P_model, P_fprint, agree, r_ood, N_CLASSES, C_NEAR):
-    """CIFAR-100: what the network says vs what the nearest fingerprint centroid
-    says, per (CIFAR-100 class x CIFAR-10 class) cell."""
-    ax.plot([0, 1], [0, 1], color='0.7', lw=0.6, ls=(0, (2.5, 2)), zorder=1)
-    ax.scatter(P_model.ravel(), P_fprint.ravel(), s=3.5, color=C_NEAR,
-               edgecolor='none', alpha=0.55, zorder=2)
-    ax.set_xlim(-0.06, 1.06); ax.set_ylim(-0.06, 1.06)
-    ax.set_xticks([0, 0.5, 1]); ax.set_yticks([0, 0.5, 1])
-    ax.set_xlabel('P(network says class $c$)', labelpad=1)
-    ax.set_ylabel('P(fingerprint says class $c$)', labelpad=1)
-    ax.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax.spines[s_].set_visible(False)
-    ax.text(0.04, 0.97, f'$r={r_ood:.2f}$\nagree {agree:.2f}',
-            transform=ax.transAxes, ha='left', va='top', fontsize=6.5,
-            linespacing=1.2)
-    ax.text(0.04, 0.775, f'{len(P_model)} CIFAR-100\nclasses '
-            rf'$\times$ {N_CLASSES}', transform=ax.transAxes, ha='left',
-            va='top', fontsize=6, color=C_NEAR, linespacing=1.2)
-
-
-CNN_FP_LAYER = {0: 'conv1', 1: 'conv2', 2: 'conv3', 3: 'conv4', 4: 'classifier'}
-
-
-def figF_cnn_fingerprint_details(D):
-    """Message: the fingerprint machinery behind Fig. 7, including where it is
-    weakest — with 240 factors the NNLS round-trip is the loosest of the paper's
-    models, while the code itself is stable across the train/test split."""
-    N_CLASSES = int(D['n_classes'])
-    CLS = list(D['class_names'])
-    COL_ORDER, BLK_EDGE, BLK_START, BLOCK_SIZES = _cnn_fp_blocks(D)
-    C_BFT = figstyle.color('ours')
-    C_NEAR, C_FAR = figstyle.color('near_ood'), figstyle.color('far_ood')
-    CMAP = ramp_cmap(C_BFT, 'bft')
-    fp, dims = D['fp'], D['dims']
-    n_factors = int(D['n_factors'])
-    FAR = list(fp['far'])
-    LIKE = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['like']]
-
-    # every condition's mean fingerprint, in one matrix
-    rows = [(CLS[c], D['fp_mean_by_class'][c], '0.2') for c in range(N_CLASSES)]
-    rows.append(('CIFAR-100', D['fp_mean_ood'], C_NEAR))
-    rows += [(f['label'], f['F'].mean(0), C_FAR) for f in FAR]
-    R = np.stack([r[1] for r in rows])
-    R = R / R.sum(1, keepdims=True)
-
-    COND = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['cond']]
-    P_model, P_fprint, agree, _ = _cnn_fp_ood(D)
-    r_ood = float(np.corrcoef(P_model.ravel(), P_fprint.ravel())[0, 1])
-
-    # Panels reduced per figure_comments: the fingerprint PCA (former c), the
-    # CIFAR-100 agreement (d), the classes-vs-OOD map (h) and the mass-by-layer
-    # bars (i) are dropped; what remains is the round-trip, the per-condition
-    # means, the far-OOD collapse, the distance to the classes and the
-    # train/test reproduction, re-lettered a-e over two rows.
-    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.62)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
-                          hspace=0.02, wspace=0.03)
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 1.0, 0.10, 1.0], hspace=0.02)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
-    for s_ in spacers:
-        s_.set_axis_off()
-    sp1, sp2 = spacers
-    gs_top = gs[1].subgridspec(1, 3, width_ratios=[0.72, 1.60, 0.78])
-    gs_bot = gs[3].subgridspec(1, 2, width_ratios=[1.05, 1.0])
-    anchors = {}
-
-    # ── (a) NNLS round-trip: the honest number ──────────────────────────────
-    ax_a = fig.add_subplot(gs_top[0, 0])
-    v = D['rt_sims']
-    ax_a.hist(v, bins=24, color=tint(C_BFT, 0.4), edgecolor=C_BFT, linewidth=0.4)
-    ax_a.axvline(v.mean(), color=C_BFT, lw=1.0)
-    ax_a.set_xlabel('cos(NMF, NNLS re-fit)', labelpad=1)
-    ax_a.set_ylabel('stimuli', labelpad=1)
-    ax_a.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_a.spines[s_].set_visible(False)
-    ax_a.text(0.03, 0.97, f'mean {v.mean():.3f}\nmin {v.min():.3f}\n'
-              f'{int((v > 0.95).sum())} of {len(v)} above 0.95',
-              transform=ax_a.transAxes, ha='left', va='top', fontsize=6,
-              linespacing=1.25)
-    anchors['a'] = ax_a
-
-    # ── (b) mean fingerprint of every condition ─────────────────────────────
-    ax_b = fig.add_subplot(gs_top[0, 1])
-    Rc = R[:, COL_ORDER]
-    Rc = Rc / (Rc.max(0, keepdims=True) + 1e-12)
-    ax_b.imshow(Rc, cmap=CMAP, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.8, vmin=0, vmax=1))
-    for e in BLK_EDGE:
-        ax_b.axvline(e - 0.5, color='0.25', lw=0.6)
-    ax_b.axhline(N_CLASSES - 0.5, color='0.25', lw=0.8)
-    ax_b.axhline(N_CLASSES + 0.5, color='0.25', lw=0.8)
-    ax_b.set_xticks([]); ax_b.set_yticks(range(len(rows)))
-    ax_b.set_yticklabels([r[0] for r in rows], fontsize=6)
-    for t_, r_ in zip(ax_b.get_yticklabels(), rows):
-        t_.set_color(r_[2])
-    ax_b.set_xlabel(f'{n_factors} factors, grouped into the {N_CLASSES} circuits',
-                    labelpad=2)
-    ax_b.tick_params(length=1.5, pad=1)
-    for s_ in ax_b.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    anchors['b'] = ax_b
-
-    # ── (c) far-OOD: every stimulus collapses onto one fingerprint ───────────
-    ax_far = fig.add_subplot(gs_top[0, 2])
-    fp_farood_violin(ax_far, COND)
-    anchors['c'] = ax_far
-
-    # ── (d) how close each OOD condition gets to any trained class ──────────
-    ax_e = fig.add_subplot(gs_bot[0, 0])
-    pos = np.arange(len(LIKE))[::-1]
-    for p_, (lab, vals, c_) in zip(pos, LIKE):
-        parts = ax_e.violinplot([vals], positions=[p_], vert=False, widths=0.82,
-                                showextrema=False, showmedians=False)
-        for b_ in parts['bodies']:
-            b_.set_facecolor(c_); b_.set_edgecolor('none'); b_.set_alpha(0.5)
-        ax_e.scatter(np.median(vals), p_, s=9, marker='D', color=c_, zorder=3,
-                     edgecolor='none')
-    ax_e.set_yticks(pos); ax_e.set_yticklabels([c_[0] for c_ in LIKE])
-    for t_, c_ in zip(ax_e.get_yticklabels(), LIKE):
-        t_.set_color(c_[2])
-    ax_e.set_xlim(0.15, 1.03); ax_e.set_xticks([0.25, 0.5, 0.75, 1.0])
-    ax_e.set_xlabel('max cos. to a class', labelpad=1)
-    ax_e.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_e.spines[s_].set_visible(False)
-    anchors['d'] = ax_e
-
-    # ── (e) the code survives the train/test split ──────────────────────────
-    ax_c = fig.add_subplot(gs_bot[0, 1])
-    Ttr = unit(np.stack([fp['train'][fp['train_targets'] == c].mean(0)
-                         for c in range(N_CLASSES)]))
-    Tte = unit(np.stack([fp['id'][fp['id_targets'] == c].mean(0)
-                         for c in range(N_CLASSES)]))
-    S = Ttr @ Tte.T
-    ax_c.imshow(S, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
-    ax_c.set_xticks(range(N_CLASSES)); ax_c.set_xticklabels(CLS, rotation=90,
-                                                            fontsize=6)
-    ax_c.set_yticks(range(N_CLASSES)); ax_c.set_yticklabels(CLS, fontsize=6)
-    ax_c.tick_params(length=0, pad=1)
-    style_matrix_axes(ax_c)
-    n_hit = int((S.argmax(1) == np.arange(N_CLASSES)).sum())
-    ax_c.set_xlabel('rows: train, columns: test\n'
-                    f'diag {np.diag(S).mean():.2f}, off-diag '
-                    f'{S[~np.eye(N_CLASSES, dtype=bool)].mean():.2f}, '
-                    f'{n_hit}/{N_CLASSES} nearest',
-                    labelpad=2, fontsize=6, color='0.35', linespacing=1.25)
-    anchors['e'] = ax_c
-
-    figstyle.freeze(fig)
-    sp_of = {'a': sp1, 'b': sp1, 'c': sp1, 'd': sp2, 'e': sp2}
-    labels = {'a': '(a) NNLS round-trip', 'b': '(b) mean fingerprint per condition',
-              'c': '(c) far-OOD collapse', 'd': '(d) distance to the classes',
-              'e': '(e) train vs test'}
-    for key, lab in labels.items():
-        fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 sp_of[key].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
-    return fig
 
 
 # ── Appendix G — the whole BFT trace of the TinyViT ───────────────────────────
@@ -2650,17 +2206,7 @@ def figG_vit_circuits(D):
     return fig
 
 
-# ── Appendix H — the whole fingerprint analysis of the TinyViT ────────────────
-
-def _digit_shades(digits, c_even, c_odd):
-    """Parity gives the hue; position within the parity gives the shade."""
-    out, seen = {}, {0: 0, 1: 0}
-    for d in sorted(int(x) for x in digits):
-        base = c_even if d % 2 == 0 else c_odd
-        out[d] = tint(base, 0.62 * seen[d % 2] / 4)
-        seen[d % 2] += 1
-    return out
-
+# ── shared helper: cosine silhouette (used by the fingerprint figures) ────────
 
 def cosine_silhouette(X, labels):
     """Mean silhouette under cosine distance — numpy only (no sklearn in figures)."""
@@ -2678,246 +2224,44 @@ def cosine_silhouette(X, labels):
     return float(out.mean())
 
 
-def _violin_rows(ax, rows, xlabel, xlim, xticks):
-    """Horizontal violins, one per condition — the OOD panels of every fingerprint fig."""
-    pos = np.arange(len(rows))[::-1]
-    for p, (lab, vals, c) in zip(pos, rows):
-        parts = ax.violinplot([vals], positions=[p], vert=False, widths=0.82,
-                              showextrema=False, showmedians=False)
-        for b in parts['bodies']:
-            b.set_facecolor(c); b.set_edgecolor('none'); b.set_alpha(0.5)
-        ax.scatter(np.median(vals), p, s=9, marker='D', color=c, zorder=3,
-                   edgecolor='none')
-    ax.set_yticks(pos); ax.set_yticklabels([r[0] for r in rows])
-    for t, r in zip(ax.get_yticklabels(), rows):
-        t.set_color(r[2])
-    ax.set_xlim(*xlim); ax.set_xticks(xticks)
-    ax.set_xlabel(xlabel, labelpad=1)
-    ax.tick_params(length=1.5, pad=1)
-    for s in ('top', 'right'):
-        ax.spines[s].set_visible(False)
+# ── stimulus-bootstrap confidence intervals (numpy only; Appendix "Statistical
+# Reporting"). A row drawn w times in a resample gives identical fingerprints, so
+# the whole resample is summarized by the per-row draw count and the silhouette is
+# a weighted mean of per-row silhouettes computed from Dm @ Wmat — one BLAS matmul
+# per resample, exact, and fast enough to run at figure-render time. ─────────────
+
+def _sil_from_counts(Dm, yidx, C, w):
+    Wmat = np.zeros((len(w), C))
+    for c in range(C):
+        Wmat[yidx == c, c] = w[yidx == c]
+    M = Dm @ Wmat
+    Nc = Wmat.sum(0)
+    own = M[np.arange(len(w)), yidx]
+    a = np.where(Nc[yidx] > 1, own / np.maximum(Nc[yidx] - 1, 1), 0.0)
+    Mmean = M / np.maximum(Nc[None, :], 1e-12)
+    Mmean[np.arange(len(w)), yidx] = np.inf
+    b = Mmean.min(1)
+    denom = np.maximum(a, b)
+    s = np.where(denom > 0, (b - a) / denom, 0.0)
+    tot = w.sum()
+    return float((w * s).sum() / tot) if tot > 0 else 0.0
 
 
-def figH_vit_fingerprints(D):
-    COL_ORDER = list(D['col_order'])
-    BLK_EDGE, BLOCK_SIZES = list(D['blk_edge']), list(D['block_sizes'])
-    n_factors = int(D['n_factors'])
-    C_EVEN, C_ODD = figstyle.color('even'), figstyle.color('odd')
-    C_BFT, C_NEAR, C_FAR = (figstyle.color('ours'), figstyle.color('near_ood'),
-                            figstyle.color('far_ood'))
-    CMAP = ramp_cmap(C_BFT, 'bft')
-    DIGITS = list(range(D['fp_mean_by_digit'].shape[0]))
-    DIGIT_COLOR = _digit_shades(DIGITS, C_EVEN, C_ODD)
-    rt = D['roundtrip_corrs']
-    COND = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['cond']]
-    LIKE = [(l['label'], l['values'], resolve_color(l['color_key'])) for l in D['like']]
-    SIM, SIM_NAMES = D['condition_similarity']['matrix'], list(
-        D['condition_similarity']['names'])
-
-    fp = D['fp']
-    F_id, id_digits, id_targets = fp['id'], np.asarray(fp['id_digits']), np.asarray(
-        fp['id_targets'])
-    F_fm = fp['fmnist']
-    FAR = [(f['label'], f['F']) for f in fp['far']]
-
-    # (b) needs a balanced, plottable subset of the in-distribution fingerprints
-    PER = 30
-    sel = np.concatenate([np.where(id_digits == d)[0][:PER] for d in DIGITS])
-    F_sel, sel_digits = F_id[sel], id_digits[sel]
-    sil_class = cosine_silhouette(F_sel, sel_digits % 2)
-    sil_digit = cosine_silhouette(F_sel, sel_digits)
-
-    def _block_edges():
-        return np.concatenate([[0], BLK_EDGE, [len(COL_ORDER)]])
-
-    def _draw_blocks(ax, n_rows, y_txt):
-        for e in BLK_EDGE:
-            ax.axvline(e - 0.5, color='0.25', lw=0.7)
-        ed = _block_edges()
-        for bi in range(len(BLOCK_SIZES)):
-            ax.text((ed[bi] + ed[bi + 1] - 1) / 2, y_txt, rf'$f_{bi}$', ha='center',
-                    va='bottom', fontsize=6.5, color=C_BFT)
-
-    figstyle.apply(venue='aaai2024', width='full', nrows=3, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.86)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
-                          hspace=0.03, wspace=0.03)
-    gs = fig.add_gridspec(6, 3, height_ratios=[0.10, 1.0, 0.10, 1.0, 0.10, 1.0],
-                          width_ratios=[1.28, 1.0, 1.0], hspace=0.08)
-    spacers = [fig.add_subplot(gs[r, :]) for r in (0, 2, 4)]
-    for sp in spacers:
-        sp.set_axis_off()
-
-    # (a) mean fingerprint per digit — the code is blocked by output circuit
-    gsa = gs[1, :2].subgridspec(1, 2, width_ratios=[1.0, 0.10])
-    ax_a = fig.add_subplot(gsa[0, 0])
-    M = D['fp_mean_by_digit']
-    M = M / M.sum(1, keepdims=True)
-    ax_a.imshow(M[:, COL_ORDER], cmap=CMAP, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.7, vmin=0, vmax=M.max()))
-    _draw_blocks(ax_a, len(DIGITS), -0.75)
-    ax_a.set_xticks([])
-    ax_a.set_yticks(DIGITS); ax_a.set_yticklabels(DIGITS)
-    for t, d in zip(ax_a.get_yticklabels(), DIGITS):
-        t.set_color(DIGIT_COLOR[d])
-    ax_a.set_ylabel('stimulus digit', labelpad=1)
-    ax_a.set_xlabel(f'{n_factors} factors, grouped by output circuit', labelpad=2)
-    ax_a.tick_params(length=1.5, pad=1)
-    for s in ax_a.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_a.set_ylim(len(DIGITS) - 0.5, -1.2)
-
-    # per-digit share of each output circuit — the same numbers, summed per block
-    ax_as = fig.add_subplot(gsa[0, 1])
-    ed = _block_edges()
-    Mo = M[:, COL_ORDER]
-    blk_cols = [tint(C_BFT, f) for f in (0.0, 0.35, 0.68)]
-    for d in DIGITS:
-        left = 0.0
-        for bi in range(len(BLOCK_SIZES)):
-            w = float(Mo[d, ed[bi]:ed[bi + 1]].sum())
-            ax_as.barh(d, w, left=left, color=blk_cols[bi], edgecolor='none',
-                       height=0.8)
-            left += w
-    ax_as.set_xlim(0, 1); ax_as.set_ylim(len(DIGITS) - 0.5, -1.2)
-    ax_as.set_xticks([]); ax_as.set_yticks([])
-    for s in ax_as.spines.values():
-        s.set_visible(False)
-    ax_as.set_xlabel('circuit share', labelpad=2, fontsize=6)
-    for bi, c in enumerate(blk_cols):
-        ax_as.text((bi + 0.5) / 3, -0.9, rf'$f_{bi}$', ha='center', va='bottom',
-                   fontsize=6, color=c if bi < 2 else '0.45')
-
-    # (b) pairwise similarity of the in-distribution fingerprints, sorted by digit
-    ax_b = fig.add_subplot(gs[1, 2])
-    U = unit(F_sel)
-    ax_b.imshow(U @ U.T, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest')
-    for b in range(PER, PER * len(DIGITS), PER):
-        ax_b.axhline(b - 0.5, color='0.35', lw=0.3)
-        ax_b.axvline(b - 0.5, color='0.35', lw=0.3)
-    ctr = (np.arange(len(DIGITS)) + 0.5) * PER
-    ax_b.set_xticks(ctr); ax_b.set_xticklabels(DIGITS, fontsize=6)
-    ax_b.set_yticks(ctr); ax_b.set_yticklabels(DIGITS, fontsize=6)
-    for tt in (ax_b.get_xticklabels(), ax_b.get_yticklabels()):
-        for t, d in zip(tt, DIGITS):
-            t.set_color(DIGIT_COLOR[d])
-    ax_b.tick_params(length=0, pad=1)
-    for s in ax_b.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_b.set_xlabel('stimulus digit', labelpad=1)
-    ax_b.text(0.96, 0.96, f'silhouette\n{sil_class:.2f} parity\n{sil_digit:.2f} digit',
-              transform=ax_b.transAxes, ha='right', va='top', fontsize=6,
-              linespacing=1.15, color='0.15',
-              bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
-
-    # (c) mean fingerprint of every stimulus condition
-    ax_c = fig.add_subplot(gs[3, :2])
-    ROWS = ([('even (ID)', F_id[id_targets == 0].mean(0), C_EVEN),
-             ('odd (ID)', F_id[id_targets == 1].mean(0), C_ODD),
-             ('Fashion-MNIST', F_fm.mean(0), C_NEAR)] +
-            [(lab, X.mean(0), C_FAR) for lab, X in FAR])
-    Mc = np.stack([m for _, m, _ in ROWS])
-    Mc = Mc / Mc.sum(1, keepdims=True)
-    ax_c.imshow(Mc[:, COL_ORDER], cmap=CMAP, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.7, vmin=0, vmax=Mc.max()))
-    _draw_blocks(ax_c, len(ROWS), -0.85)
-    ax_c.axhline(1.5, color='0.25', lw=0.8)
-    ax_c.axhline(2.5, color='0.25', lw=0.8)
-    ax_c.set_xticks([])
-    ax_c.set_yticks(range(len(ROWS)))
-    ax_c.set_yticklabels([r[0] for r in ROWS], fontsize=6)
-    for t, r in zip(ax_c.get_yticklabels(), ROWS):
-        t.set_color(r[2])
-    ax_c.set_xlabel(f'{n_factors} factors, grouped by output circuit', labelpad=2)
-    ax_c.tick_params(length=1.5, pad=1)
-    for s in ax_c.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_c.set_ylim(len(ROWS) - 0.5, -1.3)
-
-    # (d) mean fingerprint similarity between conditions
-    ax_d = fig.add_subplot(gs[3, 2])
-    ax_d.imshow(SIM, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest')
-    for i in range(len(SIM)):
-        for j in range(len(SIM)):
-            ax_d.text(j, i, f'{SIM[i, j]:.2f}'.lstrip('0'), ha='center', va='center',
-                      fontsize=6, color='white' if SIM[i, j] > 0.6 else '0.2')
-    short = [n.replace(' (ID)', '').replace('FashionMNIST', 'F-MNIST')
-             for n in SIM_NAMES]
-    cols_d = [C_EVEN, C_ODD, C_NEAR] + [C_FAR] * (len(short) - 3)
-    ax_d.set_xticks(range(len(short)))
-    ax_d.set_xticklabels(short, rotation=90, fontsize=6)
-    ax_d.set_yticks(range(len(short))); ax_d.set_yticklabels(short, fontsize=6)
-    for tt in (ax_d.get_xticklabels(), ax_d.get_yticklabels()):
-        for t, c in zip(tt, cols_d):
-            t.set_color(c)
-    ax_d.tick_params(length=0, pad=1)
-    for s in ax_d.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-
-    # (e) the same fingerprints in the plane of their first two principal
-    #     components, and the network's own representation beside it
-    gse = gs[5, 0].subgridspec(1, 2, width_ratios=[1.0, 0.78])
-    ax_e = fig.add_subplot(gse[0, 0])
-    ax_e2 = fig.add_subplot(gse[0, 1])
-    EMB = fp_vs_act(D, id_digits)
-    if EMB is not None:
-        _Xf, _lf, _Xa, _la, _rep = EMB
-        pca_panel(ax_e2, _Xa, _la, DIGIT_COLOR, sil=False,
-                  note=None if _rep['aligned'] else 'independent sample')
-    else:
-        _val_na(ax_e2, 'no activation baseline\nin this bundle')
-    X_all = np.concatenate([unit(F_sel), unit(F_fm)] + [unit(X) for _, X in FAR])
-    Xc = X_all - X_all.mean(0)
-    _, sv, vt = np.linalg.svd(Xc, full_matrices=False)
-    evr = sv ** 2 / (sv ** 2).sum()
-    P = Xc @ vt[:2].T
-    n_sel, n_fm = len(F_sel), len(F_fm)
-    ax_e.scatter(*P[n_sel + n_fm:].T, s=3.5, color=C_FAR, alpha=0.5, edgecolor='none',
-                 zorder=1)
-    ax_e.scatter(*P[n_sel:n_sel + n_fm].T, s=3.5, color=C_NEAR, alpha=0.6,
-                 edgecolor='none', zorder=2)
-    for d in DIGITS:
-        m = sel_digits == d
-        ax_e.scatter(*P[:n_sel][m].T, s=3.5, color=DIGIT_COLOR[d], alpha=0.8,
-                     edgecolor='none', zorder=3)
-    for lab, c in (('even (ID)', C_EVEN), ('odd (ID)', C_ODD),
-                   ('Fashion-MNIST', C_NEAR), ('far-OOD', C_FAR)):
-        ax_e.scatter([], [], s=8, color=c, label=lab)
-    ax_e.set_xlabel(f'PC 1 (var {evr[0]:.2f})', labelpad=1, fontsize=6)
-    ax_e.set_ylabel(f'PC 2 (var {evr[1]:.2f})', labelpad=1, fontsize=6)
-    ax_e.set_xticks([]); ax_e.set_yticks([])
-    for s in ax_e.spines.values():
-        s.set_color('0.6'); s.set_linewidth(0.4)
-    ax_e.legend(fontsize=6, frameon=False, loc='upper left', handlelength=0.7,
-                handletextpad=0.25, borderpad=0.1, labelspacing=0.18, ncol=2,
-                columnspacing=0.6, borderaxespad=0.15, scatterpoints=1)
-
-    # (f) far-OOD: every stimulus collapses onto one fingerprint
-    ax_f = fig.add_subplot(gs[5, 1])
-    _violin_rows(ax_f, COND, 'cos. to condition mean', (0.42, 1.045), [0.5, 0.75, 1.0])
-
-    # (g) how close each condition gets to a trained class
-    ax_g = fig.add_subplot(gs[5, 2])
-    _violin_rows(ax_g, LIKE, 'max cosine to a trained class', (0.32, 1.03),
-                 [0.4, 0.6, 0.8, 1.0])
-
-    figstyle.freeze(fig)
-    rt_txt = (rf'NNLS round-trip $r={rt.min():.3f}$--${rt.max():.3f}$'
-              if rt.min() < rt.max() else rf'NNLS round-trip $r={rt.min():.3f}$')
-    for ax, lab, anchor, dx in (
-            (ax_a, '(a) mean fingerprint per digit', spacers[0], 0.0),
-            (ax_b, '(b) fingerprint similarity', spacers[0], -0.030),
-            (ax_c, f'(c) mean fingerprint per condition — {rt_txt}', spacers[1], 0.0),
-            (ax_d, '(d) condition similarity', spacers[1], -0.030),
-            (ax_e, f"(e) fingerprint PCA, {n_factors}-d", spacers[2], 0.0),
-            (ax_e2, (f"{EMB[4]['label']}, {EMB[4]['dim']}-d"
-                     if EMB is not None else 'activations'), spacers[2], 0.0),
-            (ax_f, '(f) far-OOD collapse', spacers[2], 0.0),
-            (ax_g, '(g) distance to a trained class', spacers[2], -0.030)):
-        fig.text(max(ax.get_position().x0 - 0.004 + dx, 0.002),
-                 anchor.get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
-    return fig
+def silhouette_ci(X, labels, n_boot=1000, seed=0):
+    """(point, lo, hi): cosine silhouette with a 95% percentile stimulus-bootstrap
+    CI. Matches cosine_silhouette exactly at w=1."""
+    U = unit(np.asarray(X, float))
+    Dm = 1.0 - U @ U.T
+    np.clip(Dm, 0, 2, out=Dm); np.fill_diagonal(Dm, 0.0)
+    uniq, yidx = np.unique(np.asarray(labels), return_inverse=True)
+    C, n = len(uniq), len(yidx)
+    point = _sil_from_counts(Dm, yidx, C, np.ones(n))
+    rng = np.random.default_rng(seed)
+    vals = np.array([_sil_from_counts(Dm, yidx, C,
+                     np.bincount(rng.integers(0, n, n), minlength=n).astype(float))
+                     for _ in range(n_boot)])
+    lo, hi = np.percentile(vals, [2.5, 97.5])
+    return point, float(lo), float(hi)
 
 
 # ── validation figures (notebook 09) ──────────────────────────────────────────
@@ -3187,6 +2531,13 @@ def fig8_imagenet_circuits(D):
     for i_, st in enumerate(stats):
         ax_c.scatter(np.full(len(st['purity']), i_), st['purity'], s=1.8, color=C_BFT,
                      alpha=0.28, edgecolor='none', zorder=2)
+    # 95% stimulus-bootstrap CI on the lambda-weighted purity (Appendix stats)
+    from src import figdata as _fd
+    _lab = np.asarray(_fd.load('nb05_fingerprints')['fp']['id_targets'])
+    _ci = purity_ci_by_layer(D, _lab)
+    _yerr = np.array([[max(p - lo, 0), max(hi - p, 0)] for p, lo, hi in _ci]).T
+    ax_c.errorbar(x, pur, yerr=_yerr, fmt='none', ecolor='0.25', elinewidth=0.7,
+                  capsize=1.5, capthick=0.7, zorder=4)
     ax_c.plot(x, pur, color=C_BFT, marker='o', ms=2.6, lw=1.3, zorder=3)
     ax_c.set_ylim(0, 1.0); ax_c.set_yticks([0, 0.5, 1.0])
     ax_c.set_yticklabels(['0', '.5', '1'])
@@ -3249,7 +2600,8 @@ def figN_imagenet_details(D):
     chance = 1.0 / N_CLASSES
 
     N_SHOW = 3                     # (b): sub-factors per circuit
-    EX_R, EX_C = 2, 3              # example stimuli per sub-factor (6 of the 8 stored)
+    EX_R, EX_C = 2, 2              # example stimuli per sub-factor (4 of the 5 stored,
+                                   # so the montage is full — no empty cell)
     PER_ROW = 1                    # one circuit per gallery row (wavg + examples wide)
     LAB_W, AVG_W = 0.55, 1.0       # circuit-label / weighted-average column widths
     EX_W = EX_C / EX_R             # keep every example tile square
@@ -3416,141 +2768,18 @@ def figN_imagenet_details(D):
 # geometry in (c), far-OOD in (d)/(e)/(g) and the round-trip in (a).
 
 
-def figO_imagenet_fingerprint_details(D):
-    """Message: the fingerprint machinery behind Fig. 9 — the faithful NNLS
-    round-trip, every condition's mean fingerprint, the far-OOD conditions in the
-    category plane and how far they sit from any category, the code's reproduction
-    across an independent val split, and where its mass lives in the network."""
-    N_CLASSES = int(D['n_classes']); CLS = list(D['class_names'])
-    COL_ORDER, BLK_EDGE, BLK_START, BLOCK_SIZES = _cnn_fp_blocks(D)
-    C_BFT, C_FAR = figstyle.color('ours'), figstyle.color('far_ood')
-    CMAP = ramp_cmap(C_BFT, 'bft')
-    CCOL = class_colors(range(N_CLASSES))
-    fp, dims = D['fp'], D['dims']
-    n_factors = int(D['n_factors'])
-    FAR = list(fp['far'])
-    COND = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['cond']]
-    LIKE = [(c['label'], c['values'], resolve_color(c['color_key'])) for c in D['like']]
+# ── Appendix P — cross-model validation (merges the former Figs. P/Q/R) ───────
+#
+# One full-page figure over all five nb09 validation bundles: faithfulness (a–c),
+# class separability (d,e) and rank robustness (f,g). The helpers below each draw
+# one band from one model's bundle; figP_validation lays out the four bands.
 
-    rows = [(CLS[c], D['fp_mean_by_class'][c], CCOL[c]) for c in range(N_CLASSES)]
-    rows += [(f['label'], f['F'].mean(0), C_FAR) for f in FAR]
-    R = np.stack([r[1] for r in rows]); R = R / R.sum(1, keepdims=True)
-
-    # Panels reduced per figure_comments: the NNLS round-trip (former a), the
-    # far-OOD-vs-centroid map (g), the mass-by-layer bars (h) and the factors-per-
-    # layer bars (i) are dropped; what remains is the per-condition means, the
-    # class geometry, the far-OOD collapse, the distance to any category and the
-    # val-split reproduction, re-lettered a-e over two rows.
-    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.60)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.012, w_pad=0.014,
-                          hspace=0.02, wspace=0.03)
-    gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 1.0, 0.10, 1.0], hspace=0.02)
-    spacers = [fig.add_subplot(gs[r]) for r in (0, 2)]
-    for s_ in spacers:
-        s_.set_axis_off()
-    sp1, sp2 = spacers
-    gs_top = gs[1].subgridspec(1, 2, width_ratios=[1.90, 1.0])
-    gs_bot = gs[3].subgridspec(1, 3)
-    anchors = {}
-
-    # ── (a) mean fingerprint of every condition ──────────────────────────────
-    ax_b = fig.add_subplot(gs_top[0, 0])
-    Rc = R[:, COL_ORDER]; Rc = Rc / (Rc.max(0, keepdims=True) + 1e-12)
-    ax_b.imshow(Rc, cmap=CMAP, aspect='auto', interpolation='nearest',
-                norm=matplotlib.colors.PowerNorm(0.8, vmin=0, vmax=1))
-    for e in BLK_EDGE:
-        ax_b.axvline(e - 0.5, color='0.25', lw=0.6)
-    ax_b.axhline(N_CLASSES - 0.5, color='0.25', lw=0.8)
-    ax_b.set_xticks([]); ax_b.set_yticks(range(len(rows)))
-    ax_b.set_yticklabels([r[0] for r in rows], fontsize=6)
-    for t_, r_ in zip(ax_b.get_yticklabels(), rows):
-        t_.set_color(r_[2])
-    ax_b.set_xlabel(f'{n_factors} factors, grouped into the output circuits',
-                    labelpad=2)
-    ax_b.tick_params(length=1.5, pad=1)
-    for s_ in ax_b.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    anchors['a'] = ax_b
-
-    # ── (b) the block class geometry the fingerprint induces ─────────────────
-    ax_c = fig.add_subplot(gs_top[0, 1])
-    cnn_class_geometry(ax_c, D, CMAP, CCOL, CLS, N_CLASSES)
-    anchors['b'] = ax_c
-
-    # ── (c) far-OOD collapse ─────────────────────────────────────────────────
-    ax_d = fig.add_subplot(gs_bot[0, 0])
-    fp_farood_violin(ax_d, COND)
-    anchors['c'] = ax_d
-
-    # ── (d) how close each OOD condition gets to any category ────────────────
-    ax_e = fig.add_subplot(gs_bot[0, 1])
-    pos = np.arange(len(LIKE))[::-1]
-    for p_, (lab, vals, c_) in zip(pos, LIKE):
-        parts = ax_e.violinplot([vals], positions=[p_], vert=False, widths=0.82,
-                                showextrema=False, showmedians=False)
-        for b_ in parts['bodies']:
-            b_.set_facecolor(c_); b_.set_edgecolor('none'); b_.set_alpha(0.5)
-        ax_e.scatter(np.median(vals), p_, s=9, marker='D', color=c_, zorder=3,
-                     edgecolor='none')
-    ax_e.set_yticks(pos); ax_e.set_yticklabels([c_[0] for c_ in LIKE])
-    for t_, c_ in zip(ax_e.get_yticklabels(), LIKE):
-        t_.set_color(c_[2])
-    ax_e.set_xlim(0.02, 1.03); ax_e.set_xticks([0.25, 0.5, 0.75, 1.0])
-    ax_e.set_xlabel('max cos. to a category', labelpad=1)
-    ax_e.tick_params(length=1.5, pad=1)
-    for s_ in ('top', 'right'):
-        ax_e.spines[s_].set_visible(False)
-    anchors['d'] = ax_e
-
-    # ── (e) the code reproduces across an independent val split ──────────────
-    ax_f = fig.add_subplot(gs_bot[0, 2])
-    sc = D['split_cross']
-    M, bs = sc['matrix'], [int(b) for b in sc['block_sizes']]
-    ax_f.imshow(M, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
-    edges = np.cumsum(bs)
-    for e in edges[:-1]:
-        ax_f.axhline(e - 0.5, color='white', lw=0.4)
-        ax_f.axvline(e - 0.5, color='white', lw=0.4)
-    ctr = edges - np.array(bs) / 2
-    ax_f.set_xticks([]); ax_f.set_yticks(ctr); ax_f.set_yticklabels(CLS, fontsize=6)
-    for t_, c_ in zip(ax_f.get_yticklabels(), range(N_CLASSES)):
-        t_.set_color(CCOL[c_])
-    starts = np.concatenate([[0], edges])
-    within = np.mean([M[starts[i]:edges[i], starts[i]:edges[i]].mean()
-                      for i in range(len(bs))])
-    off = (M.sum() - sum(M[starts[i]:edges[i], starts[i]:edges[i]].sum()
-                         for i in range(len(bs)))) / \
-          (M.size - sum(b * b for b in bs))
-    ax_f.set_xlabel(f'val split A $\\times$ B, by category\n'
-                    f'within {within:.2f}, across {off:.2f}', labelpad=2,
-                    fontsize=6, color='0.35', linespacing=1.25)
-    for s_ in ax_f.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    anchors['e'] = ax_f
-
-    figstyle.freeze(fig)
-    sp_of = {'a': sp1, 'b': sp1, 'c': sp2, 'd': sp2, 'e': sp2}
-    labels = {'a': '(a) mean fingerprint per condition', 'b': '(b) class geometry',
-              'c': '(c) far-OOD collapse', 'd': '(d) distance to any category',
-              'e': '(e) reproduction across a val split'}
-    for key, lab in labels.items():
-        fig.text(max(anchors[key].get_position().x0 - 0.004, 0.002),
-                 sp_of[key].get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
-    return fig
-
-
-# ── Appendix P — the fingerprint's separability under every fair setting ──────
-
-def _faith_row(name, bundle):
+def _faith_row(name, D):
     """One model's faithfulness numbers from its nb09 bundle: causal
     reconstruction (with its random-rank floor and exact ceiling), NNLS
     round-trip, and NMF-seed stability. A metric a model cannot supply is None
     (no causal reconstruction for the pretrained SqueezeNet, no round-trip for
     the ViT's attention nodes)."""
-    from src import figdata
-    D = figdata.load(bundle)
     caps = D['caps']
     li, r2, src = _val_causal_nodes(D)
     rc = D['recon_controls']
@@ -3567,80 +2796,168 @@ def _faith_row(name, bundle):
                 floor=cv('random_R'), ceil=cv('exact'),
                 rt=(float(rt['median']) if caps['roundtrip'] and isinstance(rt, dict)
                     else None),
-                stab=float(np.mean([stab[k]['mean'] for k in stab])))
+                stab=float(np.mean([stab[k]['mean'] for k in stab])),
+                stab_sd=float(np.std([stab[k]['mean'] for k in stab])))
 
 
-def figP_faithfulness(D):
-    """Message: on every model the decomposition is faithful — the causal
-    reconstruction sits between a random-rank floor and the exact ceiling, the
-    NNLS projection round-trip re-explains held-out stimuli, and the factors
-    survive reseeding above the 0.85 gate; the two honest gaps (no causal
-    reconstruction for the pretrained SqueezeNet, no round-trip for the ViT's
-    attention nodes) are shown as n/a rather than hidden."""
-    rows = [_faith_row(*m) for m in _VAL_MODELS]
-    C_BFT = figstyle.color('ours')
+def figP_validation(D):
+    """Message: the cross-model validation figure — on every model the
+    decomposition is faithful (a–c: causal reconstruction between a random-rank
+    floor and the exact ceiling, NNLS round-trip, NMF-seed stability), the BFT
+    fingerprint is the more class-separable code (d,e: it out-silhouettes the
+    dimension-matched activations, and the weight term earns its place), and the
+    factors are a property of the arbor rather than the exact NMF rank (f,g:
+    K*±1 robustness and the rank sweep). Merges the former Figs. P/Q/R; the two
+    honest gaps in (a,b) are shown as n/a rather than hidden.
+
+    Ignores its D argument: loads all five nb09 validation bundles once and reads
+    faithfulness (a–c), separability (d,e) and rank robustness (f,g) from them."""
+    from src import figdata
+    Ds = [(name, figdata.load(b)) for name, b in _VAL_MODELS]
+    frows = [_faith_row(name, Dm) for name, Dm in Ds]
+    srows = [_sil_row(name, Dm) for name, Dm in Ds]
+    n = len(Ds)
+
+    C_BFT, C_ACT = figstyle.color('ours'), figstyle.color('baseline')
     C_RAND, C_CEIL = figstyle.color('random'), figstyle.color('ceiling')
-    y = np.arange(len(rows))[::-1]
+    y = np.arange(n)[::-1]
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=3, mode='appendix',
-                   height_to_width_ratio=0.42)
+    # row heights in inches — generous, so nothing is squished (four bands:
+    # faithfulness bars, separability bars, rank sensitivity, rank sweep)
+    W = 6.975
+    H = [0.24,   # 0  faithfulness legend
+         1.42,   # 1  band A — (a–c) faithfulness, 3 horizontal-bar panels
+         0.22,   # 2  spacer
+         1.74,   # 3  band B — (d,e) separability, 2 grouped-bar panels
+         0.24,   # 4  spacer
+         0.16,   # 5  label (f)
+         1.08,   # 6  band C — (f) rank sensitivity, 5 small multiples
+         0.16,   # 7  label (g)
+         1.12]   # 8  band D — (g) rank sweep, 5 small multiples
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='appendix',
+                   height_to_width_ratio=sum(H) / W)
     fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.06, wspace=0.06)
-    gs = fig.add_gridspec(1, 3, width_ratios=[1.32, 1.0, 1.0])
-    ax_r, ax_t, ax_s = [fig.add_subplot(gs[0, c]) for c in range(3)]
+    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.05, hspace=0.03,
+                          wspace=0.06)
+    gs = fig.add_gridspec(len(H), 1, height_ratios=H, hspace=0.0)
+    sp = {r: fig.add_subplot(gs[r]) for r in (0, 2, 4, 5, 7)}
+    for s_ in sp.values():
+        s_.set_axis_off()
 
-    def barpanel(ax, key, title, *, gate=None, left=False):
-        for yi, r in zip(y, rows):
+    # ── (a–c) the decomposition is faithful ──────────────────────────────────
+    gsa = gs[1].subgridspec(1, 3, width_ratios=[1.32, 1.0, 1.0], wspace=0.08)
+    ax_r, ax_t, ax_s = [fig.add_subplot(gsa[0, c]) for c in range(3)]
+
+    def barpanel(ax, key, title, *, gate=None, left=False, err_key=None):
+        for yi, r in zip(y, frows):
             v = r[key]
             if v is None:
-                ax.text(0.03, yi, 'n/a', va='center', ha='left', fontsize=6.2,
+                ax.text(0.03, yi, 'n/a', va='center', ha='left', fontsize=6.4,
                         color='0.6', style='italic')
                 continue
             ax.barh(yi, v, height=0.62, color=C_BFT, edgecolor='0.25', lw=0.3, zorder=3)
+            if err_key is not None and r.get(err_key):
+                ax.errorbar(v, yi, xerr=r[err_key], fmt='none', ecolor='0.2',
+                            elinewidth=0.7, capsize=1.6, capthick=0.7, zorder=4)
             ax.text(min(v, 1.0) + 0.02, yi, f'{v:.2f}', va='center', ha='left',
-                    fontsize=6.2, color='0.3')
+                    fontsize=6.4, color='0.3')
         if gate is not None:
             ax.axvline(gate, color='0.4', lw=0.8, ls=':', zorder=2)
-            ax.text(gate, len(rows) - 0.35, f'{gate:g}\ngate', ha='center', va='top',
-                    fontsize=6.0, color='0.4', linespacing=1.0)
-        ax.set_xlim(0, 1.2); ax.set_xticks([0, 0.5, 1.0]); ax.set_xticklabels(['0', '', '1'])
-        ax.set_ylim(-0.7, len(rows) - 0.3)
-        ax.set_title(title, fontsize=7, pad=3, fontweight='bold')
+            ax.text(gate - 0.03, -0.55, f'{gate:g} gate', ha='right', va='center',
+                    fontsize=6.0, color='0.4')
+        ax.set_xlim(0, 1.2); ax.set_xticks([0, 0.5, 1.0])
+        ax.set_xticklabels(['0', '', '1'])
+        ax.set_ylim(-0.8, n - 0.2)
+        ax.set_title(title, fontsize=7.5, pad=3, fontweight='bold')
         ax.tick_params(length=1.5, pad=1.5)
         for s_ in ('top', 'right'):
             ax.spines[s_].set_visible(False)
         ax.set_yticks(y)
-        ax.set_yticklabels([r['name'] for r in rows] if left else [], fontsize=6.4)
+        ax.set_yticklabels([r['name'] for r in frows] if left else [], fontsize=6.6)
 
-    # (a) causal reconstruction, bracketed by the random floor and the exact ceiling
     barpanel(ax_r, 'recon', r'(a) causal recon. $R^2$', left=True)
-    for yi, r in zip(y, rows):
+    for yi, r in zip(y, frows):
         if r['recon'] is None:
             continue
         if r['floor'] is not None:
-            ax_r.scatter(max(r['floor'], 0.0), yi, marker='|', s=42, color=C_RAND,
-                         linewidths=1.1, zorder=5)
+            ax_r.scatter(max(r['floor'], 0.0), yi, marker='|', s=46, color=C_RAND,
+                         linewidths=1.2, zorder=5)
         if r['ceil'] is not None:
-            ax_r.scatter(min(r['ceil'], 1.19), yi, marker='|', s=42, color=C_CEIL,
-                         linewidths=1.1, zorder=5)
+            ax_r.scatter(min(r['ceil'], 1.19), yi, marker='|', s=46, color=C_CEIL,
+                         linewidths=1.2, zorder=5)
     barpanel(ax_t, 'rt', '(b) NNLS round-trip')
-    barpanel(ax_s, 'stab', '(c) NMF-seed stability', gate=0.85)
+    barpanel(ax_s, 'stab', '(c) NMF-seed stability', gate=0.85, err_key='stab_sd')
 
     handles = [matplotlib.patches.Patch(fc=C_BFT, ec='0.25', lw=0.3, label='BFT'),
-               matplotlib.lines.Line2D([], [], color=C_RAND, lw=1.1, marker='|',
+               matplotlib.lines.Line2D([], [], color=C_RAND, lw=1.2, marker='|',
                                        ls='none', ms=7, label='random-rank floor (a)'),
-               matplotlib.lines.Line2D([], [], color=C_CEIL, lw=1.1, marker='|',
+               matplotlib.lines.Line2D([], [], color=C_CEIL, lw=1.2, marker='|',
                                        ls='none', ms=7, label='exact ceiling (a)'),
                matplotlib.lines.Line2D([], [], color='0.4', lw=0.8, ls=':',
                                        label='0.85 stability gate (c)')]
-    fig.legend(handles=handles, loc='outside upper center', ncol=4, fontsize=6.5,
-               frameon=False, handlelength=1.2, handletextpad=0.4, columnspacing=1.3)
+    sp[0].legend(handles=handles, loc='center', ncol=4, fontsize=6.8, frameon=False,
+                 handlelength=1.2, handletextpad=0.4, columnspacing=1.6, borderpad=0.0)
+
+    # ── (d,e) the fingerprint is the more class-separable code ───────────────
+    gsb = gs[3].subgridspec(1, 2, wspace=0.14)
+    ax_d, ax_e = fig.add_subplot(gsb[0, 0]), fig.add_subplot(gsb[0, 1])
+    xg = np.arange(n); wbar = 0.36
+
+    from math import comb
+
+    def _sign_p(n_pos, n_tot):                     # one-sided sign test p-value
+        return sum(comb(n_tot, k) for k in range(n_pos, n_tot + 1)) / 2 ** n_tot
+
+    def grouped(ax, k0, k1, c0, c1, l0, l1):
+        top = max(max(r[k0], r[k1]) for r in srows)
+        ax.bar(xg - wbar / 2, [r[k0] for r in srows], wbar, color=c0, edgecolor='0.25',
+               lw=0.3, zorder=3, label=l0)
+        ax.bar(xg + wbar / 2, [r[k1] for r in srows], wbar, color=c1, edgecolor='0.25',
+               lw=0.3, zorder=3, label=l1)
+        ax.set_ylim(0, top * 1.20); ax.set_yticks([0, 0.5, 1.0])
+        ax.set_ylabel('cosine silhouette', fontsize=7, labelpad=2)
+        ax.set_xticks(xg)
+        ax.set_xticklabels([r['name'] for r in srows], fontsize=6.4, rotation=20,
+                           ha='right')
+        ax.tick_params(length=1.5, pad=1.5)
+        for s_ in ('top', 'right'):
+            ax.spines[s_].set_visible(False)
+        ax.legend(fontsize=6.6, frameon=False, loc='upper right', handlelength=0.9,
+                  handletextpad=0.35, borderpad=0.1, labelspacing=0.25)
+        n_pos = int(sum(r[k0] > r[k1] for r in srows))
+        ax.text(0.02, 0.98, f'{n_pos}/{len(srows)} models,\n$p$={_sign_p(n_pos, len(srows)):.3f}',
+                transform=ax.transAxes, ha='left', va='top', fontsize=6.0, color='0.2',
+                linespacing=1.1)
+
+    grouped(ax_d, 'fp_sil', 'act_sil', C_BFT, C_ACT,
+            'BFT fingerprint', 'dim-matched act.')
+    ax_d.set_title('(d) fingerprint vs. network activations', fontsize=7.5, pad=3,
+                   fontweight='bold')
+    grouped(ax_e, 'arbor_nmf', 'act_nmf', C_BFT, tint(C_ACT, 0.5),
+            r'arbor NMF ($W\!\cdot\!a$)', 'activation-only NMF')
+    ax_e.set_title('(e) the weight term earns its place', fontsize=7.5, pad=3,
+                   fontweight='bold')
+
+    # ── (f) sensitivity to the rank, (g) rank vs. arbor reconstruction ───────
+    gsc = gs[6].subgridspec(1, n, wspace=0.10)
+    gsd = gs[8].subgridspec(1, n, wspace=0.10)
+    for c, (name, Dm) in enumerate(Ds):
+        ac = fig.add_subplot(gsc[0, c])
+        _draw_ranksens(ac, Dm, ylab=(c == 0))
+        ac.set_title(name, fontsize=7, pad=2)
+        ad = fig.add_subplot(gsd[0, c])
+        _draw_ranksweep(ad, Dm, ylab=(c == 0))
+
+    figstyle.freeze(fig)
+    for row, txt in ((5, r'(f) sensitivity to the rank ($K^{*}\!\pm\!1$; each dot a '
+                          r'node, bar the median)'),
+                     (7, '(g) rank vs. arbor reconstruction (dot: rank used, line '
+                         'shade: layer depth)')):
+        fig.text(0.006, sp[row].get_position().y0, txt, ha='left', va='bottom',
+                 fontsize=7.5, fontweight='bold')
     return fig
 
 
-# ── Appendix Q — fair separability across all five models ─────────────────────
-
-# name, bundle, fp label key, whether the labels are (or reduce to) parity
 def _draw_ranksens(ax, D, *, ylab=False):
     """Panel-e drawing for one model: how close the re-run factors stay to the
     K* factors when the rank is set to K*-1, K* and K*+1 — the factors are a
@@ -3691,40 +3008,6 @@ def _draw_ranksweep(ax, D, *, ylab=False):
         ax.set_ylabel(r'arbor $R^2$', fontsize=6.5, labelpad=1)
 
 
-def figQ_rank_sensitivity(D):
-    """Message: the factors are a property of the arbor, not of the exact NMF
-    rank — on every model re-running the factorization at K*±1 recovers nearly
-    the same factors (top row) and the arbor reconstruction sits on a plateau in
-    K rather than a cliff (bottom row)."""
-    from src import figdata
-    Ds = [(name, figdata.load(b)) for name, b in _VAL_MODELS]
-    n = len(Ds)
-
-    figstyle.apply(venue='aaai2024', width='full', nrows=2, ncols=n, mode='appendix',
-                   height_to_width_ratio=0.48)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.04, w_pad=0.04, hspace=0.04, wspace=0.06)
-    gs = fig.add_gridspec(4, n, height_ratios=[0.13, 1.0, 0.13, 1.0], hspace=0.04)
-    sp_a = fig.add_subplot(gs[0, :]); sp_a.set_axis_off()
-    sp_b = fig.add_subplot(gs[2, :]); sp_b.set_axis_off()
-    for c, (name, Dm) in enumerate(Ds):
-        ae = fig.add_subplot(gs[1, c])
-        _draw_ranksens(ae, Dm, ylab=(c == 0))
-        ae.set_title(name, fontsize=7, pad=2)
-        af = fig.add_subplot(gs[3, c])
-        _draw_ranksweep(af, Dm, ylab=(c == 0))
-    figstyle.freeze(fig)
-    fig.text(0.004, sp_a.get_position().y0, r'(a) sensitivity to the rank '
-             r'($K^{*}\!\pm\!1$)', ha='left', va='bottom', fontsize=7,
-             fontweight='bold')
-    fig.text(0.004, sp_b.get_position().y0, '(b) rank vs. arbor reconstruction '
-             '(dot: rank used, line shade: layer depth)', ha='left', va='bottom',
-             fontsize=7, fontweight='bold')
-    return fig
-
-
-# ── Appendix R — cross-model validation summary ───────────────────────────────
-
 _VAL_MODELS = [
     ('MLP even/odd', 'nb09_mlp_even_odd_validation'),
     ('MLP digit', 'nb09_mlp_digit_validation'),
@@ -3734,13 +3017,11 @@ _VAL_MODELS = [
 ]
 
 
-def _sil_row(name, bundle):
+def _sil_row(name, D):
     """One model's silhouette numbers from its nb09 bundle: the BFT fingerprint
     against the dimension-matched activations (the separability claim), and the
     weight-term advantage — the same NMF run on the arbor ($W\\!\\cdot\\!a$) vs on
     the activations alone."""
-    from src import figdata
-    D = figdata.load(bundle)
     sep = D['separability']['by_fine']
     a1 = D['A1_weight_vs_activation']['fingerprint_separability']
     return dict(name=name,
@@ -3750,51 +3031,12 @@ def _sil_row(name, bundle):
                 act_nmf=float(a1['activation_nmf']['silhouette']))
 
 
-def figR_silhouette(D):
-    """Message: the BFT fingerprint is the more class-separable code on every
-    model — (a) it out-silhouettes the dimension-matched activations, and (b) the
-    weight term earns its place: the same NMF run on the arbor ($W\\!\\cdot\\!a$)
-    separates classes at least as well as run on the activations alone."""
-    rows = [_sil_row(*m) for m in _VAL_MODELS]
-    C_BFT, C_ACT = figstyle.color('ours'), figstyle.color('baseline')
-    xg = np.arange(len(rows)); w = 0.36
-
-    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=2, mode='appendix',
-                   height_to_width_ratio=0.34)
-    fig = plt.figure()
-    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.06, wspace=0.08)
-    gs = fig.add_gridspec(1, 2)
-    ax_a, ax_b = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
-
-    def grouped(ax, k0, k1, c0, c1, l0, l1):
-        top = max(max(r[k0], r[k1]) for r in rows)
-        ax.bar(xg - w / 2, [r[k0] for r in rows], w, color=c0, edgecolor='0.25',
-               lw=0.3, zorder=3, label=l0)
-        ax.bar(xg + w / 2, [r[k1] for r in rows], w, color=c1, edgecolor='0.25',
-               lw=0.3, zorder=3, label=l1)
-        ax.set_ylim(0, top * 1.18); ax.set_yticks([0, 0.5, 1.0])
-        ax.set_ylabel('cosine silhouette', fontsize=7, labelpad=2)
-        ax.set_xticks(xg)
-        ax.set_xticklabels([r['name'] for r in rows], fontsize=6.0, linespacing=1.1,
-                           rotation=20, ha='right')
-        ax.tick_params(length=1.5, pad=1.5)
-        for s_ in ('top', 'right'):
-            ax.spines[s_].set_visible(False)
-        ax.legend(fontsize=6.2, frameon=False, loc='upper right', handlelength=0.8,
-                  handletextpad=0.35, borderpad=0.1, labelspacing=0.2)
-
-    grouped(ax_a, 'fp_sil', 'act_sil', C_BFT, C_ACT,
-            'BFT fingerprint', 'dim-matched act.')
-    ax_a.set_title('(a) fingerprint vs. network activations', fontsize=7.5, pad=3,
-                   fontweight='bold')
-    grouped(ax_b, 'arbor_nmf', 'act_nmf', C_BFT, tint(C_ACT, 0.5),
-            r'arbor NMF ($W\!\cdot\!a$)', 'activation-only NMF')
-    ax_b.set_title('(b) the weight term earns its place', fontsize=7.5, pad=3,
-                   fontweight='bold')
-    return fig
-
-
-# ── Appendix S — cross-model OOD signature ────────────────────────────────────
+# ── Appendix fingerprint figures: two cross-model figures (OOD / structure) ───
+#
+# figfp_ood and figfp_structure below merge the former per-model fingerprint
+# figures C/D/F/H/O and the cross-model figS into two: everything OOD (figfp_ood)
+# and everything else (figfp_structure). The NNLS round-trip is dropped — it is
+# Fig. P. Both load all five nb0N_fingerprints bundles internally.
 
 _OOD_MODELS = [
     ('$8\\times4$ MLP', 'nb01_fingerprints'),
@@ -3813,13 +3055,12 @@ def _cos_to_mean(X):
     return float((U @ m.T).mean())
 
 
-def ood_signature_one(name, bundle):
+def ood_signature_one(name, D):
     """The OOD signature of one model: how far each condition collapses, and how
     close its mean fingerprint sits to a trained-class centroid. Near-OOD is the
     model's held-out real distribution (held-out digits / Fashion-MNIST /
     CIFAR-100); the pretrained SqueezeNet ships none, so its near bars are absent."""
-    from src import figdata
-    D = figdata.load(bundle); fp = D['fp']
+    fp = D['fp']
     y = np.asarray(fp['id_targets']); X = unit(np.asarray(fp['id'], float))
     cents = unit(np.stack([X[y == c].mean(0) for c in np.unique(y)]))
 
@@ -3845,35 +3086,91 @@ def ood_signature_one(name, bundle):
     return out
 
 
-def figS_ood_signature(D):
-    """Message: every model in the paper shows the same OOD signature. In-distribution
-    and near-OOD (real held-out data) fingerprints stay spread out and land on a
-    trained class; the four synthetic far-OOD conditions collapse onto essentially
-    one fingerprint and, for the deeper nets, sit off every class — so a fingerprint
-    that is both concentrated and far from any centroid flags 'nothing I know'."""
-    rows = [ood_signature_one(*m) for m in _OOD_MODELS]
+def _ood_cond_heatmap(ax, D, CMAP, C_ID, C_NEAR, C_FAR, *, xlabel=False):
+    """One model's mean fingerprint per stimulus condition (in-distribution /
+    near-OOD / the four synthetic far-OOD), each row normalized, factors in the
+    bundle's circuit order with dividers — far-OOD concentrates on a sparse
+    subset of factors while in-distribution spreads across its circuits."""
+    fp = D['fp']
+    col_order = list(D['col_order'])
+    edges = (list(D['blk_edge']) if 'blk_edge' in D
+             else ([int(D['n_ev'])] if 'n_ev' in D else []))
+    Xid = np.asarray(fp['id'], float)
+    rows = [('in-distribution', Xid.mean(0), C_ID)]
+    near = fp.get('ood')
+    if near is None:
+        near = fp.get('fmnist')
+    if near is not None:
+        rows.append((D['cond'][1]['label'], np.asarray(near, float).mean(0), C_NEAR))
+    for f in fp['far']:
+        rows.append((f['label'], np.asarray(f['F'], float).mean(0), C_FAR))
+    M = np.stack([m for _, m, _ in rows]); M = M / M.sum(1, keepdims=True)
+    ax.imshow(M[:, col_order], cmap=CMAP, aspect='auto', interpolation='nearest',
+              norm=matplotlib.colors.PowerNorm(0.7, vmin=0, vmax=M.max()))
+    for e in edges:
+        ax.axvline(e - 0.5, color='0.30', lw=0.5)
+    ax.set_xticks([])
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([r[0] for r in rows], fontsize=6)
+    for t, r in zip(ax.get_yticklabels(), rows):
+        t.set_color(r[2])
+    ax.tick_params(length=1.5, pad=1)
+    for s_ in ax.spines.values():
+        s_.set_color('0.6'); s_.set_linewidth(0.4)
+    if xlabel:
+        ax.set_xlabel(f'{len(col_order)} factors, grouped by output circuit',
+                      labelpad=2, fontsize=6.5)
+
+
+def figfp_ood(D):
+    """Message: every model shows the same OOD signature (merges the OOD panels of
+    the former Figs. C/D/F/H/O and all of Fig. S). In-distribution and near-OOD
+    (real held-out data) fingerprints stay spread out and land on a trained class;
+    the four synthetic far-OOD conditions collapse onto essentially one fingerprint
+    (a) and, for the deeper nets, sit off every class (b). The 8x4 MLP's held-out
+    digits track the network's own P(odd), not the true parity (c). Per model, the
+    mean fingerprint per condition (d-h) shows far-OOD concentrating on a sparse
+    factor subset. Ignores its D argument; loads all five nb0N_fingerprints."""
+    from src import figdata
+    Ds = [(name, figdata.load(b)) for name, b in _OOD_MODELS]
+    rows = [ood_signature_one(name, Dm) for name, Dm in Ds]
     C_ID = figstyle.color('baseline')
     C_NEAR, C_FAR = figstyle.color('near_ood'), figstyle.color('far_ood')
+    C_BFT = figstyle.color('ours'); CMAP = ramp_cmap(C_BFT, 'bft')
+    C_EVEN, C_ODD = figstyle.color('even'), figstyle.color('odd')
 
-    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=2, mode='appendix',
-                   height_to_width_ratio=0.40)
-    fig, (ax_a, ax_b) = plt.subplots(1, 2)
-    fig.set_layout_engine('constrained', h_pad=0.04, w_pad=0.06)
+    W = 6.975
+    H = [0.20,   # 0 legend
+         1.55,   # 1 band A: collapse / distance / held-out
+         0.20,   # 2 spacer
+         0.30,   # 3 band-B label
+         5.20]   # 4 band B: five per-model condition heatmaps
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='appendix',
+                   height_to_width_ratio=sum(H) / W)
+    fig = plt.figure()
+    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.05, hspace=0.03,
+                          wspace=0.05)
+    gs = fig.add_gridspec(len(H), 1, height_ratios=H, hspace=0.0)
+    sp_leg = fig.add_subplot(gs[0]); sp_leg.set_axis_off()
+    sp_lbl = fig.add_subplot(gs[3]); sp_lbl.set_axis_off()
 
-    xg = np.arange(len(rows)); w = 0.26
+    # ── (a,b) cross-model collapse and distance, (c) held-out tracking ───────
+    xg = np.arange(len(rows)); wbar = 0.26
+    SHORT = [r'$8{\times}4$', 'digit', 'CNN', 'ViT', 'ImageNet']
+    gsa = gs[1].subgridspec(1, 3, width_ratios=[1.0, 1.0, 0.94], wspace=0.30)
+    ax_a, ax_b, ax_c = [fig.add_subplot(gsa[0, c]) for c in range(3)]
 
     def triplet(ax, id_key, near_key, far_key):
-        ax.bar(xg - w, [r[id_key] for r in rows], w, color=C_ID, edgecolor='0.25',
-               lw=0.3, zorder=3, label='in-distribution')
+        ax.bar(xg - wbar, [r[id_key] for r in rows], wbar, color=C_ID,
+               edgecolor='0.25', lw=0.3, zorder=3)
         for i, r in enumerate(rows):                # near-OOD, skipped where absent
             if r[near_key] is not None:
-                ax.bar(i, r[near_key], w, color=C_NEAR, edgecolor='0.25', lw=0.3,
-                       zorder=3, label='near-OOD (real)' if i == 0 else None)
-        ax.bar(xg + w, [r[far_key] for r in rows], w, color=C_FAR, edgecolor='0.25',
-               lw=0.3, zorder=3, label='far-OOD (synthetic)')
+                ax.bar(i, r[near_key], wbar, color=C_NEAR, edgecolor='0.25', lw=0.3,
+                       zorder=3)
+        ax.bar(xg + wbar, [r[far_key] for r in rows], wbar, color=C_FAR,
+               edgecolor='0.25', lw=0.3, zorder=3)
         ax.set_xticks(xg)
-        ax.set_xticklabels([r['name'] for r in rows], fontsize=6.2, rotation=18,
-                           ha='right')
+        ax.set_xticklabels(SHORT, fontsize=6.2, rotation=30, ha='right')
         ax.set_ylim(0, 1.04); ax.set_yticks([0, 0.5, 1.0])
         ax.tick_params(length=1.5, pad=1.5)
         for s_ in ('top', 'right'):
@@ -3883,13 +3180,221 @@ def figS_ood_signature(D):
     ax_a.set_ylabel('mean cosine to condition mean', fontsize=7, labelpad=2)
     ax_a.set_title('(a) collapse onto one fingerprint', fontsize=7.5, pad=3,
                    fontweight='bold')
-    ax_a.legend(fontsize=6.2, frameon=False, loc='lower left', handlelength=0.9,
-                handletextpad=0.35, borderpad=0.15, labelspacing=0.25)
-
     triplet(ax_b, 'cent_id', 'cent_near', 'cent_far')
-    ax_b.set_ylabel('max cosine to a trained-class centroid', fontsize=7, labelpad=2)
+    ax_b.set_ylabel('max cosine to a class centroid', fontsize=7, labelpad=2)
     ax_b.set_title('(b) distance to any trained class', fontsize=7.5, pad=3,
                    fontweight='bold')
+
+    D01 = Ds[0][1]
+    DIGIT_COLOR = digit_colors(list(D01['digit_order']), C_EVEN, C_ODD)
+    mlp_heldout(ax_c, D01, DIGIT_COLOR, C_EVEN, C_ODD, float(D01['r_ood']))
+    ax_c.set_title(r'(c) held-out digits track P(odd)',
+                   fontsize=7.5, pad=3, fontweight='bold')
+    ax_c.text(0.04, 0.86, r'$8\times4$ MLP', transform=ax_c.transAxes, ha='left',
+              va='top', fontsize=6.5, color='0.35')
+
+    handles = [matplotlib.patches.Patch(fc=C_ID, ec='0.25', lw=0.3,
+                                        label='in-distribution'),
+               matplotlib.patches.Patch(fc=C_NEAR, ec='0.25', lw=0.3,
+                                        label='near-OOD (real held-out data)'),
+               matplotlib.patches.Patch(fc=C_FAR, ec='0.25', lw=0.3,
+                                        label='far-OOD (synthetic)')]
+    sp_leg.legend(handles=handles, loc='center', ncol=3, fontsize=6.8, frameon=False,
+                  handlelength=1.1, handletextpad=0.4, columnspacing=1.8, borderpad=0.0)
+
+    # ── (d–h) per-model mean fingerprint per condition ───────────────────────
+    # labels go in the inter-heatmap gaps (placed after freeze) so no cell space
+    # is spent on titles and each heatmap stays tall enough to read its rows
+    gsb = gs[4].subgridspec(len(Ds), 1, hspace=0.22)
+    letters = 'defgh'
+    heat_ax = []
+    for i, (name, Dm) in enumerate(Ds):
+        axh = fig.add_subplot(gsb[i, 0])
+        _ood_cond_heatmap(axh, Dm, CMAP, C_ID, C_NEAR, C_FAR,
+                          xlabel=(i == len(Ds) - 1))
+        heat_ax.append((axh, f'({letters[i]}) {name}'))
+
+    figstyle.freeze(fig)
+    fig.text(0.006, sp_lbl.get_position().y1, '(d–h) mean fingerprint per condition '
+             '— far-OOD concentrates on a sparse subset of factors',
+             ha='left', va='top', fontsize=7.5, fontweight='bold')
+    for axh, lab in heat_ax:
+        p = axh.get_position()
+        fig.text(p.x0, p.y1 + 0.004, lab, ha='left', va='bottom', fontsize=7.5,
+                 fontweight='bold')
+    return fig
+
+
+def _fp_sim_matrix(ax, X, labels, names, colors, CMAP, *, coarse=None, per=40,
+                   seed=0):
+    """One model's pairwise-cosine class geometry: a balanced subsample of the
+    in-distribution fingerprints sorted by class, its block-diagonal cosine
+    matrix and the cosine silhouette (parity + digit for the parity models). The
+    silhouette is computed on the full id set so it matches the native-dimension
+    numbers reported elsewhere; only the drawn matrix is subsampled."""
+    X = np.asarray(X, float); labels = np.asarray(labels)
+    sil = cosine_silhouette(X, labels)
+    sil_coarse = (cosine_silhouette(X, np.asarray(coarse)) if coarse is not None
+                  else None)
+    uniq = np.unique(labels)
+    rng = np.random.default_rng(seed)
+    sel = []
+    for c in uniq:
+        w = np.where(labels == c)[0]
+        if len(w) > per:
+            w = np.sort(rng.choice(w, per, replace=False))
+        sel.append(w)
+    sel = np.concatenate(sel)
+    Xs = X[sel]; ys = labels[sel]
+    U = unit(Xs)
+    ax.imshow(U @ U.T, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest',
+              aspect='auto')
+    counts = np.array([int(np.sum(ys == c)) for c in uniq])
+    cuts = np.cumsum(counts)
+    for c_ in cuts[:-1]:
+        ax.axhline(c_ - 0.5, color='white', lw=0.4)
+        ax.axvline(c_ - 0.5, color='white', lw=0.4)
+    ax.set_xticks([])
+    ax.set_yticks(cuts - counts / 2); ax.set_yticklabels(names, fontsize=6)
+    for t, c in zip(ax.get_yticklabels(), colors):
+        t.set_color(c)
+    ax.tick_params(length=0, pad=1)
+    for s_ in ax.spines.values():
+        s_.set_color('0.6'); s_.set_linewidth(0.4)
+    if coarse is not None:
+        txt = f'silhouette\n{sil_coarse:.2f} parity\n{sil:.2f} digit'
+    else:
+        txt = f'silhouette {sil:.2f}'
+    ax.text(0.955, 0.955, txt, transform=ax.transAxes, ha='right', va='top',
+            fontsize=6, linespacing=1.15, color='0.15',
+            bbox=dict(fc='white', ec='none', alpha=0.82, pad=1.0))
+    ax.set_xlabel(f'{len(Xs)} stimuli', labelpad=1, fontsize=6.5)
+
+
+def _repro_matrix(ax, S, names, colors, CMAP, xlabel):
+    """Draw a class x class reproduction matrix (train vs test, or split A vs B)
+    with white dividers, colored row names and the within/off-diagonal summary."""
+    n = len(names)
+    ax.imshow(S, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
+    for e in range(1, n):
+        ax.axhline(e - 0.5, color='white', lw=0.4)
+        ax.axvline(e - 0.5, color='white', lw=0.4)
+    ax.set_xticks([]); ax.set_yticks(range(n)); ax.set_yticklabels(names, fontsize=6)
+    for t, c in zip(ax.get_yticklabels(), colors):
+        t.set_color(c)
+    ax.tick_params(length=0, pad=1)
+    for s_ in ax.spines.values():
+        s_.set_color('0.6'); s_.set_linewidth(0.4)
+    ax.set_xlabel(xlabel, labelpad=2, fontsize=6, color='0.35', linespacing=1.25)
+
+
+def figfp_structure(D):
+    """Message: everything about the fingerprint that is not OOD (merges the
+    remaining panels of the former Figs. C/D/F/H/O; the NNLS round-trip is dropped
+    — it is Fig. P). On every model the fingerprint is a class-structured code:
+    its pairwise-cosine geometry is block-diagonal by class (a-e), and for the two
+    models that ship a second sample the code reproduces across the train/test
+    split (f) and an independent val split (g). Ignores its D argument; loads all
+    five nb0N_fingerprints."""
+    from src import figdata
+    DD = {name: figdata.load(b) for name, b in _OOD_MODELS}
+    C_BFT = figstyle.color('ours'); CMAP = ramp_cmap(C_BFT, 'bft')
+    C_EVEN, C_ODD = figstyle.color('even'), figstyle.color('odd')
+    DIGCOL = digit_colors(list(range(10)), C_EVEN, C_ODD)
+
+    W = 6.975
+    H = [0.16,   # 0 band-A label
+         1.55,   # 1 band A: five class-geometry matrices
+         0.28,   # 2 spacer
+         0.16,   # 3 band-B label
+         2.00]   # 4 band B: two reproduction matrices
+    figstyle.apply(venue='aaai2024', width='full', nrows=1, ncols=1, mode='appendix',
+                   height_to_width_ratio=sum(H) / W)
+    fig = plt.figure()
+    fig.set_layout_engine('constrained', h_pad=0.03, w_pad=0.06, hspace=0.03,
+                          wspace=0.10)
+    gs = fig.add_gridspec(len(H), 1, height_ratios=H, hspace=0.0)
+    sp_a = fig.add_subplot(gs[0]); sp_a.set_axis_off()
+    sp_b = fig.add_subplot(gs[3]); sp_b.set_axis_off()
+
+    # ── (a–e) class geometry, one matrix per model ───────────────────────────
+    def digit_cfg(Dm, label_key, *, parity=False):
+        labs = np.asarray(Dm['fp'][label_key])
+        uniq = np.unique(labs)
+        coarse = np.asarray(Dm['fp']['id_targets']) % 2 if parity else None
+        return (Dm['fp']['id'], labs, [str(int(d)) for d in uniq],
+                [DIGCOL[int(d)] for d in uniq], coarse)
+
+    def class_cfg(Dm):
+        labs = np.asarray(Dm['fp']['id_targets'])
+        uniq = np.unique(labs); CLS = list(Dm['class_names'])
+        return (Dm['fp']['id'], labs, [CLS[int(c)] for c in uniq],
+                list(class_colors(range(len(uniq))).values()), None)
+
+    GEO = [('(a) $8\\times4$ MLP',
+            digit_cfg(DD['$8\\times4$ MLP'], 'id_digits', parity=True)),
+           ('(b) digit MLP', digit_cfg(DD['digit MLP'], 'id_targets')),
+           ('(c) CIFAR-10 CNN', class_cfg(DD['CIFAR-10 CNN'])),
+           ('(d) TinyViT', digit_cfg(DD['TinyViT'], 'id_digits', parity=True)),
+           ('(e) ImageNet', class_cfg(DD['ImageNet']))]
+    gsa = gs[1].subgridspec(1, 5, wspace=0.16)
+    for i, (title, (X, labs, names, cols, coarse)) in enumerate(GEO):
+        ax = fig.add_subplot(gsa[0, i])
+        _fp_sim_matrix(ax, X, labs, names, cols, CMAP, coarse=coarse)
+        ax.set_title(title, fontsize=7.5, pad=3, fontweight='bold')
+
+    # ── (f) CIFAR-10 train vs test, (g) ImageNet independent val split ───────
+    gsb = gs[4].subgridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.22)
+    D3 = DD['CIFAR-10 CNN']; fp3 = D3['fp']
+    CLS3 = list(D3['class_names']); n3 = int(D3['n_classes'])
+    Ttr = unit(np.stack([fp3['train'][fp3['train_targets'] == c].mean(0)
+                         for c in range(n3)]))
+    Tte = unit(np.stack([fp3['id'][fp3['id_targets'] == c].mean(0)
+                         for c in range(n3)]))
+    S3 = Ttr @ Tte.T
+    n_hit = int((S3.argmax(1) == np.arange(n3)).sum())
+    ax_f = fig.add_subplot(gsb[0, 0])
+    _repro_matrix(ax_f, S3, CLS3, list(class_colors(range(n3)).values()), CMAP,
+                  'rows: train, columns: test\n'
+                  f'diag {np.diag(S3).mean():.2f}, off-diag '
+                  f'{S3[~np.eye(n3, dtype=bool)].mean():.2f}, {n_hit}/{n3} nearest')
+    ax_f.set_title('(f) CIFAR-10: train vs test', fontsize=7.5, pad=3,
+                   fontweight='bold')
+
+    D5 = DD['ImageNet']; sc = D5['split_cross']
+    M5 = np.asarray(sc['matrix']); bs = [int(b) for b in sc['block_sizes']]
+    CLS5 = list(D5['class_names']); n5 = len(bs)
+    edges = np.cumsum(bs); starts = np.concatenate([[0], edges])
+    within = float(np.mean([M5[starts[i]:edges[i], starts[i]:edges[i]].mean()
+                            for i in range(n5)]))
+    off = float((M5.sum() - sum(M5[starts[i]:edges[i], starts[i]:edges[i]].sum()
+                                for i in range(n5))) /
+                (M5.size - sum(b * b for b in bs)))
+    ax_g = fig.add_subplot(gsb[0, 1])
+    ax_g.imshow(M5, cmap=CMAP, vmin=0, vmax=1, interpolation='nearest', aspect='auto')
+    for e in edges[:-1]:
+        ax_g.axhline(e - 0.5, color='white', lw=0.4)
+        ax_g.axvline(e - 0.5, color='white', lw=0.4)
+    ax_g.set_xticks([]); ax_g.set_yticks(edges - np.array(bs) / 2)
+    ax_g.set_yticklabels(CLS5, fontsize=6)
+    for t, c in zip(ax_g.get_yticklabels(), class_colors(range(n5)).values()):
+        t.set_color(c)
+    ax_g.tick_params(length=0, pad=1)
+    for s_ in ax_g.spines.values():
+        s_.set_color('0.6'); s_.set_linewidth(0.4)
+    ax_g.set_xlabel(f'val split A $\\times$ B, by category\n'
+                    f'within {within:.2f}, across {off:.2f}', labelpad=2, fontsize=6,
+                    color='0.35', linespacing=1.25)
+    ax_g.set_title('(g) ImageNet: independent val split', fontsize=7.5, pad=3,
+                   fontweight='bold')
+
+    figstyle.freeze(fig)
+    fig.text(0.006, sp_a.get_position().y0, '(a–e) class geometry: pairwise cosine '
+             'of the fingerprints, sorted by class', ha='left', va='bottom',
+             fontsize=7.5, fontweight='bold')
+    fig.text(0.006, sp_b.get_position().y0, '(f,g) the code is a property of the '
+             'class, not the sample', ha='left', va='bottom', fontsize=7.5,
+             fontweight='bold')
     return fig
 
 
@@ -3900,28 +3405,17 @@ FIGURES = {
     'figA_mlp_details':    ('nb01_circuits', figA_mlp_details, 'appendix'),
     'figB_digit_mlp_details':  ('nb02_circuits', figB_digit_mlp_details, 'appendix'),
     'fig4_fingerprints_main':  ('nb03_fingerprints', fig4_fingerprints_main, 'paper'),
-    'figC_mlp_fingerprint_details': ('nb01_fingerprints',
-                                     figC_mlp_fingerprint_details, 'appendix'),
-    'figD_digit_mlp_fingerprint_details': ('nb02_fingerprints',
-                                           figD_digit_mlp_fingerprint_details,
-                                           'appendix'),
     'fig6_cnn_circuits': ('nb03_circuits', fig6_cnn_circuits, 'paper'),
     'figE_cnn_details': ('nb03_circuits', figE_cnn_details, 'appendix'),
-    'figF_cnn_fingerprint_details': ('nb03_fingerprints',
-                                     figF_cnn_fingerprint_details, 'appendix'),
     'fig8_imagenet_circuits': ('nb05_circuits', fig8_imagenet_circuits, 'paper'),
     'figN_imagenet_details': ('nb05_circuits', figN_imagenet_details, 'appendix'),
-    'figO_imagenet_fingerprint_details': ('nb05_fingerprints',
-                                          figO_imagenet_fingerprint_details,
-                                          'appendix'),
     'figG_vit_circuits': ('nb04_circuits', figG_vit_circuits, 'appendix'),
-    'figH_vit_fingerprints': ('nb04_fingerprints', figH_vit_fingerprints, 'appendix'),
-    # cross-model validation, one figure per topic (the former per-model figI--M
-    # are merged into these three; each loads all five nb09 bundles internally)
-    'figP_faithfulness': ('nb09_mlp_even_odd_validation', figP_faithfulness,
-                          'appendix'),
-    'figQ_rank_sensitivity': ('nb09_mlp_even_odd_validation', figQ_rank_sensitivity,
-                              'appendix'),
-    'figR_silhouette': ('nb09_mlp_even_odd_validation', figR_silhouette, 'appendix'),
-    'figS_ood_signature': ('nb01_fingerprints', figS_ood_signature, 'appendix'),
+    # cross-model validation: one full-page figure (merges the former figP/figQ/
+    # figR); loads all five nb09 bundles internally, so the registry bundle is only
+    # the render gate.
+    'figP_validation': ('nb09_mlp_even_odd_validation', figP_validation, 'appendix'),
+    # appendix fingerprint analysis: two cross-model figures (merge the former
+    # figC/D/F/H/O + figS); each loads all five nb0N_fingerprints internally.
+    'figfp_ood': ('nb01_fingerprints', figfp_ood, 'appendix'),
+    'figfp_structure': ('nb01_fingerprints', figfp_structure, 'appendix'),
 }
