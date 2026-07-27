@@ -1,0 +1,42 @@
+{
+ "arch": "SmallCNN",
+ "bft_conv_pool_method": "avg",
+ "bft_stimulus_threshold": 0.0,
+ "candidates": [
+  "bft_fingerprint",
+  "raw_activations",
+  "bft_matched",
+  "act_matched",
+  "act_randproj"
+ ],
+ "class_names": [
+  "airplane",
+  "automobile",
+  "bird",
+  "cat",
+  "deer",
+  "dog",
+  "frog",
+  "horse",
+  "ship",
+  "truck"
+ ],
+ "exp": "cnn_cifar",
+ "has_fine": false,
+ "label": "CIFAR-10",
+ "mode": "cluster",
+ "n_classes": 10,
+ "n_replicates": 5,
+ "replicate_type": "model_seed",
+ "source": "notebook 11 \u2014 publication HPs from source notebook; variance across model_seed (n=5)",
+ "summary.act_matched_silhouette_mean": 0.16946111917495726,
+ "summary.act_matched_silhouette_std": 0.04740304187704783,
+ "summary.activation_nmf_silhouette_mean": 0.3021934419870377,
+ "summary.activation_nmf_silhouette_std": 0.10151863470912426,
+ "summary.arbor_minus_activation_nmf_mean": 0.021053528785705544,
+ "summary.arbor_nmf_silhouette_mean": 0.3232469707727432,
+ "summary.arbor_nmf_silhouette_std": 0.06874950877707524,
+ "summary.fp_minus_act_matched_mean": 0.07127159833908081,
+ "summary.fp_silhouette_mean": 0.24073271751403807,
+ "summary.fp_silhouette_std": 0.05678254366855882
+}
