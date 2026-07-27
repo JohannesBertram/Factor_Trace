@@ -53,6 +53,13 @@ PALETTE = {
     "grey":   _hx(palettes.paultol_bright[6]),
 }
 
+# Panel labels — "(a)", "(b)", ... and the descriptive text next to them — use
+# ONE size across every figure so the paper reads as a set. Sized for a full-width
+# figure (the default here); pass an explicit size to label_axes/panel_label only
+# for a genuinely narrower figure. Keeping it here (not per-figure) is what makes
+# the labels match from figure to figure.
+PANEL_LABEL_SIZE = 7.5
+
 # Default categorical cycles (in priority order)
 CYCLE_DEFAULT = [_hx(c) for c in palettes.paultol_bright]        # up to 7 series
 CYCLE_MANY = [_hx(c) for c in palettes.paultol_muted]            # up to 10 series
@@ -270,23 +277,25 @@ def apply(venue: str = "neurips2024", *, width: str = "full",
 # Helpers: subplot labels, shared legend, dual axis
 # --------------------------------------------------------------------------- #
 
-def label_axes(axs, *, style="(a)", loc="top-left", **text_kw):
+def label_axes(axs, *, style="(a)", loc="top-left", size=None, **text_kw):
     """Label subplots (a), (b), ... so captions can reference each panel.
 
     style: "(a)" | "a" | "A" | "(A)".  loc: "top-left" | "title-left".
+    size: font size; defaults to PANEL_LABEL_SIZE so every figure matches.
     """
     import numpy as np
     axs = np.atleast_1d(axs).ravel()
     letters = "abcdefghijklmnopqrstuvwxyz"
+    size = PANEL_LABEL_SIZE if size is None else size
     for i, ax in enumerate(axs):
         ch = letters[i]
         if "A" in style:
             ch = ch.upper()
         lab = f"({ch})" if "(" in style else ch
-        kw = dict(fontweight="bold", va="top", ha="left")
+        kw = dict(fontweight="bold", va="top", ha="left", fontsize=size)
         kw.update(text_kw)
         if loc == "title-left":
-            ax.set_title(lab, loc="left", fontweight="bold")
+            ax.set_title(lab, loc="left", fontweight="bold", fontsize=size)
         else:
             ax.text(0.02, 0.98, lab, transform=ax.transAxes, **kw)
 
@@ -361,7 +370,7 @@ def panel_label(anchor, text, *, dx=0.0, dy=0.012, loc="above", **text_kw):
         warnings.warn("panel_label() before figstyle.freeze(fig): the label "
                       "will be misplaced once the layout engine runs.")
     p = ax.get_position()
-    kw = dict(fontweight="bold")
+    kw = dict(fontweight="bold", fontsize=PANEL_LABEL_SIZE)
     kw.update(text_kw)
     if loc == "left":
         return fig.text(max(p.x0 - 0.008 + dx, 0.002), p.y0 + p.height / 2 + dy,

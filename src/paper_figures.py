@@ -30,6 +30,10 @@ import figstyle
 
 IMAGE_SIDE = 28
 
+# One size for every panel label ("(a)", "(b)", ...) and its inline description,
+# so the labels match across all paper figures (see figstyle.PANEL_LABEL_SIZE).
+PANEL_LABEL = figstyle.PANEL_LABEL_SIZE
+
 
 # ── shared style helpers ──────────────────────────────────────────────────────
 
@@ -78,10 +82,31 @@ def row_label(fig, spec, text, color='k'):
     return ax
 
 
+def label_two_tone(fig, x, y, tag, rest, rest_color, *, size=None):
+    """Panel label whose ``(a)`` tag is always black and whose description takes
+    a component color, drawn as two pieces. Call after figstyle.freeze: the tag's
+    rendered width (plus one space) is measured to place the colored part after it."""
+    size = PANEL_LABEL if size is None else size
+    r = fig.canvas.get_renderer()
+
+    def width_frac(s):                                # rendered width in figure fractions
+        t = fig.text(0, 0, s, fontweight='bold', fontsize=size)
+        bb = t.get_window_extent(r).transformed(fig.transFigure.inverted())
+        t.remove()
+        return bb.width
+
+    fig.text(x, y, tag, ha='left', va='bottom', color='k',
+             fontweight='bold', fontsize=size)
+    space = width_frac('i i') - width_frac('ii')      # a space, trailing ones are trimmed
+    fig.text(x + width_frac(tag) + space, y, rest, ha='left', va='bottom',
+             color=rest_color, fontweight='bold', fontsize=size)
+
+
 def spacer_label(fig, anchor, spacer, text, color='k', dx=0.0):
     """Panel label in a reserved spacer row, anchored to an axes. Use after freeze."""
     fig.text(max(anchor.get_position().x0 + dx, 0.002), spacer.get_position().y0,
-             text, ha='left', va='bottom', color=color, fontweight='bold')
+             text, ha='left', va='bottom', color=color, fontweight='bold',
+             fontsize=PANEL_LABEL)
 
 
 def bar_panel(ax, values, digit_order, digit_color, *, xticks=True,
@@ -107,6 +132,39 @@ def bar_panel(ax, values, digit_order, digit_color, *, xticks=True,
         ax.set_ylabel(ylab, labelpad=1)
     if title:
         ax.set_title(title, color=tcolor, pad=1.5)
+
+
+def pruning_panel(ax, P):
+    """Causal check (single panel): prune the connections BFT marks most
+    important for a class, sweep the fraction removed, and read the two classes'
+    accuracy. Removing a BFT class circuit collapses *that* class (solid) while
+    the other is spared (dashed); removing the same count at random barely hurts
+    (dotted). So the traced connections are causally necessary and class specific."""
+    fr = np.asarray(P['fractions']) * 100.0            # % of connections pruned
+    C_BFT, C_RAND = figstyle.color('ours'), figstyle.color('random')
+    bt, rd = P['methods']['bft_top'], P['methods']['random']
+
+    ax.axhline(0.5, color='0.8', lw=0.5, ls=(0, (3, 2)), zorder=0)      # chance
+    ax.text(1.0, 0.5, 'chance', fontsize=6, color='0.55', ha='left', va='bottom')
+    ax.fill_between(fr, bt['target_mean'] - bt['target_sd'],
+                    bt['target_mean'] + bt['target_sd'], color=C_BFT, alpha=0.15, lw=0)
+    ax.plot(fr, bt['target_mean'], '-o', ms=2.2, lw=1.3, color=C_BFT, zorder=4,
+            label='BFT · pruned class')
+    ax.plot(fr, bt['bystander_mean'], '--', lw=1.2, color=C_BFT, zorder=3,
+            label='BFT · other class')
+    ax.plot(fr, rd['target_mean'], ':', lw=1.2, color=C_RAND, zorder=2,
+            label='random · pruned class')
+
+    ax.set_xlim(0, fr.max()); ax.set_ylim(-0.02, 1.06)
+    ax.set_xticks([0, 25, 50]); ax.set_yticks([0, 0.5, 1.0])
+    ax.set_yticklabels(['0', '.5', '1'])
+    ax.set_xlabel('% weights pruned', labelpad=1, fontsize=6)
+    ax.set_ylabel('class accuracy', labelpad=1, fontsize=6)
+    ax.tick_params(length=1.5, pad=1, labelsize=6)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
+    ax.legend(loc='center right', fontsize=6, frameon=False, handlelength=1.3,
+              handletextpad=0.4, labelspacing=0.2, borderaxespad=0.1)
 
 
 def draw_scaffold(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
@@ -321,7 +379,8 @@ def fig2_mlp_circuits(D):
     # ── (a) both circuits in one graph: shared units and output push-pull ────
     ax_a = fig.add_subplot(gs[0, 0])
     draw_scaffold_pair(ax_a, CIRCUITS, LAYER_SIZES, C_INH, OUT_LABELS)
-    ax_a.set_title('(a) the two class circuits', pad=2, loc='left', fontweight='bold')
+    ax_a.set_title('(a) the two class circuits', pad=2, loc='left',
+                   fontweight='bold', fontsize=PANEL_LABEL)
 
     # ── (b) the top of the trace tree, as per-digit loadings ────────────────
     gsb = gs[0, 1].subgridspec(3, 7, height_ratios=[1.0, 0.24, 1.0])
@@ -345,12 +404,17 @@ def fig2_mlp_circuits(D):
     bar_panel(ax_b[4], CIRCUITS[1]['l2_profiles'][0], title=r'$L_2\ f_0$',
               tcolor=C_ODD, **bp)
 
-    # ── (d), (e) layer-1 sub-circuits: pixel arbor + per-digit loading ───────
+    # ── (c), (d) layer-1 sub-circuits: pixel arbor + per-digit loading; (e) the
+    #    causal pruning check to their right. The two circuits are squeezed into a
+    #    smaller share of the row (narrower digit montages + bars) to open a column
+    #    for (e). ─────────────────────────────────────────────────────────────
     gs_bot = gs[1, :].subgridspec(2, 1, height_ratios=[0.13, 1.0])
     sp_de = fig.add_subplot(gs_bot[0]); sp_de.set_axis_off()   # room for the labels
     n_l1 = len(CIRCUITS[0]['l1_arbors'])                       # 4 factors per circuit
-    gsd = gs_bot[1].subgridspec(2, 2 * n_l1 + 1, height_ratios=[1.0, 0.45],
-                                width_ratios=[1] * n_l1 + [0.4] + [1] * n_l1)
+    # cols: n_l1 even factors | gap | n_l1 odd factors | gap | (e) pruning panel
+    gsd = gs_bot[1].subgridspec(2, 2 * n_l1 + 3, height_ratios=[1.0, 0.45],
+                                width_ratios=[1] * n_l1 + [0.4] + [1] * n_l1
+                                + [0.7] + [3.15])
     img_axes = {}
     for ci, c in enumerate(CIRCUITS):
         base = 0 if ci == 0 else n_l1 + 1
@@ -360,13 +424,18 @@ def fig2_mlp_circuits(D):
             axi = fig.add_subplot(gsd[0, base + k])
             show_map(axi, M, cmap)
             top = DIGIT_ORDER[int(np.argmax(c['l1_profiles'][k]))]
-            axi.text(0.05, 0.97, rf'$f_{k}$', transform=axi.transAxes, ha='left',
-                     va='top', color=c['color'], fontsize=6.5)
-            axi.text(0.95, 0.97, f'{top}', transform=axi.transAxes, ha='right',
-                     va='top', color='0.3', fontsize=6.5, fontweight='bold')
+            axi.text(0.06, 0.98, rf'$f_{k}$', transform=axi.transAxes, ha='left',
+                     va='top', color=c['color'], fontsize=6.0)
+            axi.text(0.94, 0.98, f'{top}', transform=axi.transAxes, ha='right',
+                     va='top', color='0.3', fontsize=6.0, fontweight='bold')
             img_axes[ci].append(axi)
             bar_panel(fig.add_subplot(gsd[1, base + k]), c['l1_profiles'][k],
                       xticks=(k == 0), ylab='loading' if k == 0 else None, **bp)
+
+    # ── (e) causal validation by pruning (loaded from its own bundle) ────────
+    from src import figdata as _fd
+    ax_e = fig.add_subplot(gsd[:, -1])
+    pruning_panel(ax_e, _fd.load('nb13_pruning_mlp_even_odd'))
 
     # ── settle constrained_layout, then freeze and add cross-axes annotation ──
     figstyle.freeze(fig)          # draw once, then switch the layout engine off
@@ -375,7 +444,7 @@ def fig2_mlp_circuits(D):
     # edge of the leftmost L2 axis, top of the L3 row), kept clear of the blue
     # "L3 even" title that sits over the loading plot.
     fig.text(ax_b[2].get_position().x0, ax_b[0].get_position().y1, '(b)',
-             ha='left', va='bottom', color='k', fontweight='bold')
+             ha='left', va='bottom', color='k', fontweight='bold', fontsize=PANEL_LABEL)
 
     for src, dsts in ((ax_b[0], (ax_b[2], ax_b[3])), (ax_b[1], (ax_b[4],))):  # tree
         b0 = src.get_position()
@@ -388,11 +457,16 @@ def fig2_mlp_circuits(D):
                                                    [ytop, ymid, ymid, ybot],
                                                    color='0.5', lw=1.0, zorder=0))
 
-    for ci, c in enumerate(CIRCUITS):                                    # block labels
-        fig.text(max(img_axes[ci][0].get_position().x0 - 0.008, 0.002),
-                 sp_de.get_position().y0,
-                 f"({'cd'[ci]}) {c['name']} circuit — $L_1$ factors below $L_2\\,f_0$",
-                 ha='left', va='bottom', color=c['color'], fontweight='bold')
+    # block labels: the "(c)"/"(d)"/"(e)" tag stays black, only the description
+    # carries the circuit / method color.
+    yl = sp_de.get_position().y0
+    for ci, c in enumerate(CIRCUITS):
+        label_two_tone(fig, max(img_axes[ci][0].get_position().x0 - 0.008, 0.002), yl,
+                       f"({'cd'[ci]})",
+                       f"{c['name']} circuit — $L_1$ factors below $L_2\\,f_0$",
+                       c['color'])
+    label_two_tone(fig, max(ax_e.get_position().x0 - 0.008, 0.002), yl,
+                   '(e)', 'causal pruning', figstyle.color('ours'))
     return fig
 
 
@@ -1102,7 +1176,8 @@ def fig4_fingerprints_main(D):
                             (ax_h, img_lab, sp3),
                             (ax_i, '(i) both · fingerprint vs. activations', sp3)):
         fig.text(max(ax.get_position().x0 - 0.004, 0.002),
-                 anchor.get_position().y0, lab, ha='left', va='bottom', fontweight='bold')
+                 anchor.get_position().y0, lab, ha='left', va='bottom',
+                 fontweight='bold', fontsize=PANEL_LABEL)
     return fig
 
 
@@ -1292,7 +1367,7 @@ def figB_digit_mlp_details(D):
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0, text, ha='left', va='bottom',
-                 fontsize=7, fontweight='bold')
+                 fontsize=PANEL_LABEL, fontweight='bold')
 
     _label('a', 0, '(a) output-layer factors', dx=-0.030)
     _label('b', 0, '(b) un-pooling', dx=-0.030)
@@ -1423,11 +1498,23 @@ def cnn_layers(NODES):
     return [(name, groups[name]) for name in order]
 
 
-def rgb_spread(D, imgs):
-    """Mean pairwise distance between the mean colors of a set of stimuli."""
-    c = np.stack([cifar_rgb(D, im).mean((0, 1)) for im in imgs])
-    d = np.linalg.norm(c[:, None] - c[None, :], axis=-1)
-    return d[np.triu_indices(len(c), 1)].mean()
+def color_spread(D, imgs, levels=2):
+    """Entropy-based color spread of a factor's top-stimulus set.
+
+    Each stimulus is reduced to its mean RGB color and quantized into a
+    ``levels`` x ``levels`` x ``levels`` grid of RGB cells (with levels=2, the
+    eight primary color cells: each channel high/low around 0.5). The metric is
+    the Shannon entropy of the resulting histogram, normalized by ``log2`` of
+    the cell count to lie in [0, 1]: ~0 when every top stimulus falls in one
+    color cell (a color-coherent factor), rising toward 1 as the top set spreads
+    across the palette. Replaces the earlier mean-pairwise-RGB-distance spread —
+    same monotone trend with depth, but a bounded, interpretable entropy."""
+    c = np.stack([cifar_rgb(D, im).mean((0, 1)) for im in imgs])     # (T, 3) in [0,1]
+    idx = np.clip((c * levels).astype(int), 0, levels - 1)
+    keys = idx[:, 0] * levels * levels + idx[:, 1] * levels + idx[:, 2]
+    p = np.bincount(keys, minlength=levels ** 3)
+    p = p[p > 0] / len(keys)
+    return float(-(p * np.log2(p)).sum() / np.log2(levels ** 3) + 0.0)
 
 
 def cnn_depth_stats(D, seed=0):
@@ -1437,14 +1524,14 @@ def cnn_depth_stats(D, seed=0):
     for name, nodes in cnn_layers(D['nodes']):
         pur = np.concatenate([n['class_profile'].max(1) for n in nodes])
         lam = np.concatenate([n['lam_share'] for n in nodes])
-        spread = np.array([rgb_spread(D, n['top_images'][k])
+        spread = np.array([color_spread(D, n['top_images'][k])
                            for n in nodes for k in range(n['n_factors'])])
         rows.append(dict(layer=name, purity=pur, lam=lam, spread=spread))
     pool = np.concatenate([n['top_images'].reshape(-1, *n['top_images'].shape[-3:])
                            for n in D['nodes']])
     rng = np.random.default_rng(seed)
     n_top = D['nodes'][0]['top_images'].shape[1]
-    rand = np.mean([rgb_spread(D, pool[rng.choice(len(pool), n_top, replace=False)])
+    rand = np.mean([color_spread(D, pool[rng.choice(len(pool), n_top, replace=False)])
                     for _ in range(300)])
     return rows, float(rand)
 
@@ -1636,7 +1723,7 @@ def fig6_cnn_circuits(D):
         rgb_strip(ax, leaf['conn']['in_mass'][k])
         tag(ax, rf'$f_{{{k}}}$')
         lab = fig.add_subplot(gscl[1, k]); lab.set_axis_off()
-        lab.text(0.5, 1.0, f'{leaf["class_profile"][k].max():.2f}', ha='center',
+        lab.text(0.5, 1.0, f'{color_spread(D, leaf["top_images"][k]):.2f}', ha='center',
                  va='top', fontsize=6, color='0.2')
         if k == 0:
             anchors['c'] = ax
@@ -1680,10 +1767,10 @@ def fig6_cnn_circuits(D):
     spread = [st['spread'].mean() for st in stats]
     ax_e.axhline(rand, color=tint(C_BASE, 0.45), lw=0.6, ls=(0, (3, 2)), zorder=0)
     ax_e.plot(x, spread, color=C_BASE, marker='s', ms=2.6, lw=1.4, zorder=3)
-    ax_e.set_ylim(0, 0.34); ax_e.set_yticks([0, 0.1, 0.2, 0.3])
-    ax_e.set_yticklabels(['0', '', '.2', ''])
+    ax_e.set_ylim(0, 0.68); ax_e.set_yticks([0, 0.2, 0.4, 0.6])
+    ax_e.set_yticklabels(['0', '.2', '.4', '.6'])
     ax_e.set_ylabel('color spread', color=C_BASE, labelpad=1, fontsize=6)
-    ax_e.text(len(stats) - 0.1, rand - 0.012, 'random', fontsize=6,
+    ax_e.text(len(stats) - 0.1, rand - 0.02, 'random', fontsize=6,
               color=tint(C_BASE, 0.3), ha='right', va='top')
     ax_e.set_xlim(-0.35, len(stats) - 0.65); ax_e.set_xticks(x)
     ax_e.set_xticklabels(xt, fontsize=6)
@@ -1707,11 +1794,11 @@ def fig6_cnn_circuits(D):
     def _label(key, spacer, text, dx=0.0, **kw):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
-                 va='bottom', fontsize=7, fontweight='bold', **kw)
+                 va='bottom', fontsize=PANEL_LABEL, fontweight='bold', **kw)
 
     _label('a', 0, '(a) output factors, with class distribution', dx=-0.004)
     _label('b', 1, r'(b) traceback to $L_4$', dx=-0.010)
-    _label('c', 2, r'(c) $L_1$ factors of $f_9$ (class purity below)', dx=-0.004)
+    _label('c', 2, r'(c) $L_1$ factors of $f_9$ (color spread below)', dx=-0.004)
     _label('d', 2, '(d) class purity', dx=-0.030)
     _label('e', 2, '(e) color spread', dx=-0.030)
     return fig
@@ -2190,7 +2277,7 @@ def figG_vit_circuits(D):
     def _label(key, spacer, text, dx=0.0):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0, text, ha='left', va='bottom',
-                 fontsize=7, fontweight='bold')
+                 fontsize=PANEL_LABEL, fontweight='bold')
 
     _label('a', 0, '(a) informativity spectra, by layer of the block', dx=-0.030)
     _label('b', 0, '(b) output circuits', dx=-0.028)
@@ -2565,7 +2652,7 @@ def fig8_imagenet_circuits(D):
     def _label(key, spacer, text, dx=0.0, **kw):
         fig.text(max(anchors[key].get_position().x0 + dx, 0.002),
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
-                 va='bottom', fontsize=7, fontweight='bold', **kw)
+                 va='bottom', fontsize=PANEL_LABEL, fontweight='bold', **kw)
 
     _label('a', 0, '(a) output factors, with category distribution', dx=-0.004)
     _label('b', 1, r'(b) traceback to $L_9$', dx=-0.010)
@@ -2868,7 +2955,7 @@ def figP_validation(D):
         ax.set_xlim(0, 1.2); ax.set_xticks([0, 0.5, 1.0])
         ax.set_xticklabels(['0', '', '1'])
         ax.set_ylim(-0.8, n - 0.2)
-        ax.set_title(title, fontsize=7.5, pad=3, fontweight='bold')
+        ax.set_title(title, fontsize=PANEL_LABEL, pad=3, fontweight='bold')
         ax.tick_params(length=1.5, pad=1.5)
         for s_ in ('top', 'right'):
             ax.spines[s_].set_visible(False)
@@ -2954,7 +3041,7 @@ def figP_validation(D):
                      (7, '(g) rank vs. arbor reconstruction (dot: rank used, line '
                          'shade: layer depth)')):
         fig.text(0.006, sp[row].get_position().y0, txt, ha='left', va='bottom',
-                 fontsize=7.5, fontweight='bold')
+                 fontsize=PANEL_LABEL, fontweight='bold')
     return fig
 
 
@@ -3189,7 +3276,7 @@ def figfp_ood(D):
     DIGIT_COLOR = digit_colors(list(D01['digit_order']), C_EVEN, C_ODD)
     mlp_heldout(ax_c, D01, DIGIT_COLOR, C_EVEN, C_ODD, float(D01['r_ood']))
     ax_c.set_title(r'(c) held-out digits track P(odd)',
-                   fontsize=7.5, pad=3, fontweight='bold')
+                   fontsize=PANEL_LABEL, pad=3, fontweight='bold')
     ax_c.text(0.04, 0.86, r'$8\times4$ MLP', transform=ax_c.transAxes, ha='left',
               va='top', fontsize=6.5, color='0.35')
 
@@ -3217,7 +3304,7 @@ def figfp_ood(D):
     figstyle.freeze(fig)
     fig.text(0.006, sp_lbl.get_position().y1, '(d–h) mean fingerprint per condition '
              '— far-OOD concentrates on a sparse subset of factors',
-             ha='left', va='top', fontsize=7.5, fontweight='bold')
+             ha='left', va='top', fontsize=PANEL_LABEL, fontweight='bold')
     for axh, lab in heat_ax:
         p = axh.get_position()
         fig.text(p.x0, p.y1 + 0.004, lab, ha='left', va='bottom', fontsize=7.5,
@@ -3341,7 +3428,7 @@ def figfp_structure(D):
     for i, (title, (X, labs, names, cols, coarse)) in enumerate(GEO):
         ax = fig.add_subplot(gsa[0, i])
         _fp_sim_matrix(ax, X, labs, names, cols, CMAP, coarse=coarse)
-        ax.set_title(title, fontsize=7.5, pad=3, fontweight='bold')
+        ax.set_title(title, fontsize=PANEL_LABEL, pad=3, fontweight='bold')
 
     # ── (f) CIFAR-10 train vs test, (g) ImageNet independent val split ───────
     gsb = gs[4].subgridspec(1, 2, width_ratios=[1.0, 1.0], wspace=0.22)
@@ -3391,7 +3478,7 @@ def figfp_structure(D):
     figstyle.freeze(fig)
     fig.text(0.006, sp_a.get_position().y0, '(a–e) class geometry: pairwise cosine '
              'of the fingerprints, sorted by class', ha='left', va='bottom',
-             fontsize=7.5, fontweight='bold')
+             fontsize=PANEL_LABEL, fontweight='bold')
     fig.text(0.006, sp_b.get_position().y0, '(f,g) the code is a property of the '
              'class, not the sample', ha='left', va='bottom', fontsize=7.5,
              fontweight='bold')

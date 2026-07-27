@@ -139,41 +139,79 @@ def extract_importance_scores(path_nodes, selectivity_weights=None, neg_selectiv
     return scores
 
 
-def all_weight_keys(model):
-    """Return a list of all (layer_idx, i, j) weight keys in model order."""
+def default_prunable_names(model, layer_filter=None):
+    """Names of all Conv2d/Linear modules in named_modules() order.
+
+    This is the order collect_layer_dicts captures layers in, so the returned
+    list aligns index-for-index with BFT layer_idx when the trace used no
+    layer_filter (pass the same layer_filter here otherwise).
+    """
+    import torch.nn as nn
+    return [name for name, mod in model.named_modules()
+            if isinstance(mod, (nn.Conv2d, nn.Linear))
+            and (layer_filter is None or layer_filter(name, mod))]
+
+
+def _prunable_modules(model, layer_names=None):
+    """Resolve (layer_names, modules); defaults to all Conv2d/Linear modules."""
+    if layer_names is None:
+        layer_names = default_prunable_names(model)
+    return layer_names, [model.get_submodule(n) for n in layer_names]
+
+
+def _flat_weight(mod):
+    """Module weight as a 2-D (n_out, n_in_flat) numpy array (conv kernels flattened)."""
+    W = mod.weight.detach().cpu().numpy()
+    return W.reshape(W.shape[0], -1)
+
+
+def all_weight_keys(model, layer_names=None):
+    """Return a list of all (layer_idx, i, j) weight keys in model order.
+
+    j indexes the flattened non-output weight dims (conv: C_in*kH*kW), matching
+    extract_importance_scores.
+    """
+    _, mods = _prunable_modules(model, layer_names)
     keys = []
-    for l_idx, li in enumerate(model.linear_layer_indices()):
-        W = model.layers[li].weight.detach().numpy()
-        n_out, n_in = W.shape
+    for l_idx, mod in enumerate(mods):
+        n_out, n_in = _flat_weight(mod).shape
         for i in range(n_out):
             for j in range(n_in):
                 keys.append((l_idx, i, j))
     return keys
 
 
-def ablate_model(model_orig, weight_keys_to_zero):
+def ablate_model(model_orig, weight_keys_to_zero, layer_names=None):
     """
     Return a deep copy of model_orig with the specified weights set to 0.
 
     Parameters
     ----------
-    weight_keys_to_zero : iterable of (layer_idx, i, j)
+    weight_keys_to_zero : iterable of (layer_idx, i, j) — j indexes the
+        flattened non-output weight dims (conv: C_in*kH*kW)
+    layer_names : list[str] or None — module names aligned with layer_idx;
+        None resolves to all Conv2d/Linear modules in named_modules() order
 
     Returns
     -------
     model_copy : nn.Module (eval mode)
     """
     model = copy.deepcopy(model_orig)
-    linear_indices = model.linear_layer_indices()
+    _, mods = _prunable_modules(model, layer_names)
+    by_layer = {}
+    for (l_idx, i, j) in weight_keys_to_zero:
+        ii, jj = by_layer.setdefault(l_idx, ([], []))
+        ii.append(i)
+        jj.append(j)
     with torch.no_grad():
-        for (l_idx, i, j) in weight_keys_to_zero:
-            li = linear_indices[l_idx]
-            model.layers[li].weight[i, j] = 0.0
+        for l_idx, (ii, jj) in by_layer.items():
+            W = mods[l_idx].weight
+            W.view(W.shape[0], -1)[torch.as_tensor(ii), torch.as_tensor(jj)] = 0.0
     model.eval()
     return model
 
 
-def per_class_accuracy(model, loader, label_transform, device):
+def per_class_accuracy(model, loader, label_transform, device, pred_transform=None):
     """
     Evaluate per-class accuracy on the test set.
 
@@ -181,8 +219,11 @@ def per_class_accuracy(model, loader, label_transform, device):
     ----------
     model            : nn.Module
     loader           : DataLoader
-    label_transform  : callable or None
+    label_transform  : callable or None — maps raw labels to task classes
     device           : torch device
+    pred_transform   : callable or None — maps argmax predictions to task
+                       classes (e.g. ImageNet index -> super-category; return
+                       -1 for out-of-task predictions so they count as wrong)
 
     Returns
     -------
@@ -200,6 +241,8 @@ def per_class_accuracy(model, loader, label_transform, device):
             result = model(data)
             output = result[0] if isinstance(result, (tuple, list)) else result
             preds = output.argmax(1)
+            if pred_transform is not None:
+                preds = pred_transform(preds.cpu())
             for t, p in zip(target.cpu().numpy(), preds.cpu().numpy()):
                 t = int(t)
                 total_counts[t] = total_counts.get(t, 0) + 1
@@ -208,78 +251,90 @@ def per_class_accuracy(model, loader, label_transform, device):
             for d in sorted(total_counts)}
 
 
-def magnitude_scores(model):
-    """Return {(l_idx, i, j): |W[i,j]|} for all weights."""
+def magnitude_scores(model, layer_names=None):
+    """Return {(l_idx, i, j): |W[i,j]|} for all weights in the prunable layers."""
     scores = {}
-    for l_idx, li in enumerate(model.linear_layer_indices()):
-        W = model.layers[li].weight.detach().cpu().numpy()
-        n_out, n_in = W.shape
+    _, mods = _prunable_modules(model, layer_names)
+    for l_idx, mod in enumerate(mods):
+        Wf = np.abs(_flat_weight(mod))
+        n_out, n_in = Wf.shape
         for i in range(n_out):
             for j in range(n_in):
-                scores[(l_idx, i, j)] = float(abs(W[i, j]))
+                scores[(l_idx, i, j)] = float(Wf[i, j])
     return scores
 
 
-def act_magnitude_scores(model, layer_inputs_list):
+def act_magnitude_scores(model, layer_inputs_list, layer_names=None):
     """
     Return {(l_idx, i, j): |W[i,j]| * mean_act[j]} where mean_act is the
     mean absolute activation over all samples at the layer's input.
+
+    For conv layers (input_fmap (N, C_in, H, W)) the mean is per input channel,
+    broadcast over the kH*kW kernel positions of that channel.
     """
     scores = {}
-    for l_idx, li in enumerate(model.linear_layer_indices()):
-        W = model.layers[li].weight.detach().cpu().numpy()
-        n_out, n_in = W.shape
-        mean_act = np.abs(layer_inputs_list[l_idx]).mean(axis=0)  # (n_in,)
+    _, mods = _prunable_modules(model, layer_names)
+    for l_idx, mod in enumerate(mods):
+        Wf = np.abs(_flat_weight(mod))
+        n_out, n_in = Wf.shape
+        fmap = np.abs(np.asarray(layer_inputs_list[l_idx]))
+        if fmap.ndim == 4:
+            mean_act = np.repeat(fmap.mean(axis=(0, 2, 3)), n_in // fmap.shape[1])
+        else:
+            mean_act = fmap.reshape(fmap.shape[0], -1).mean(axis=0)
         for i in range(n_out):
             for j in range(n_in):
-                scores[(l_idx, i, j)] = float(abs(W[i, j]) * mean_act[j])
+                scores[(l_idx, i, j)] = float(Wf[i, j] * mean_act[j])
     return scores
 
 
-def taylor_scores(model, loader, label_transform, device, target_class):
+def taylor_scores(model, loader, label_transform, device, target_class,
+                  layer_names=None, loss_on_raw_labels=False):
     """
     Compute Taylor-criterion importance |grad(L) * W| for class-d samples only.
 
     Uses a single forward+backward pass.  The loss is cross-entropy over
-    class-target_class samples.
+    class-target_class samples.  The model copy is kept in eval mode so
+    BatchNorm/Dropout behave as at test time (gradients still flow).
+
+    Parameters
+    ----------
+    loss_on_raw_labels : if True, samples are selected by label_transform(target)
+        == target_class but the CE loss uses the raw loader labels — for models
+        whose output space is finer than the task classes (e.g. 1000 ImageNet
+        logits scored on 8 super-categories).
 
     Returns {(l_idx, i, j): float}
     """
     model_tmp = copy.deepcopy(model)
-    model_tmp.train()
-    linear_indices = model_tmp.linear_layer_indices()
+    model_tmp.eval()
+    layer_names, mods = _prunable_modules(model_tmp, layer_names)
 
-    optimizer = torch.optim.SGD(model_tmp.parameters(), lr=0.0)
     criterion = torch.nn.CrossEntropyLoss()
-
-    optimizer.zero_grad()
+    model_tmp.zero_grad()
     n_seen = 0
     for data, target in loader:
         data = data.to(device)
         target = target.to(device)
-        if label_transform is not None:
-            target = label_transform(target)
-        mask = (target == target_class)
+        t_task = label_transform(target) if label_transform is not None else target
+        mask = (t_task == target_class).to(device)
         if not mask.any():
             continue
         result = model_tmp(data[mask])
-        output = result[0] if isinstance(result, tuple) else result
-        loss = criterion(output, target[mask])
+        output = result[0] if isinstance(result, (tuple, list)) else result
+        loss_target = target[mask] if loss_on_raw_labels else t_task.to(device)[mask]
+        loss = criterion(output, loss_target)
         loss.backward()
         n_seen += int(mask.sum())
 
     scores = {}
-    for l_idx, li in enumerate(linear_indices):
-        W = model_tmp.layers[li].weight
-        grad = W.grad
-        if grad is None:
-            W_np = W.detach().numpy()
-            n_out, n_in = W_np.shape
-            for i in range(n_out):
-                for j in range(n_in):
-                    scores[(l_idx, i, j)] = 0.0
-            continue
-        taylor = (grad * W).abs().detach().cpu().numpy()
+    for l_idx, mod in enumerate(mods):
+        W = mod.weight
+        if W.grad is None:
+            taylor = np.zeros(_flat_weight(mod).shape)
+        else:
+            taylor = (W.grad * W).abs().detach().cpu().numpy()
+            taylor = taylor.reshape(taylor.shape[0], -1)
         n_out, n_in = taylor.shape
         for i in range(n_out):
             for j in range(n_in):
@@ -421,7 +476,7 @@ def filter_scores_by_layer(scores, layer_indices):
 def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
                        test_loader, label_transform, device,
                        method='algo_top', n_random_repeats=10,
-                       layer_indices=None):
+                       layer_indices=None, layer_names=None, pred_transform=None):
     """
     For each fraction f in ablation_fractions, zero the top f fraction of
     weights ranked by `importance_scores` (or randomly), then evaluate per-class
@@ -439,6 +494,9 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
     n_random_repeats   : number of random draws to average when method='random'
     layer_indices      : list[int] or None — if set, only weights in these layers
                          are candidates for ablation
+    layer_names        : list[str] or None — module names aligned with layer_idx
+                         (see ablate_model)
+    pred_transform     : callable or None — see per_class_accuracy
 
     Returns
     -------
@@ -467,13 +525,15 @@ def run_ablation_sweep(model_orig, importance_scores, ablation_fractions,
             accs_list = []
             for _ in range(n_random_repeats):
                 chosen = list(np.random.choice(n_total, n_ablate, replace=False))
-                ablated = ablate_model(model_orig, [keys[c] for c in chosen])
-                accs_list.append(per_class_accuracy(ablated, test_loader, label_transform, device))
+                ablated = ablate_model(model_orig, [keys[c] for c in chosen], layer_names)
+                accs_list.append(per_class_accuracy(ablated, test_loader, label_transform,
+                                                    device, pred_transform))
             classes = sorted(accs_list[0].keys())
             results[f] = {d: float(np.mean([a[d] for a in accs_list])) for d in classes}
         else:
-            ablated = ablate_model(model_orig, ranked[:n_ablate])
-            results[f] = per_class_accuracy(ablated, test_loader, label_transform, device)
+            ablated = ablate_model(model_orig, ranked[:n_ablate], layer_names)
+            results[f] = per_class_accuracy(ablated, test_loader, label_transform,
+                                            device, pred_transform)
     return results
 
 
@@ -488,6 +548,10 @@ def ablation_sweep(
     n_random_repeats=10,
     normalize_bft=True,
     layer_inputs_list=None,
+    layer_names=None,
+    targets=None,
+    pred_transform=None,
+    taylor_on_raw_labels=False,
     verbose=0,
 ):
     """Single entrypoint for a pruning experiment on one target class.
@@ -497,7 +561,8 @@ def ablation_sweep(
 
     Parameters
     ----------
-    model         : nn.Module (SimpleMLP)
+    model         : nn.Module — any model whose BFT layer_idx maps onto
+                    Conv2d/Linear modules (see layer_names)
     bft_result    : BFTResult from bft()
     test_loader   : DataLoader — evaluation set
     target_class  : int — which class circuit to extract
@@ -514,7 +579,23 @@ def ablation_sweep(
     normalize_bft : if True, min-max normalise BFT scores per layer before using
                     them for BOTH 'bft_top' and 'bft_bottom' (prevents wide early
                     layers from dominating and keeps top/bottom selection symmetric)
-    layer_inputs_list : list[(N, n_in)] per-layer inputs, required for 'act_magnitude'
+    layer_inputs_list : per-layer inputs (fc: (N, n_in); conv: (N, C_in, H, W)),
+                    required for 'act_magnitude'
+    layer_names   : list[str] or None — module names aligned with BFT layer_idx.
+                    None resolves to all Conv2d/Linear modules in named_modules()
+                    order, which is correct whenever the trace hooked every such
+                    module. When the trace used a layer_filter (e.g. the SqueezeNet
+                    spine), pass [d['name'] for d in collected 'layer_data'].
+    targets       : (N,) array or None — task-class labels of the traced samples.
+                    None uses bft_result.targets, which is only valid for
+                    primary-mode BFT; layer-dict traces return all-zeros targets,
+                    so pass the labels of the traced sample set explicitly there.
+    pred_transform : callable or None — maps argmax predictions to task classes
+                    (see per_class_accuracy); needed when the model's output
+                    space is finer than the task classes (e.g. ImageNet
+                    super-categories).
+    taylor_on_raw_labels : compute the Taylor loss on raw loader labels instead
+                    of transformed ones (see taylor_scores).
     verbose       : 0 = silent, 1 = print method progress
 
     Returns
@@ -523,10 +604,11 @@ def ablation_sweep(
     """
     from .types import BFTResult, AblationResult
 
-    if isinstance(bft_result, BFTResult):
-        targets = bft_result.targets
-    else:
+    if not isinstance(bft_result, BFTResult):
         raise TypeError('bft_result must be a BFTResult')
+    if targets is None:
+        targets = bft_result.targets
+    targets = np.asarray(targets)
 
     if device is None:
         try:
@@ -535,14 +617,30 @@ def ablation_sweep(
             device = torch.device('cpu')
 
     # Guard the label-space invariant: select_class_circuit compares target_class
-    # against bft_result.targets, while per_class_accuracy/taylor_scores compare
-    # against label_transform(target). They only agree if the BFT was traced on the
-    # label-transformed loader so its targets already live in the transformed space.
+    # against the trace targets, while per_class_accuracy/taylor_scores compare
+    # against label_transform(target). They only agree if the targets live in the
+    # transformed task space (primary mode: trace on the label-transformed loader;
+    # layer-dict mode: pass targets= with the traced samples' task labels).
     uniq = set(int(t) for t in np.unique(targets))
     assert target_class in uniq, (
-        f"target_class={target_class} not in bft_result.targets {sorted(uniq)}; "
-        "trace BFT on the label-transformed loader so targets match the space used "
-        "by per_class_accuracy(label_transform=...).")
+        f"target_class={target_class} not in trace targets {sorted(uniq)}; "
+        "trace BFT on the label-transformed loader (primary mode) or pass "
+        "targets= (layer-dict mode) so targets match the space used by "
+        "per_class_accuracy(label_transform=...).")
+
+    # Alignment guard: every traced node must map onto the module its layer_idx
+    # resolves to, else the wrong weights would be pruned silently. Fails for
+    # traces over non-module weights (e.g. the ViT attn slice) — those cannot be
+    # weight-pruned through this entrypoint.
+    _, _mods = _prunable_modules(model, layer_names)
+    for nd in bft_result.nodes():
+        if (nd.layer_idx >= len(_mods) or
+                tuple(_mods[nd.layer_idx].weight.shape) != tuple(nd.weight.shape)):
+            raise ValueError(
+                f'BFT node at layer_idx={nd.layer_idx} (weight {nd.weight.shape}) does '
+                f'not match the resolved prunable module list ({len(_mods)} modules); '
+                'pass layer_names= with the module names the trace was collected from '
+                "([d['name'] for d in layer_data]).")
 
     # Compute importance scores
     bft_sc, bft_info = select_class_circuit(bft_result, targets, target_class)
@@ -553,7 +651,7 @@ def ablation_sweep(
     # when a layer-depth sweep pools layers of different widths/NMF scales, top- and
     # bottom-selection are on the same footing (fixes the raw-vs-normalized asymmetry).
     bft_sc_norm = normalize_scores_per_layer(bft_sc) if normalize_bft else bft_sc
-    mag_sc = magnitude_scores(model)
+    mag_sc = magnitude_scores(model, layer_names)
 
     _score_map = {
         'bft_top':    (bft_sc_norm, 'algo_top'),
@@ -565,13 +663,16 @@ def ablation_sweep(
         if layer_inputs_list is None:
             raise ValueError("method 'act_magnitude' requires layer_inputs_list=")
         _score_map['act_magnitude'] = (
-            act_magnitude_scores(model, layer_inputs_list), 'algo_top')
+            act_magnitude_scores(model, layer_inputs_list, layer_names), 'algo_top')
     if 'taylor' in methods:
         _score_map['taylor'] = (
-            taylor_scores(model, test_loader, label_transform, device, target_class),
+            taylor_scores(model, test_loader, label_transform, device, target_class,
+                          layer_names=layer_names,
+                          loss_on_raw_labels=taylor_on_raw_labels),
             'algo_top')
 
-    baseline = per_class_accuracy(model, test_loader, label_transform, device)
+    baseline = per_class_accuracy(model, test_loader, label_transform, device,
+                                  pred_transform)
 
     results = {}
     for method in methods:
@@ -587,6 +688,8 @@ def ablation_sweep(
             method=run_method,
             n_random_repeats=n_random_repeats,
             layer_indices=layer_indices,
+            layer_names=layer_names,
+            pred_transform=pred_transform,
         )
 
     all_layer_indices = (layer_indices if layer_indices is not None
@@ -611,6 +714,10 @@ def ablation_layer_sweep(
     n_random_repeats=10,
     normalize_bft=True,
     layer_inputs_list=None,
+    layer_names=None,
+    targets=None,
+    pred_transform=None,
+    taylor_on_raw_labels=False,
     verbose=0,
 ):
     """Sweep over layer depth: run ablation_sweep for last 1, 2, …, L layers.
@@ -634,8 +741,9 @@ def ablation_layer_sweep(
         raise TypeError('bft_result must be a BFTResult')
 
     # Compute BFT scores once to determine which layer indices exist
-    targets = bft_result.targets
-    bft_sc, _ = select_class_circuit(bft_result, targets, target_class)
+    if targets is None:
+        targets = bft_result.targets
+    bft_sc, _ = select_class_circuit(bft_result, np.asarray(targets), target_class)
     all_layers = sorted({k[0] for k in bft_sc})
     n_layers = len(all_layers)
 
@@ -656,6 +764,10 @@ def ablation_layer_sweep(
             n_random_repeats=n_random_repeats,
             normalize_bft=normalize_bft,
             layer_inputs_list=layer_inputs_list,
+            layer_names=layer_names,
+            targets=targets,
+            pred_transform=pred_transform,
+            taylor_on_raw_labels=taylor_on_raw_labels,
             verbose=max(0, verbose - 1),
         )
 

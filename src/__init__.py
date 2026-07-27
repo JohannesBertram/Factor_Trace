@@ -52,6 +52,7 @@ from .ablation_utils import (
     extract_importance_scores,
     normalize_scores_per_layer,
     filter_scores_by_layer,
+    default_prunable_names,
     all_weight_keys,
     ablate_model,
     per_class_accuracy,

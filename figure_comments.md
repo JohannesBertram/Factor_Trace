@@ -1,5 +1,5 @@
-## General comments (add them to the paper-figure skill)
+## General comments (add them to the paper-figure skill and update figures based on it.)
 
 
-## General comments for this project only (so do not update the skill)
+## Individual figs
 
