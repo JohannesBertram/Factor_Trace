@@ -1,0 +1,34 @@
+{
+ "arch": "MLP 8-4",
+ "bft_conv_pool_method": "none",
+ "bft_stimulus_threshold": 0.5,
+ "candidates": [
+  "bft_fingerprint",
+  "raw_activations",
+  "bft_matched",
+  "act_matched",
+  "act_randproj"
+ ],
+ "class_names": [
+  "even",
+  "odd"
+ ],
+ "exp": "mlp_even_odd",
+ "has_fine": true,
+ "label": "MNIST even/odd",
+ "mode": "cluster",
+ "n_classes": 2,
+ "n_replicates": 5,
+ "replicate_type": "model_seed",
+ "source": "notebook 11 \u2014 publication HPs from source notebook; variance across model_seed (n=5)",
+ "summary.act_matched_silhouette_mean": 0.8603400588035583,
+ "summary.act_matched_silhouette_std": 0.08486009367261749,
+ "summary.activation_nmf_silhouette_mean": 0.5922309517860412,
+ "summary.activation_nmf_silhouette_std": 0.020593062274916835,
+ "summary.arbor_minus_activation_nmf_mean": 0.3435603380203247,
+ "summary.arbor_nmf_silhouette_mean": 0.935791289806366,
+ "summary.arbor_nmf_silhouette_std": 0.02358945378174806,
+ "summary.fp_minus_act_matched_mean": -0.06888518333435056,
+ "summary.fp_silhouette_mean": 0.7914548754692078,
+ "summary.fp_silhouette_std": 0.04708293780173853
+}

@@ -1,0 +1,42 @@
+{
+ "arch": "MLP 40-20",
+ "bft_conv_pool_method": "none",
+ "bft_stimulus_threshold": 0.7,
+ "candidates": [
+  "bft_fingerprint",
+  "raw_activations",
+  "bft_matched",
+  "act_matched",
+  "act_randproj"
+ ],
+ "class_names": [
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9"
+ ],
+ "exp": "mlp_digit",
+ "has_fine": false,
+ "label": "MNIST digits",
+ "mode": "cluster",
+ "n_classes": 10,
+ "n_replicates": 5,
+ "replicate_type": "model_seed",
+ "source": "notebook 11 \u2014 publication HPs from source notebook; variance across model_seed (n=5)",
+ "summary.act_matched_silhouette_mean": 0.4322209060192108,
+ "summary.act_matched_silhouette_std": 0.049038520392069546,
+ "summary.activation_nmf_silhouette_mean": 0.5903241634368896,
+ "summary.activation_nmf_silhouette_std": 0.041336016411086356,
+ "summary.arbor_minus_activation_nmf_mean": 0.12616539001464844,
+ "summary.arbor_nmf_silhouette_mean": 0.7164895534515381,
+ "summary.arbor_nmf_silhouette_std": 0.031622102730865624,
+ "summary.fp_minus_act_matched_mean": -0.12960819005966184,
+ "summary.fp_silhouette_mean": 0.302612715959549,
+ "summary.fp_silhouette_std": 0.045550673564880004
+}

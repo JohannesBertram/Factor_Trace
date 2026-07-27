@@ -1,0 +1,19 @@
+{
+ "mode": "cluster",
+ "model_tags": [
+  "seed0",
+  "seed1",
+  "seed2",
+  "seed3",
+  "seed4",
+  "strongaug",
+  "noaug_short"
+ ],
+ "n_models": 7,
+ "n_per_class": 150,
+ "note": "CIFAR-10 correlational: BFT factor similarity vs error consistency",
+ "perm_p_all": 0.504247876061969,
+ "rho_all": 0.0013793648891733585,
+ "rho_conv": 0.028417285734374662,
+ "rho_output": -0.07931831279566613
+}
