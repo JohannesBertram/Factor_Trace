@@ -139,3 +139,11 @@ The paper keeps a single fingerprint main figure. The ImageNet fingerprint embed
 ## note: `figP_validation`, `figfp_ood`, `figfp_structure` are the three cross-model appendix figures
 
 Each loads all five per-model bundles internally and is documented in its own entry above. The former per-model render functions (`figC/D/F/H/O`, `figS_ood_signature`, `figP_faithfulness`, `figQ_rank_sensitivity`, `figR_silhouette`) are obsolete.
+
+## figEC_error_consistency.pdf  (appendix, full width) — error consistency from factorization
+
+source: `research/error_consistency_bft/` — render `code/figure_ec_appendix.py` from bundle `figures/figdata/error_consistency.json` (built by `code/build_ec_bundle.py` from the study's `results/*.json`). Numbers trace to `research/error_consistency_bft/results/`.
+
+message: How a model factorizes a class into sub-groups determines whether it shares errors (Cohen's kappa) with another model trained on the same task — shown causally at matched accuracy (a) and correlationally across model pairs (b).
+
+caption: \textbf{How a model factorizes a class into sub-groups determines whether it shares errors with another model.} \textbf{(a)} In a controlled task where each model is made unreliable on one sub-group of a digit (accuracy held equal), model pairs whose BFT factorization isolates the \emph{same} sub-group have far higher trial-by-trial error consistency (Cohen's $\kappa$) than pairs that isolate \emph{different} sub-groups ($\kappa\,{=}\,0.57$ vs $0.33$, $p\,{=}\,3\times10^{-15}$), while their per-digit accuracy is identical ($p\,{=}\,0.70$): the effect is driven by the factorization, not by difficulty. \textbf{(b)} Across all model-pair$\times$digit cells on MNIST, within-class BFT factorization similarity predicts per-digit error consistency (Spearman $\rho\,{=}\,{+}0.42$, permutation $p\,{<}\,0.001$, robust to class difficulty; an identity-permuted null is at chance). On this standard task the network's own activations predict $\kappa$ comparably; BFT's added value is that it exposes \emph{how} the two models sub-divide the class.
