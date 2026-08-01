@@ -158,13 +158,108 @@ def pruning_panel(ax, P):
     ax.set_xlim(0, fr.max()); ax.set_ylim(-0.02, 1.06)
     ax.set_xticks([0, 25, 50]); ax.set_yticks([0, 0.5, 1.0])
     ax.set_yticklabels(['0', '.5', '1'])
-    ax.set_xlabel('% weights pruned', labelpad=1, fontsize=6)
+    pct = r'\%' if matplotlib.rcParams['text.usetex'] else '%'   # bare % is a LaTeX comment
+    ax.set_xlabel(f'{pct} weights pruned', labelpad=1, fontsize=6)
     ax.set_ylabel('class accuracy', labelpad=1, fontsize=6)
     ax.tick_params(length=1.5, pad=1, labelsize=6)
     for s in ('top', 'right'):
         ax.spines[s].set_visible(False)
     ax.legend(loc='center right', fontsize=6, frameon=False, handlelength=1.3,
               handletextpad=0.4, labelspacing=0.2, borderaxespad=0.1)
+
+
+def pruning_panel_multi(ax, P, xmax=10.0, legend_loc='upper right'):
+    """Causal check for the ten-class settings (Fig. 6f, Fig. Bd), same grammar
+    as Fig. 2e: prune the weights BFT ranks most important for one class circuit
+    and read the per-class accuracy. Most-important pruning collapses the target
+    class within ~1% of weights (solid) while the other nine classes degrade far
+    less (dashed); pruning the same count of least-important weights leaves the
+    network intact (dotted). All curves are flat beyond `xmax`, so the x-axis is
+    clipped there (the sweep continues to 50%)."""
+    fr = np.asarray(P['fractions']) * 100.0            # % of connections pruned
+    keep = fr <= xmax + 1e-9
+    fr = fr[keep]
+    C_TOP, C_BOT = figstyle.color('ours'), figstyle.color('bft_bottom')
+    bt, bb = P['methods']['bft_top'], P['methods']['bft_bottom']
+    chance = 1.0 / int(P['n_classes'])
+
+    # both bands around the chance line are occupied (bystander dashes above,
+    # collapsed target below), so the line is not labeled in-plot: panel (d) of
+    # Fig. 6 labels the same grey dashes, and the caption names it
+    ax.axhline(chance, color='0.8', lw=0.5, ls=(0, (3, 2)), zorder=0)
+    ax.fill_between(fr, (bt['target_mean'] - bt['target_sd'])[keep],
+                    (bt['target_mean'] + bt['target_sd'])[keep],
+                    color=C_TOP, alpha=0.15, lw=0)
+    ax.plot(fr, bt['target_mean'][keep], '-o', ms=2.2, lw=1.3, color=C_TOP,
+            zorder=4, label='most imp. · pruned class')
+    ax.plot(fr, bt['bystander_mean'][keep], '--', lw=1.2, color=C_TOP, zorder=3,
+            label='most imp. · other classes')
+    ax.plot(fr, bb['target_mean'][keep], ':', lw=1.3, color=C_BOT, zorder=2,
+            label='least imp. · pruned class')
+
+    ax.set_xlim(0, xmax); ax.set_ylim(-0.02, 1.06)
+    ax.set_xticks([0, 5, 10]); ax.set_yticks([0, 0.5, 1.0])
+    ax.set_yticklabels(['0', '.5', '1'])
+    pct = r'\%' if matplotlib.rcParams['text.usetex'] else '%'   # bare % is a LaTeX comment
+    ax.set_xlabel(f'{pct} weights pruned', labelpad=1, fontsize=6)
+    ax.set_ylabel('class accuracy', labelpad=1, fontsize=6)
+    ax.tick_params(length=1.5, pad=1, labelsize=6)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
+    # legend in the empty band between the least-imp. curve (stays high) and the
+    # bystander dashes (settle just above chance)
+    ax.legend(loc=legend_loc, fontsize=6, frameon=False, handlelength=1.3,
+              handletextpad=0.4, labelspacing=0.15, borderaxespad=0.0,
+              bbox_to_anchor=(1.0, 0.62), bbox_transform=ax.transAxes)
+
+
+def pruning_panel_imagenet(ax, P):
+    """Causal check on the pretrained SqueezeNet (Fig. N d), same grammar as
+    Fig. 2e / 6f but read differently: the pool is the traced squeeze spine and
+    accuracy is argmax over all 1000 classes (chance ~2/1000, i.e. the x-axis).
+    At this scale most-important pruning is total rather than class-preferential
+    — target and bystanders collapse together at the smallest fraction — yet the
+    ranking still orders the damage: far above random pruning of the same pool
+    (target-drop AUC, Wilcoxon p=.016) and above the least-important end
+    (p=.031). Least-important pruning splits the categories, so each is its own
+    dotted line rather than a misleading mean: three stay near baseline
+    (airplane through the full 50% sweep), four collapse."""
+    fr = np.asarray(P['fractions']) * 100.0            # % of pool weights pruned
+    C_TOP, C_BOT = figstyle.color('ours'), figstyle.color('bft_bottom')
+    C_RAND = figstyle.color('random')
+    bt, bb = P['methods']['bft_top'], P['methods']['bft_bottom']
+    rd = P['methods']['random']
+
+    for row in bb['target_all']:                       # bimodal — no honest mean
+        ax.plot(fr, row, ':', lw=0.8, color=C_BOT, alpha=0.85, zorder=2)
+    ax.plot(fr, bt['target_mean'], '-o', ms=2.2, lw=1.3, color=C_TOP, zorder=4)
+    # drawn above the solid line: beyond the first fraction the two coincide at
+    # zero, and that coincidence (no bystander sparing) is the panel's point
+    ax.plot(fr, bt['bystander_mean'], '--', lw=1.1, color=C_TOP, zorder=5)
+    ax.plot(fr, rd['target_mean'], ':', lw=1.2, color=C_RAND, zorder=3)
+
+    # the panel is too narrow for a legend that clears the data, so the lines
+    # are named in place, color-bound (grammar as in Fig. 2e/6f); the white halo
+    # breaks the per-category dotted lines behind the text
+    halo = [matplotlib.patheffects.withStroke(linewidth=1.6, foreground='white')]
+    ax.text(26, 0.905, 'least imp. (per cat.)', fontsize=5.8, color=C_BOT,
+            ha='center', va='bottom', path_effects=halo)
+    ax.text(49, 0.775, 'airplane', fontsize=5.5, color=C_BOT,
+            ha='right', va='top', path_effects=halo)   # the line that carries (d)
+    ax.text(27, 0.125, 'most imp. (all cat.)', fontsize=5.8, color=C_TOP,
+            ha='center', va='bottom', path_effects=halo)
+    ax.text(6.8, 0.55, 'random', fontsize=5.8, color=C_RAND,
+            ha='left', va='center', path_effects=halo)
+
+    ax.set_xlim(0, fr.max()); ax.set_ylim(-0.02, 1.06)
+    ax.set_xticks([0, 25, 50]); ax.set_yticks([0, 0.5, 1.0])
+    ax.set_yticklabels(['0', '.5', '1'])
+    pct = r'\%' if matplotlib.rcParams['text.usetex'] else '%'   # bare % is a LaTeX comment
+    ax.set_xlabel(f'{pct} weights pruned', labelpad=1, fontsize=6)
+    ax.set_ylabel('category accuracy', labelpad=1, fontsize=6)
+    ax.tick_params(length=1.5, pad=1, labelsize=6)
+    for s in ('top', 'right'):
+        ax.spines[s].set_visible(False)
 
 
 def draw_scaffold(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
@@ -1166,7 +1261,7 @@ def fig4_fingerprints_main(D):
     img_lab = ((f"(h) ImageNet · {IMG_EMB[4]['label'].replace(chr(10), ' ')}, "
                 f"{IMG_EMB[4]['dim']}-d") if IMG_EMB is not None
                else '(h) ImageNet · activations')
-    for ax, lab, anchor in ((ax_a, '(a) MNIST · 8×4 MLP trace', sp1),
+    for ax, lab, anchor in ((ax_a, '(a) MNIST · 8×4×2 MLP trace', sp1),
                             (ax_b, '(b) MNIST · its fingerprint', sp1),
                             (ax_c, '(c) CIFAR-10 · fingerprint per class', sp1),
                             (ax_d, emb_lab[0], sp2), (ax_e, emb_lab[1], sp2),
@@ -1214,7 +1309,9 @@ def figB_digit_mlp_details(D):
     spacers = [fig.add_subplot(gs[r]) for r in (0, 2, 4, 6)]
     for sp in spacers:
         sp.set_axis_off()
-    gs_top = gs[1].subgridspec(1, 3, width_ratios=[1.20, 0.86, 1.26])
+    # four panels: the three structure panels compress a little to open a column
+    # for the causal pruning check (d) at the end of the row
+    gs_top = gs[1].subgridspec(1, 4, width_ratios=[1.10, 0.80, 1.10, 0.95])
 
     # ── (a) what each output-layer factor stands for: a group of digits, not one ─
     ax_a = fig.add_subplot(gs_top[0, 0])
@@ -1293,7 +1390,13 @@ def figB_digit_mlp_details(D):
               color='0.35')
     anchors['c'] = ax_c
 
-    # ── (d) informativity spectra of every node of the trace ─────────────────
+    # ── (d) causal validation by pruning (loaded from its own bundle) ────────
+    from src import figdata as _fd
+    ax_p = fig.add_subplot(gs_top[0, 3])
+    pruning_panel_multi(ax_p, _fd.load('nb14_pruning_mlp_digit'))
+    anchors['p'] = ax_p
+
+    # ── (e) informativity spectra of every node of the trace ─────────────────
     gsd = gs[3].subgridspec(1, 1 + n_c)
     ax = fig.add_subplot(gsd[0, 0])
     lam = D['root_lam']
@@ -1321,7 +1424,7 @@ def figB_digit_mlp_details(D):
         for s in ('top', 'right'):
             axj.spines[s].set_visible(False)
 
-    # ── (e) the circuit of every output factor, through the full network ─────
+    # ── (f) the circuit of every output factor, through the full network ─────
     gse = gs[5].subgridspec(1, n_c)
     for j, c in enumerate(CIRCUITS):
         ax = fig.add_subplot(gse[0, j])
@@ -1334,7 +1437,7 @@ def figB_digit_mlp_details(D):
         if j == 0:
             anchors['e'] = ax
 
-    # ── (f) the un-pooled sub-circuits themselves, in pixel space ────────────
+    # ── (g) the un-pooled sub-circuits themselves, in pixel space ────────────
     gsf = gs[7].subgridspec(N_SHOW, n_c + 1, width_ratios=[0.30] + [1] * n_c)
     for r in range(N_SHOW):
         row_label(fig, gsf[r, 0], f'{["1st", "2nd", "3rd"][r]}\npooled\ndigit')
@@ -1372,13 +1475,14 @@ def figB_digit_mlp_details(D):
     _label('a', 0, '(a) output-layer factors', dx=-0.030)
     _label('b', 0, '(b) un-pooling', dx=-0.030)
     _label('c', 0, '(c) $L_1$ units per circuit', dx=-0.030)
-    _label('d', 1, '(d) informativity spectra', dx=-0.030)
-    _label('e', 2, '(e) traced circuit of each output factor '
+    _label('p', 0, '(d) causal pruning', dx=-0.030)
+    _label('d', 1, '(e) informativity spectra', dx=-0.030)
+    _label('e', 2, '(f) traced circuit of each output factor '
                    '(40 $L_1$ / 20 $L_2$ / 10 output units; '
                    'each unit\'s strongest input)', dx=0.0)
     fig.text(max(arbor_axes[0].get_position().x0 - 0.036, 0.002),
              spacers[3].get_position().y0,
-             r'(f) the $L_1$ factor that detects each pooled digit '
+             r'(g) the $L_1$ factor that detects each pooled digit '
              r'(bold: the digit; $f$: which factor of the circuit)',
              ha='left', va='bottom', fontsize=7)
     return fig
@@ -1498,23 +1602,23 @@ def cnn_layers(NODES):
     return [(name, groups[name]) for name in order]
 
 
-def color_spread(D, imgs, levels=2):
-    """Entropy-based color spread of a factor's top-stimulus set.
+def color_spread(D, imgs):
+    """Color spread of a factor's top-stimulus set: the mean pairwise Euclidean
+    distance between the stimuli's average RGB colors.
 
-    Each stimulus is reduced to its mean RGB color and quantized into a
-    ``levels`` x ``levels`` x ``levels`` grid of RGB cells (with levels=2, the
-    eight primary color cells: each channel high/low around 0.5). The metric is
-    the Shannon entropy of the resulting histogram, normalized by ``log2`` of
-    the cell count to lie in [0, 1]: ~0 when every top stimulus falls in one
-    color cell (a color-coherent factor), rising toward 1 as the top set spreads
-    across the palette. Replaces the earlier mean-pairwise-RGB-distance spread —
-    same monotone trend with depth, but a bounded, interpretable entropy."""
+    Each stimulus is reduced to its mean color — a point in the RGB cube
+    [0, 1]^3 — and the metric is the mean distance over all pairs of those
+    points: exactly 0 when every top stimulus has the same average color (a
+    color-coherent factor), growing as the top set spreads across colors (the
+    black-to-white diagonal is the maximum, sqrt(3) ~ 1.73). Replaces an earlier
+    octant-entropy spread whose 0.5-per-channel quantization made the score a
+    boundary artifact — sets straddling neutral gray scored high and sets sitting
+    just off it scored ~0, regardless of their actual color variation."""
     c = np.stack([cifar_rgb(D, im).mean((0, 1)) for im in imgs])     # (T, 3) in [0,1]
-    idx = np.clip((c * levels).astype(int), 0, levels - 1)
-    keys = idx[:, 0] * levels * levels + idx[:, 1] * levels + idx[:, 2]
-    p = np.bincount(keys, minlength=levels ** 3)
-    p = p[p > 0] / len(keys)
-    return float(-(p * np.log2(p)).sum() / np.log2(levels ** 3) + 0.0)
+    if len(c) < 2:
+        return 0.0
+    d = np.linalg.norm(c[:, None, :] - c[None, :, :], axis=-1)
+    return float(d[np.triu_indices(len(c), k=1)].mean())
 
 
 def cnn_depth_stats(D, seed=0):
@@ -1714,8 +1818,11 @@ def fig6_cnn_circuits(D):
             anchors['b'] = node_ax
 
     # ── (c) at conv1 the groups are appearance, not class ────────────────────
-    w_de = (W - n_leaf * s_c) / 2                        # width left for (d) and (e)
-    gsc = gs[5].subgridspec(1, 3, width_ratios=[n_leaf * s_c, w_de, w_de])
+    # the trend panels (d, e) are 5-point lines that compress gracefully, which
+    # opens a column for the causal pruning check (f) at the end of the row
+    w_lines = W - n_leaf * s_c                           # width for (d), (e), (f)
+    gsc = gs[5].subgridspec(1, 4, width_ratios=[n_leaf * s_c, 0.28 * w_lines,
+                                                0.28 * w_lines, 0.44 * w_lines])
     leaf = by_path[LEAF]
     gscl = gsc[0, 0].subgridspec(2, n_leaf, height_ratios=[s_c, 0.17])
     for k in range(n_leaf):
@@ -1754,8 +1861,8 @@ def fig6_cnn_circuits(D):
     ax_d.set_ylim(0, 1.0); ax_d.set_yticks([0, 0.5, 1.0])
     ax_d.set_yticklabels(['0', '.5', '1'])
     ax_d.set_ylabel('class purity', color=C_BFT, labelpad=1, fontsize=6)
-    ax_d.text(len(stats) - 0.9, chance + 0.03, 'chance', fontsize=6, color='0.45',
-              ha='right', va='bottom')
+    ax_d.text(-0.28, chance + 0.03, 'chance', fontsize=6, color='0.45',
+              ha='left', va='bottom')
     ax_d.set_xlim(-0.35, len(stats) - 0.65); ax_d.set_xticks(x)
     ax_d.set_xticklabels(xt, fontsize=6)
     ax_d.tick_params(length=1.5, pad=1)
@@ -1767,8 +1874,8 @@ def fig6_cnn_circuits(D):
     spread = [st['spread'].mean() for st in stats]
     ax_e.axhline(rand, color=tint(C_BASE, 0.45), lw=0.6, ls=(0, (3, 2)), zorder=0)
     ax_e.plot(x, spread, color=C_BASE, marker='s', ms=2.6, lw=1.4, zorder=3)
-    ax_e.set_ylim(0, 0.68); ax_e.set_yticks([0, 0.2, 0.4, 0.6])
-    ax_e.set_yticklabels(['0', '.2', '.4', '.6'])
+    ax_e.set_ylim(0, 0.30); ax_e.set_yticks([0, 0.1, 0.2, 0.3])
+    ax_e.set_yticklabels(['0', '.1', '.2', '.3'])
     ax_e.set_ylabel('color spread', color=C_BASE, labelpad=1, fontsize=6)
     ax_e.text(len(stats) - 0.1, rand - 0.02, 'random', fontsize=6,
               color=tint(C_BASE, 0.3), ha='right', va='top')
@@ -1778,6 +1885,11 @@ def fig6_cnn_circuits(D):
     for s_ in ('top', 'right'):
         ax_e.spines[s_].set_visible(False)
     anchors['e'] = ax_e
+
+    # ── (f) causal validation by pruning (loaded from its own bundle) ────────
+    ax_f = fig.add_subplot(gsc[0, 3])
+    pruning_panel_multi(ax_f, _fd.load('nb14_pruning_cnn_cifar'))
+    anchors['f'] = ax_f
 
     figstyle.freeze(fig)
 
@@ -1801,6 +1913,7 @@ def fig6_cnn_circuits(D):
     _label('c', 2, r'(c) $L_1$ factors of $f_9$ (color spread below)', dx=-0.004)
     _label('d', 2, '(d) class purity', dx=-0.030)
     _label('e', 2, '(e) color spread', dx=-0.030)
+    _label('f', 2, '(f) causal pruning', dx=-0.030)
     return fig
 
 
@@ -2654,7 +2767,7 @@ def fig8_imagenet_circuits(D):
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
                  va='bottom', fontsize=PANEL_LABEL, fontweight='bold', **kw)
 
-    _label('a', 0, '(a) output factors, with category distribution', dx=-0.004)
+    _label('a', 0, '(a) output factors, with super-category distribution', dx=-0.004)
     _label('b', 1, r'(b) traceback to $L_9$', dx=-0.010)
     _label('c', 1, '(c) category purity by depth', dx=-0.030)
     return fig
@@ -2674,8 +2787,8 @@ def imagenet_spine(NODES, circuit_k):
 def figN_imagenet_details(D):
     """Message: the Fig. 8 trace in full — every node's informativity spectrum, a
     wider gallery of each circuit's fire8 sub-factors, one circuit followed all the
-    way from the classifier to conv1, and the spatial activation maps that show each
-    output factor fires on its object."""
+    way from the classifier to conv1, and the causal pruning check on the traced
+    spine (preliminary 7/8-category cluster run)."""
     NODES, CLS = D['nodes'], list(D['class_names'])
     N_CLASSES = len(D['classes'])
     by_path = {tuple(int(i) for i in n['path']): n for n in NODES}
@@ -2715,7 +2828,8 @@ def figN_imagenet_details(D):
     h_b = n_gal_rows * (s_g + FLAB) + 0.04
     spine = imagenet_spine(NODES, SPINE_CIRC)
     n_sp = len(spine)
-    s_sp = W / (n_sp + (n_sp - 1) * 0.14)                   # spine montage side
+    PRU_W, PRU_GAP = 1.52, 0.20        # (d) causal-pruning column ends the (c) row
+    s_sp = (W - PRU_W - PRU_GAP) / (n_sp + (n_sp - 1) * 0.14)   # spine montage side
     h_c = s_sp + 0.34
     rows = [SP, 1.05, SP, h_b, SP, h_c]
 
@@ -2804,6 +2918,7 @@ def figN_imagenet_details(D):
                     ha='center', va='top', fontsize=6, color=C_X if off else '0.2')
 
     # ── (c) the traced spine of one circuit, classifier to conv1 ─────────────
+    gsc = gs[5].subgridspec(1, 3, width_ratios=[W - PRU_W - PRU_GAP, PRU_GAP, PRU_W])
     tiles, gaps, meta = [], [], []
     for i, n in enumerate(spine):
         kk = SPINE_CIRC if i == 0 else 0                   # root: the circuit factor
@@ -2812,7 +2927,7 @@ def figN_imagenet_details(D):
         meta.append((n, kk))
     comp_c = hcat(tiles, gaps[:-1])
     side = tiles[0].shape[0]
-    ax_c = strip_axes(fig, gs[5], comp_c, top=15, bottom=20)
+    ax_c = strip_axes(fig, gsc[0, 0], comp_c, top=15, bottom=20)
     x = 0
     for n, kk in meta:
         ax_c.text(x + 2, 2, rf'$f_{{{kk}}}$', ha='left', va='top', fontsize=6,
@@ -2833,6 +2948,16 @@ def figN_imagenet_details(D):
         x += side + 10
     anchors['c'] = ax_c
 
+    # ── (d) causal check: prune the traced spine (own bundle; the cluster run
+    #        is preliminary — 7 of 8 categories — and drawn per category) ─────
+    from src import figdata as _fd
+    ax_d = fig.add_subplot(gsc[0, 2])
+    try:
+        pruning_panel_imagenet(ax_d, _fd.load('nb14_pruning_imagenet_cnn'))
+    except FileNotFoundError:
+        _val_na(ax_d, 'causal pruning:\ncluster run pending')
+    anchors['d'] = ax_d
+
     figstyle.freeze(fig)
 
     def _label(key, spacer, text, dx=0.0):
@@ -2846,6 +2971,7 @@ def figN_imagenet_details(D):
                    r'(framed) then top stimuli', dx=-0.004)
     _label('c', 2, r'(c) airplane circuit traced $L_{10}\to L_1$ '
                    rf'(purity below, $\rightarrow$ chance {chance:.2f})', dx=-0.004)
+    _label('d', 2, '(d) causal pruning', dx=-0.030)
     return fig
 
 
@@ -2892,7 +3018,8 @@ def figP_validation(D):
     decomposition is faithful (a–c: causal reconstruction between a random-rank
     floor and the exact ceiling, NNLS round-trip, NMF-seed stability), the BFT
     fingerprint is the more class-separable code (d,e: it out-silhouettes the
-    dimension-matched activations, and the weight term earns its place), and the
+    full-concatenation activation baseline at both native and matched dimension
+    and a random-projection null, and the weight term earns its place), and the
     factors are a property of the arbor rather than the exact NMF rank (f,g:
     K*±1 robustness and the rank sweep). Merges the former Figs. P/Q/R; the two
     honest gaps in (a,b) are shown as n/a rather than hidden.
@@ -3016,9 +3143,42 @@ def figP_validation(D):
                 transform=ax.transAxes, ha='left', va='top', fontsize=6.0, color='0.2',
                 linespacing=1.1)
 
-    grouped(ax_d, 'fp_sil', 'act_sil', C_BFT, C_ACT,
-            'BFT fingerprint', 'dim-matched act.')
-    ax_d.set_title('(d) fingerprint vs. network activations', fontsize=7.5, pad=3,
+    # (d) the fingerprint against the full-concatenation activation baseline
+    # (every spanned layer's input; conv maps average-pooled over space, attn
+    # tokens collapsed by the CLS weighting the arbor uses) at its native width
+    # and PCA-reduced to the fingerprint dimension, plus a random-projection null
+    # at that matched width.  Native ~ matched on both sides, so the fingerprint's
+    # lead is not a dimensionality artifact.  Shuffled-label floor (~0) dotted.
+    DBARS = [('fp_sil',       C_BFT,             'BFT fingerprint'),
+             ('act_raw_sil',  C_ACT,             'concat. act. (native)'),
+             ('act_sil',      tint(C_ACT, 0.45), 'concat. act. (matched)'),
+             ('act_rand_sil', '0.72',            'random proj. (matched)')]
+    nb_d = len(DBARS)
+    dw = 0.84 / nb_d
+    dtop = max(max((r[k] for k, _, _ in DBARS if r.get(k) is not None), default=0.0)
+               for r in srows)
+    for j, (key, col, lab) in enumerate(DBARS):
+        xoff = (j - (nb_d - 1) / 2) * dw
+        pts = [(xi + xoff, r[key]) for xi, r in zip(xg, srows) if r.get(key) is not None]
+        ax_d.bar([p[0] for p in pts], [p[1] for p in pts], dw, color=col,
+                 edgecolor='0.25', lw=0.3, zorder=3, label=lab)
+    ax_d.axhline(0.0, color='0.55', lw=0.6, ls=':', zorder=2)
+    ax_d.set_ylim(min(0.0, min(r['shuf_sil'] for r in srows)) - 0.01, dtop * 1.38)
+    ax_d.set_yticks([0, 0.2, 0.4])
+    ax_d.set_ylabel('cosine silhouette', fontsize=7, labelpad=2)
+    ax_d.set_xticks(xg)
+    ax_d.set_xticklabels([r['name'] for r in srows], fontsize=6.4, rotation=20, ha='right')
+    ax_d.tick_params(length=1.5, pad=1.5)
+    for s_ in ('top', 'right'):
+        ax_d.spines[s_].set_visible(False)
+    ax_d.legend(fontsize=6.0, frameon=False, loc='upper right', ncol=2,
+                handlelength=0.9, handletextpad=0.35, borderpad=0.1,
+                labelspacing=0.2, columnspacing=0.9)
+    n_pos_d = int(sum(r['fp_sil'] > r['act_sil'] for r in srows))
+    ax_d.text(0.015, 0.98, f'fp $>$ matched act\n{n_pos_d}/{len(srows)}, '
+              f'$p$={_sign_p(n_pos_d, len(srows)):.3f}', transform=ax_d.transAxes,
+              ha='left', va='top', fontsize=6.0, color='0.2', linespacing=1.1)
+    ax_d.set_title('(d) fingerprint vs. activation baselines', fontsize=7.5, pad=3,
                    fontweight='bold')
     grouped(ax_e, 'arbor_nmf', 'act_nmf', C_BFT, tint(C_ACT, 0.5),
             r'arbor NMF ($W\!\cdot\!a$)', 'activation-only NMF')
@@ -3106,14 +3266,26 @@ _VAL_MODELS = [
 
 def _sil_row(name, D):
     """One model's silhouette numbers from its nb09 bundle: the BFT fingerprint
-    against the dimension-matched activations (the separability claim), and the
-    weight-term advantage — the same NMF run on the arbor ($W\\!\\cdot\\!a$) vs on
-    the activations alone."""
-    sep = D['separability']['by_fine']
+    against the full-concatenation activation baseline — at its native width, then
+    PCA-reduced to the fingerprint dimension (the separability claim), a
+    random-projection null at that same width, and the shuffled-label floor — plus
+    the weight-term advantage (the same NMF run on the arbor $W\\!\\cdot\\!a$ vs on
+    the activations alone).
+
+    `act_rand_sil` is None for the models whose concatenated activations are already
+    no wider than the fingerprint (no dimensions to project away)."""
+    sep = D['separability']
+    bf = sep['by_fine']
+
+    def g(k):
+        return float(bf[k]['silhouette']) if k in bf else None
     a1 = D['A1_weight_vs_activation']['fingerprint_separability']
     return dict(name=name,
-                fp_sil=float(sep['bft_fingerprint']['silhouette']),
-                act_sil=float(sep['act_matched']['silhouette']),
+                fp_sil=g('bft_fingerprint'),
+                act_raw_sil=g('raw_activations'),          # full-concat, native width
+                act_sil=g('act_matched'),                  # full-concat, PCA-matched
+                act_rand_sil=g('act_randproj'),            # random-projection null
+                shuf_sil=float(sep['null_shuffled_labels']['silhouette']),
                 arbor_nmf=float(a1['arbor_nmf']['silhouette']),
                 act_nmf=float(a1['activation_nmf']['silhouette']))
 

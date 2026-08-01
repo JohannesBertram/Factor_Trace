@@ -1,0 +1,22 @@
+{
+ "class_names": [
+  "airplane",
+  "ship",
+  "car",
+  "bicycle",
+  "elephant",
+  "bear",
+  "dog",
+  "bird"
+ ],
+ "experiment": "imagenet_cnn_pruning",
+ "frac_stat": 0.2,
+ "n_classes": 8,
+ "n_obs": 7,
+ "n_seeds": 1,
+ "p_target_vs_bystander": 0.6875,
+ "p_top_vs_bft_bottom_auc_t": 0.0800744891166687,
+ "p_top_vs_bft_bottom_auc_wilcoxon": 0.03125,
+ "p_top_vs_random_auc_t": 6.395254814606233e-08,
+ "p_top_vs_random_auc_wilcoxon": 0.015625
+}

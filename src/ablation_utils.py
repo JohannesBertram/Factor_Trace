@@ -62,6 +62,8 @@ def extract_importance_scores(path_nodes, selectivity_weights=None, neg_selectiv
     """
     Extract per-weight importance from neural_factors along a traced path.
 
+    Paper: App. "Validation Suite" (BFT-importance weight ranking for pruning).
+
     Parameters
     ----------
     path_nodes : list[dict] — ordered output-layer first (from path_from_child)
@@ -251,97 +253,6 @@ def per_class_accuracy(model, loader, label_transform, device, pred_transform=No
             for d in sorted(total_counts)}
 
 
-def magnitude_scores(model, layer_names=None):
-    """Return {(l_idx, i, j): |W[i,j]|} for all weights in the prunable layers."""
-    scores = {}
-    _, mods = _prunable_modules(model, layer_names)
-    for l_idx, mod in enumerate(mods):
-        Wf = np.abs(_flat_weight(mod))
-        n_out, n_in = Wf.shape
-        for i in range(n_out):
-            for j in range(n_in):
-                scores[(l_idx, i, j)] = float(Wf[i, j])
-    return scores
-
-
-def act_magnitude_scores(model, layer_inputs_list, layer_names=None):
-    """
-    Return {(l_idx, i, j): |W[i,j]| * mean_act[j]} where mean_act is the
-    mean absolute activation over all samples at the layer's input.
-
-    For conv layers (input_fmap (N, C_in, H, W)) the mean is per input channel,
-    broadcast over the kH*kW kernel positions of that channel.
-    """
-    scores = {}
-    _, mods = _prunable_modules(model, layer_names)
-    for l_idx, mod in enumerate(mods):
-        Wf = np.abs(_flat_weight(mod))
-        n_out, n_in = Wf.shape
-        fmap = np.abs(np.asarray(layer_inputs_list[l_idx]))
-        if fmap.ndim == 4:
-            mean_act = np.repeat(fmap.mean(axis=(0, 2, 3)), n_in // fmap.shape[1])
-        else:
-            mean_act = fmap.reshape(fmap.shape[0], -1).mean(axis=0)
-        for i in range(n_out):
-            for j in range(n_in):
-                scores[(l_idx, i, j)] = float(Wf[i, j] * mean_act[j])
-    return scores
-
-
-def taylor_scores(model, loader, label_transform, device, target_class,
-                  layer_names=None, loss_on_raw_labels=False):
-    """
-    Compute Taylor-criterion importance |grad(L) * W| for class-d samples only.
-
-    Uses a single forward+backward pass.  The loss is cross-entropy over
-    class-target_class samples.  The model copy is kept in eval mode so
-    BatchNorm/Dropout behave as at test time (gradients still flow).
-
-    Parameters
-    ----------
-    loss_on_raw_labels : if True, samples are selected by label_transform(target)
-        == target_class but the CE loss uses the raw loader labels — for models
-        whose output space is finer than the task classes (e.g. 1000 ImageNet
-        logits scored on 8 super-categories).
-
-    Returns {(l_idx, i, j): float}
-    """
-    model_tmp = copy.deepcopy(model)
-    model_tmp.eval()
-    layer_names, mods = _prunable_modules(model_tmp, layer_names)
-
-    criterion = torch.nn.CrossEntropyLoss()
-    model_tmp.zero_grad()
-    n_seen = 0
-    for data, target in loader:
-        data = data.to(device)
-        target = target.to(device)
-        t_task = label_transform(target) if label_transform is not None else target
-        mask = (t_task == target_class).to(device)
-        if not mask.any():
-            continue
-        result = model_tmp(data[mask])
-        output = result[0] if isinstance(result, (tuple, list)) else result
-        loss_target = target[mask] if loss_on_raw_labels else t_task.to(device)[mask]
-        loss = criterion(output, loss_target)
-        loss.backward()
-        n_seen += int(mask.sum())
-
-    scores = {}
-    for l_idx, mod in enumerate(mods):
-        W = mod.weight
-        if W.grad is None:
-            taylor = np.zeros(_flat_weight(mod).shape)
-        else:
-            taylor = (W.grad * W).abs().detach().cpu().numpy()
-            taylor = taylor.reshape(taylor.shape[0], -1)
-        n_out, n_in = taylor.shape
-        for i in range(n_out):
-            for j in range(n_in):
-                scores[(l_idx, i, j)] = float(taylor[i, j])
-    return scores
-
-
 def normalize_scores_per_layer(scores):
     """
     Min-max normalise importance scores within each layer to [0, 1].
@@ -374,6 +285,8 @@ def normalize_scores_per_layer(scores):
 def select_class_circuit(root_node, targets, class_d):
     """
     Return importance scores for the output factor most selective for class d.
+
+    Paper: App. "Validation Suite" (per-class circuit selection for pruning).
 
     Selectivity of factor k for class d is defined as:
         selectivity_k = mean(img_factors[targets==d, k])
@@ -542,22 +455,22 @@ def ablation_sweep(
     target_class,
     fractions=(0.05, 0.10, 0.20, 0.30, 0.50),
     layer_indices=None,
-    methods=('bft_top', 'bft_bottom', 'magnitude', 'random'),
+    methods=('bft_top', 'bft_bottom', 'random'),
     label_transform=None,
     device=None,
     n_random_repeats=10,
     normalize_bft=True,
-    layer_inputs_list=None,
     layer_names=None,
     targets=None,
     pred_transform=None,
-    taylor_on_raw_labels=False,
     verbose=0,
 ):
     """Single entrypoint for a pruning experiment on one target class.
 
-    Computes importance scores from BFT and magnitude baselines, then runs
-    run_ablation_sweep for each method and returns an AblationResult.
+    Paper: App. "Validation Suite"; pruning results in Sec. 3.1-3.2 (Fig. 2e, 6f).
+
+    Computes the BFT circuit importance scores, then runs run_ablation_sweep for
+    each ranking and returns an AblationResult.
 
     Parameters
     ----------
@@ -570,17 +483,16 @@ def ablation_sweep(
     layer_indices : list[int] or None — restrict pruning to these layer indices
                     (0 = input-side layer, n_layers-1 = output layer).
                     None means all layers.
-    methods       : subset of ('bft_top', 'bft_bottom', 'magnitude', 'random',
-                    'act_magnitude', 'taylor'). 'act_magnitude' requires
-                    layer_inputs_list; 'taylor' uses test_loader + target_class.
+    methods       : subset of ('bft_top', 'bft_bottom', 'random'). 'bft_top' and
+                    'bft_bottom' prune the most / least important weights of the
+                    class circuit; 'random' prunes a matched count drawn uniformly
+                    from the same prunable pool.
     label_transform : callable or None
     device        : torch device or None
     n_random_repeats : repeats for the 'random' method
     normalize_bft : if True, min-max normalise BFT scores per layer before using
                     them for BOTH 'bft_top' and 'bft_bottom' (prevents wide early
                     layers from dominating and keeps top/bottom selection symmetric)
-    layer_inputs_list : per-layer inputs (fc: (N, n_in); conv: (N, C_in, H, W)),
-                    required for 'act_magnitude'
     layer_names   : list[str] or None — module names aligned with BFT layer_idx.
                     None resolves to all Conv2d/Linear modules in named_modules()
                     order, which is correct whenever the trace hooked every such
@@ -594,8 +506,6 @@ def ablation_sweep(
                     (see per_class_accuracy); needed when the model's output
                     space is finer than the task classes (e.g. ImageNet
                     super-categories).
-    taylor_on_raw_labels : compute the Taylor loss on raw loader labels instead
-                    of transformed ones (see taylor_scores).
     verbose       : 0 = silent, 1 = print method progress
 
     Returns
@@ -617,8 +527,8 @@ def ablation_sweep(
             device = torch.device('cpu')
 
     # Guard the label-space invariant: select_class_circuit compares target_class
-    # against the trace targets, while per_class_accuracy/taylor_scores compare
-    # against label_transform(target). They only agree if the targets live in the
+    # against the trace targets, while per_class_accuracy compares against
+    # label_transform(target). They only agree if the targets live in the
     # transformed task space (primary mode: trace on the label-transformed loader;
     # layer-dict mode: pass targets= with the traced samples' task labels).
     uniq = set(int(t) for t in np.unique(targets))
@@ -651,25 +561,13 @@ def ablation_sweep(
     # when a layer-depth sweep pools layers of different widths/NMF scales, top- and
     # bottom-selection are on the same footing (fixes the raw-vs-normalized asymmetry).
     bft_sc_norm = normalize_scores_per_layer(bft_sc) if normalize_bft else bft_sc
-    mag_sc = magnitude_scores(model, layer_names)
 
     _score_map = {
         'bft_top':    (bft_sc_norm, 'algo_top'),
         'bft_bottom': (bft_sc_norm, 'algo_bottom'),
-        'magnitude':  (mag_sc,      'algo_top'),
-        'random':     (mag_sc,      'random'),
+        'random':     ({k: 0.0 for k in all_weight_keys(model, layer_names)},
+                       'random'),
     }
-    if 'act_magnitude' in methods:
-        if layer_inputs_list is None:
-            raise ValueError("method 'act_magnitude' requires layer_inputs_list=")
-        _score_map['act_magnitude'] = (
-            act_magnitude_scores(model, layer_inputs_list, layer_names), 'algo_top')
-    if 'taylor' in methods:
-        _score_map['taylor'] = (
-            taylor_scores(model, test_loader, label_transform, device, target_class,
-                          layer_names=layer_names,
-                          loss_on_raw_labels=taylor_on_raw_labels),
-            'algo_top')
 
     baseline = per_class_accuracy(model, test_loader, label_transform, device,
                                   pred_transform)
@@ -708,16 +606,14 @@ def ablation_layer_sweep(
     model, bft_result, test_loader, *,
     target_class,
     fractions=(0.10, 0.20, 0.30),
-    methods=('bft_top', 'bft_bottom', 'magnitude', 'random'),
+    methods=('bft_top', 'bft_bottom', 'random'),
     label_transform=None,
     device=None,
     n_random_repeats=10,
     normalize_bft=True,
-    layer_inputs_list=None,
     layer_names=None,
     targets=None,
     pred_transform=None,
-    taylor_on_raw_labels=False,
     verbose=0,
 ):
     """Sweep over layer depth: run ablation_sweep for last 1, 2, …, L layers.
@@ -763,11 +659,9 @@ def ablation_layer_sweep(
             device=device,
             n_random_repeats=n_random_repeats,
             normalize_bft=normalize_bft,
-            layer_inputs_list=layer_inputs_list,
             layer_names=layer_names,
             targets=targets,
             pred_transform=pred_transform,
-            taylor_on_raw_labels=taylor_on_raw_labels,
             verbose=max(0, verbose - 1),
         )
 

@@ -86,6 +86,8 @@ def compute_stimulus_similarity(fingerprint_matrix):
 def compute_fingerprints(bft_result, indices=None, normalize=True):
     """Compute factor fingerprints for a set of stimuli from a BFT result.
 
+    Paper: Sec. 2.4 (Factor Fingerprints).
+
     Parameters
     ----------
     bft_result : BFTResult or BFTNode
@@ -244,6 +246,8 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
 def project_onto_bft(bft_result, model, data, *,
                      only_correct=False, device=None, layer_filter=None):
     """Project new stimuli onto fixed BFT factors and return a new BFTResult.
+
+    Paper: App. "Projecting New Stimuli" (NNLS); Sec. 2.4.
 
     Mirrors the primary BFT interface: collects layer activations from the model
     and dataloader, then projects via NNLS onto the fixed factors in bft_result.

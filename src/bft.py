@@ -97,6 +97,8 @@ def run_nmf_minibatch(X, n_components, random_state=0, max_iter=500,
 def normalize_factors(W, H):
     """Rescale W and H to unit column-norm; return absorbed norms as lambdas.
 
+    Paper: Sec. 2.2 (Factorization and Rank Selection); the informativity lambda.
+
     Each column of W and H is divided by its L2 norm.  The product of the
     two norms (lambda_k = ||W[:,k]|| * ||H[:,k]||) captures the overall
     importance of component k.
@@ -196,6 +198,8 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
 def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=500, init=None,
                       l1_ratio=0, recon_threshold=None, **factorizer_kwargs):
     """Fit NMF at rank k_max then automatically select effective rank K*.
+
+    Paper: Sec. 2.2; auto-rank detailed in App. "Rank Selection: AutoNMF".
 
     A single NMF fit is performed at k_max; components are pruned to K* so
     re-fitting at every candidate rank is avoided.
@@ -323,6 +327,9 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
                                     stimulus_threshold=0.0, connection_weights=None):
     """Compute the normalised, stimulus-weighted joint arbor matrix for an FC layer.
 
+    Paper: Sec. 2.1 (Setup and Notation); row reweighting in Sec. 2.3;
+    App. "Arbor Construction".
+
     A connection's *arbor* for a given stimulus is the element-wise product of its
     weight row and the (normalised) input activation: W[i] * act_norm[s].
     This quantity represents the synaptic contribution of each input dimension
@@ -379,6 +386,8 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
                                stimulus_threshold=0.0, connection_weights=None,
                                pool_method='avg'):
     """Compute the normalised, stimulus-weighted joint arbor matrix for a Conv2d layer.
+
+    Paper: App. "Convolutional Arbor Approximation" (Sec. 2.1).
 
     Analogous to compute_joint_arbors_normalized but handles spatial feature maps.
     The spatial dimension is collapsed via pooling before forming the arbor, so that
@@ -452,6 +461,8 @@ def compute_attn_joint_arbors(W_V, x_tokens, attn_weights_cls, stimulus_weights=
                                eps=1e-8, stimulus_threshold=0.0, connection_weights=None):
     """Compute the normalised, stimulus-weighted joint arbor matrix for an attention layer.
 
+    Paper: App. "Attention Arbor" (Sec. 2.1).
+
     Attention mixes token representations using data-dependent weights (the softmax scores),
     making it impossible to form a single fixed weight matrix as in FC or conv layers.  The
     solution used here is to collapse the token sequence into a single *attention-weighted
@@ -497,6 +508,8 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
                         normalization='none',
                         verbose=0, _layer_tag='', **factorizer_kwargs):
     """One BFT step: build joint arbors for a layer and factorise.
+
+    Paper: Sec. 2.2-2.3 (Factorization; Backward Propagation and Branching).
 
     Parameters
     ----------
@@ -744,6 +757,8 @@ def collect_layer_dicts(model, loader, device=None, only_correct=True,
                         layer_filter=None, label_transform=None):
     """Collect layer-dict data for Conv2d/Linear layers in the model.
 
+    Paper: Sec. 2.1 (Setup and Notation); arbor inputs, App. "Arbor Construction".
+
     Thin public wrapper around the internal hook-based collection. Use this
     when you need to inspect or reuse the collected activations independently
     from running BFT. The returned 'layer_data' list is directly usable as
@@ -810,6 +825,8 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         validate=False, validate_top_m=100, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
+
+    Paper: Method (Sec. 2) and Algorithm 1.
 
     Traces the network's computation from the output layer to the input by
     factorising weight-activation products at each layer with NMF, then
