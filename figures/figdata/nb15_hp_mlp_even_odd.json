@@ -1,0 +1,409 @@
+{
+ "experiment": "mlp_even_odd",
+ "notebook": "15",
+ "mode": "cluster",
+ "rule": "K*(l) = smallest K whose HELD-OUT arbor reconstruction R2 is within 0.01 of that layer's best held-out R2 (K <= K_CAP); holdout_frac=0.3. No fingerprint metric enters the selection.",
+ "complete": true,
+ "n_samples": 4080,
+ "n_classes": 2,
+ "n_layers": 3,
+ "layer_names": [
+  "layers.1",
+  "layers.3",
+  "layers.5"
+ ],
+ "scale": {
+  "conf_per_class": null,
+  "k_cap": 8,
+  "last_extra": 2,
+  "b_second_last": 2
+ },
+ "stimulus_threshold": 0.5,
+ "reference_trace": {
+  "k_max": [
+   8,
+   8,
+   8
+  ],
+  "n_branches": [
+   1,
+   2,
+   4
+  ],
+  "stimulus_threshold": 0.5
+ },
+ "config": {
+  "sweep_rows": 900,
+  "sweep_max_iter": 300,
+  "trace_max_iter": 500,
+  "holdout_frac": 0.3,
+  "plateau_eps": 0.01,
+  "max_arbor_cols": null,
+  "max_nodes_layer": 2,
+  "split_seed": 0
+ },
+ "completed_sections": [
+  "context",
+  "sweep_L0",
+  "sweep_L1",
+  "sweep_L2",
+  "profile",
+  "verification",
+  "DONE"
+ ],
+ "sweep": {
+  "0": {
+   "layer_idx": 0,
+   "layer_name": "layers.1",
+   "layer_type": "fc",
+   "n_nodes_pooled": 2,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 6272
+    },
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 6272
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.5147935693235806,
+     "insample_r2": 0.5099036994861357,
+     "heldout_rel_err": 0.6834050117698798,
+     "n_nodes": 2
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.6074546549302747,
+     "insample_r2": 0.6166814732893539,
+     "heldout_rel_err": 0.6147397263200105,
+     "n_nodes": 2
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.6251771279929444,
+     "insample_r2": 0.6264192116706048,
+     "heldout_rel_err": 0.6006265966191229,
+     "n_nodes": 2
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.6363118355495558,
+     "insample_r2": 0.6332428170067029,
+     "heldout_rel_err": 0.591663543628363,
+     "n_nodes": 2
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.6466758126707459,
+     "insample_r2": 0.6419517101669786,
+     "heldout_rel_err": 0.5832796491067846,
+     "n_nodes": 2
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.6508995780733525,
+     "insample_r2": 0.6460091275588389,
+     "heldout_rel_err": 0.5798209248328234,
+     "n_nodes": 2
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.658969683794236,
+     "insample_r2": 0.6508417201001085,
+     "heldout_rel_err": 0.5731847939901874,
+     "n_nodes": 2
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.6625127755810087,
+     "insample_r2": 0.6539029814341732,
+     "heldout_rel_err": 0.5701326326261054,
+     "n_nodes": 2
+    }
+   ],
+   "selection": {
+    "K": 7,
+    "best_heldout_r2": 0.6625127755810087,
+    "K_argmax": 8,
+    "selected_at_sweep_cap": false,
+    "still_rising": false,
+    "reason": "smallest K within 0.01 of best held-out R2 0.6625",
+    "K_at_r2_90": null,
+    "K_at_r2_95": null
+   },
+   "wall_s": 10.9
+  },
+  "1": {
+   "layer_idx": 1,
+   "layer_name": "layers.3",
+   "layer_type": "fc",
+   "n_nodes_pooled": 2,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 32
+    },
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 32
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.8836897229822476,
+     "insample_r2": 0.8815756258859443,
+     "heldout_rel_err": 0.2661577925655548,
+     "n_nodes": 2
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.9329027850917077,
+     "insample_r2": 0.9184562413976285,
+     "heldout_rel_err": 0.19560115346753718,
+     "n_nodes": 2
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.9375754487077135,
+     "insample_r2": 0.9160816244114148,
+     "heldout_rel_err": 0.1885958897250248,
+     "n_nodes": 2
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.944090941598664,
+     "insample_r2": 0.9175963941341829,
+     "heldout_rel_err": 0.17958146320741167,
+     "n_nodes": 2
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.9442524745210238,
+     "insample_r2": 0.9168420707621234,
+     "heldout_rel_err": 0.17957943153334416,
+     "n_nodes": 2
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.949595490321558,
+     "insample_r2": 0.9164653856983037,
+     "heldout_rel_err": 0.17254782603724775,
+     "n_nodes": 2
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.9551608690558632,
+     "insample_r2": 0.9160098044621331,
+     "heldout_rel_err": 0.16266268636632927,
+     "n_nodes": 2
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.9555574198782288,
+     "insample_r2": 0.9152656382373257,
+     "heldout_rel_err": 0.16207249292650638,
+     "n_nodes": 2
+    }
+   ],
+   "selection": {
+    "K": 6,
+    "best_heldout_r2": 0.9555574198782288,
+    "K_argmax": 8,
+    "selected_at_sweep_cap": false,
+    "still_rising": false,
+    "reason": "smallest K within 0.01 of best held-out R2 0.9556",
+    "K_at_r2_90": 2,
+    "K_at_r2_95": 7
+   },
+   "wall_s": 0.7
+  },
+  "2": {
+   "layer_idx": 2,
+   "layer_name": "layers.5",
+   "layer_type": "fc",
+   "n_nodes_pooled": 1,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 8
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.5610466442702771,
+     "insample_r2": 0.5591886014910888,
+     "heldout_rel_err": 0.5703007448005722,
+     "n_nodes": 1
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.9974518590126472,
+     "insample_r2": 0.9841586805605296,
+     "heldout_rel_err": 0.043451670627072975,
+     "n_nodes": 1
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.998239177119873,
+     "insample_r2": 0.9753028542267969,
+     "heldout_rel_err": 0.036120403106015025,
+     "n_nodes": 1
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.9982045229448544,
+     "insample_r2": 0.9755983312366316,
+     "heldout_rel_err": 0.03647410817407413,
+     "n_nodes": 1
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.998761373288279,
+     "insample_r2": 0.9645087933103798,
+     "heldout_rel_err": 0.030294582577061958,
+     "n_nodes": 1
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.9988163251217886,
+     "insample_r2": 0.9533774774029987,
+     "heldout_rel_err": 0.029614947510852738,
+     "n_nodes": 1
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.9987359785673341,
+     "insample_r2": 0.943964897175899,
+     "heldout_rel_err": 0.03060356152591729,
+     "n_nodes": 1
+    }
+   ],
+   "selection": {
+    "K": 2,
+    "best_heldout_r2": 0.9988163251217886,
+    "K_argmax": 6,
+    "selected_at_sweep_cap": false,
+    "still_rising": false,
+    "reason": "smallest K within 0.01 of best held-out R2 0.9988",
+    "K_at_r2_90": 2,
+    "K_at_r2_95": 2
+   },
+   "wall_s": 0.1
+  }
+ },
+ "profile": {
+  "k_max": [
+   7,
+   6,
+   4
+  ],
+  "n_branches": [
+   1,
+   2,
+   4
+  ],
+  "k_from_criterion": [
+   7,
+   6,
+   2
+  ],
+  "notes": [
+   "output k_max raised 2 -> 4 (n_classes 2 + last_extra 2)",
+   "n_branches[out] = k_max[out] = 4 (every output factor traced)",
+   "n_branches[out-1] = 2 (>= 2: every circuit splits, unless K*=1 there)"
+  ],
+  "k_cap_hit": [],
+  "output_floor_applied": true,
+  "n_nodes_estimate": 13
+ },
+ "verification": {
+  "wall_s": 516.5,
+  "n_nodes": 6,
+  "n_samples": 4080,
+  "ranks": {
+   "0": {
+    "k_max": 7,
+    "k_star_min": 7,
+    "k_star_max": 7,
+    "k_star_equals_kmax": true,
+    "ceiling_bound": false
+   },
+   "1": {
+    "k_max": 6,
+    "k_star_min": 1,
+    "k_star_max": 2,
+    "k_star_equals_kmax": false,
+    "ceiling_bound": false
+   },
+   "2": {
+    "k_max": 4,
+    "k_star_min": 2,
+    "k_star_max": 2,
+    "k_star_equals_kmax": false,
+    "ceiling_bound": false
+   }
+  },
+  "heldout_r2_final": {
+   "0": 0.6613298410619595,
+   "1": 0.9310282274802064,
+   "2": 0.9974518590126472
+  },
+  "class_coverage": {
+   "n_output_factors": 2,
+   "factor_to_class": [
+    1,
+    0
+   ],
+   "classes_covered": [
+    0,
+    1
+   ],
+   "classes_missing": [],
+   "complete": true
+  },
+  "nmf_stability": {
+   "0": 0.8560627937316895,
+   "1": 1.000000011920929,
+   "2": 0.9999955594539642
+  },
+  "NOT_A_CRITERION": {
+   "note": "recorded for the rebuttal only; no selection step in this notebook reads these",
+   "fingerprint_silhouette": 0.6164003014564514,
+   "fingerprint_knn_acc": 0.9997549019607842,
+   "fingerprint_dim": 26
+  }
+ },
+ "final_bft_kwargs": {
+  "k_max": [
+   7,
+   6,
+   4
+  ],
+  "n_branches": [
+   1,
+   2,
+   4
+  ],
+  "stimulus_threshold": 0.5,
+  "weighting": "img_selectivity",
+  "normalization": "none"
+ },
+ "figure": "figs/15_hp_selection/fig_hp_mlp_even_odd.pdf",
+ "wall_s_total": 937.0
+}

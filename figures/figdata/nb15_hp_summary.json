@@ -1,0 +1,640 @@
+{
+ "mode": "cluster",
+ "models": [
+  "cnn_cifar",
+  "imagenet_cnn"
+ ],
+ "table": [
+  {
+   "exp": "cnn_cifar",
+   "n": 2000,
+   "k_max": [
+    6,
+    7,
+    7,
+    10,
+    14
+   ],
+   "B": [
+    1,
+    1,
+    1,
+    3,
+    14
+   ],
+   "nodes": 141,
+   "capped": "....!",
+   "covered": "10/10",
+   "ho_r2": 0.8277886775645694,
+   "sil": 0.07651003450155258,
+   "mins": 159.7
+  },
+  {
+   "exp": "imagenet_cnn",
+   "n": 544,
+   "k_max": [
+    6,
+    5,
+    7,
+    6,
+    7,
+    6,
+    6,
+    4,
+    6,
+    16
+   ],
+   "B": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    16
+   ],
+   "nodes": 273,
+   "capped": ".........!",
+   "covered": "8/8",
+   "ho_r2": 0.8463269322576664,
+   "sil": 0.20051167905330658,
+   "mins": 508.6
+  }
+ ],
+ "final_bft_kwargs": {
+  "cnn_cifar": {
+   "k_max": [
+    6,
+    7,
+    7,
+    10,
+    14
+   ],
+   "n_branches": [
+    1,
+    1,
+    1,
+    3,
+    14
+   ],
+   "stimulus_threshold": 0.0,
+   "weighting": "img_selectivity",
+   "normalization": "none",
+   "conf_per_class": 200,
+   "conv_pool_method": "avg"
+  },
+  "imagenet_cnn": {
+   "k_max": [
+    6,
+    5,
+    7,
+    6,
+    7,
+    6,
+    6,
+    4,
+    6,
+    16
+   ],
+   "n_branches": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    16
+   ],
+   "stimulus_threshold": 0.0,
+   "weighting": "img_selectivity",
+   "normalization": "none",
+   "conf_per_class": 250,
+   "conv_pool_method": "avg"
+  }
+ },
+ "per_model": {
+  "cnn_cifar": {
+   "experiment": "cnn_cifar",
+   "notebook": "15",
+   "mode": "cluster",
+   "rule": "K*(l) = smallest K whose HELD-OUT arbor reconstruction R2 is within 0.01 of that layer's best held-out R2 (K <= K_CAP); holdout_frac=0.3. No fingerprint metric enters the selection.",
+   "complete": true,
+   "n_samples": 2000,
+   "n_classes": 10,
+   "n_layers": 5,
+   "layer_names": [
+    "features.0",
+    "features.4",
+    "features.8",
+    "features.12",
+    "classifier"
+   ],
+   "scale": {
+    "conf_per_class": 200,
+    "k_cap": 16,
+    "last_extra": 4,
+    "b_second_last": 3
+   },
+   "stimulus_threshold": 0.0,
+   "reference_trace": {
+    "k_max": [
+     16,
+     16,
+     16,
+     16,
+     16
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     2,
+     4
+    ],
+    "conv_pool_method": "avg",
+    "stimulus_threshold": 0.0
+   },
+   "config": {
+    "sweep_rows": 900,
+    "sweep_max_iter": 300,
+    "trace_max_iter": 500,
+    "holdout_frac": 0.3,
+    "plateau_eps": 0.01,
+    "max_arbor_cols": null,
+    "max_nodes_layer": 2,
+    "split_seed": 0
+   },
+   "completed_sections": [
+    "context",
+    "sweep_L0",
+    "sweep_L1",
+    "sweep_L2",
+    "sweep_L3",
+    "sweep_L4",
+    "profile",
+    "verification",
+    "DONE"
+   ],
+   "profile": {
+    "k_max": [
+     6,
+     7,
+     7,
+     10,
+     14
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     3,
+     14
+    ],
+    "k_from_criterion": [
+     6,
+     7,
+     7,
+     10,
+     13
+    ],
+    "notes": [
+     "output k_max raised 13 -> 14 (n_classes 10 + last_extra 4)",
+     "n_branches[out] = k_max[out] = 14 (every output factor traced)",
+     "n_branches[out-1] = 3 (>= 2: every circuit splits, unless K*=1 there)"
+    ],
+    "k_cap_hit": [],
+    "output_floor_applied": true,
+    "n_nodes_estimate": 141
+   },
+   "verification": {
+    "wall_s": 3242.2,
+    "n_nodes": 141,
+    "n_samples": 2000,
+    "ranks": {
+     "0": {
+      "k_max": 6,
+      "k_star_min": 5,
+      "k_star_max": 5,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "1": {
+      "k_max": 7,
+      "k_star_min": 3,
+      "k_star_max": 3,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "2": {
+      "k_max": 7,
+      "k_star_min": 1,
+      "k_star_max": 4,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "3": {
+      "k_max": 10,
+      "k_star_min": 10,
+      "k_star_max": 10,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": false
+     },
+     "4": {
+      "k_max": 14,
+      "k_star_min": 14,
+      "k_star_max": 14,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": true
+     }
+    },
+    "heldout_r2_final": {
+     "0": 0.8666471325336383,
+     "1": 0.9104683118846983,
+     "2": 0.8493974582068335,
+     "3": 0.7331927892803475,
+     "4": 0.7792376959173295
+    },
+    "class_coverage": {
+     "n_output_factors": 14,
+     "factor_to_class": [
+      1,
+      7,
+      9,
+      8,
+      5,
+      1,
+      6,
+      0,
+      4,
+      2,
+      5,
+      0,
+      3,
+      7
+     ],
+     "classes_covered": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+     ],
+     "classes_missing": [],
+     "complete": true
+    },
+    "nmf_stability": {
+     "0": 0.8916872859001159,
+     "1": 0.9987879574298859,
+     "2": 0.9935252845287323,
+     "3": 0.8105531632900238,
+     "4": 0.8375631093978881
+    },
+    "NOT_A_CRITERION": {
+     "note": "recorded for the rebuttal only; no selection step in this notebook reads these",
+     "fingerprint_silhouette": 0.07651003450155258,
+     "fingerprint_knn_acc": 0.960494977736357,
+     "fingerprint_dim": 548
+    }
+   },
+   "final_bft_kwargs": {
+    "k_max": [
+     6,
+     7,
+     7,
+     10,
+     14
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     3,
+     14
+    ],
+    "stimulus_threshold": 0.0,
+    "weighting": "img_selectivity",
+    "normalization": "none",
+    "conf_per_class": 200,
+    "conv_pool_method": "avg"
+   },
+   "figure": "figs/15_hp_selection/fig_hp_cnn_cifar.pdf",
+   "wall_s_total": 9583.1
+  },
+  "imagenet_cnn": {
+   "experiment": "imagenet_cnn",
+   "notebook": "15",
+   "mode": "cluster",
+   "rule": "K*(l) = smallest K whose HELD-OUT arbor reconstruction R2 is within 0.01 of that layer's best held-out R2 (K <= K_CAP); holdout_frac=0.3. No fingerprint metric enters the selection.",
+   "complete": true,
+   "n_samples": 544,
+   "n_classes": 8,
+   "n_layers": 10,
+   "layer_names": [
+    "features.0",
+    "features.3.squeeze",
+    "features.4.squeeze",
+    "features.6.squeeze",
+    "features.7.squeeze",
+    "features.9.squeeze",
+    "features.10.squeeze",
+    "features.11.squeeze",
+    "features.12.squeeze",
+    "classifier.1"
+   ],
+   "scale": {
+    "conf_per_class": 250,
+    "k_cap": 16,
+    "last_extra": 4,
+    "b_second_last": 2
+   },
+   "stimulus_threshold": 0.0,
+   "reference_trace": {
+    "k_max": [
+     16,
+     16,
+     16,
+     16,
+     16,
+     16,
+     16,
+     16,
+     16,
+     16
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     4
+    ],
+    "conv_pool_method": "avg",
+    "stimulus_threshold": 0.0
+   },
+   "config": {
+    "sweep_rows": 900,
+    "sweep_max_iter": 300,
+    "trace_max_iter": 500,
+    "holdout_frac": 0.3,
+    "plateau_eps": 0.01,
+    "max_arbor_cols": null,
+    "max_nodes_layer": 2,
+    "split_seed": 0
+   },
+   "completed_sections": [
+    "context",
+    "sweep_L0",
+    "sweep_L1",
+    "sweep_L2",
+    "sweep_L3",
+    "sweep_L4",
+    "sweep_L5",
+    "sweep_L6",
+    "sweep_L7",
+    "sweep_L8",
+    "sweep_L9",
+    "profile",
+    "verification",
+    "DONE"
+   ],
+   "profile": {
+    "k_max": [
+     6,
+     5,
+     7,
+     6,
+     7,
+     6,
+     6,
+     4,
+     6,
+     16
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     16
+    ],
+    "k_from_criterion": [
+     6,
+     5,
+     7,
+     6,
+     7,
+     6,
+     6,
+     4,
+     6,
+     16
+    ],
+    "notes": [
+     "output k_max 16 came from the criterion (already >= floor 12)",
+     "n_branches[out] = k_max[out] = 16 (every output factor traced)",
+     "n_branches[out-1] = 2 (>= 2: every circuit splits, unless K*=1 there)",
+     "WARNING: the held-out curve had not plateaued by the sweep ceiling in layers [9] \u2014 raise k_cap (16) and re-run those; their K* is a ceiling, not a selection"
+    ],
+    "k_cap_hit": [
+     9
+    ],
+    "output_floor_applied": false,
+    "n_nodes_estimate": 273
+   },
+   "verification": {
+    "wall_s": 9695.5,
+    "n_nodes": 273,
+    "n_samples": 544,
+    "ranks": {
+     "0": {
+      "k_max": 6,
+      "k_star_min": 4,
+      "k_star_max": 5,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "1": {
+      "k_max": 5,
+      "k_star_min": 2,
+      "k_star_max": 4,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "2": {
+      "k_max": 7,
+      "k_star_min": 1,
+      "k_star_max": 4,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "3": {
+      "k_max": 6,
+      "k_star_min": 1,
+      "k_star_max": 3,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "4": {
+      "k_max": 7,
+      "k_star_min": 1,
+      "k_star_max": 6,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "5": {
+      "k_max": 6,
+      "k_star_min": 1,
+      "k_star_max": 5,
+      "k_star_equals_kmax": false,
+      "ceiling_bound": false
+     },
+     "6": {
+      "k_max": 6,
+      "k_star_min": 2,
+      "k_star_max": 6,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": false
+     },
+     "7": {
+      "k_max": 4,
+      "k_star_min": 4,
+      "k_star_max": 4,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": false
+     },
+     "8": {
+      "k_max": 6,
+      "k_star_min": 3,
+      "k_star_max": 6,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": false
+     },
+     "9": {
+      "k_max": 16,
+      "k_star_min": 16,
+      "k_star_max": 16,
+      "k_star_equals_kmax": true,
+      "ceiling_bound": true
+     }
+    },
+    "heldout_r2_final": {
+     "0": 0.8438459942630266,
+     "1": 0.9232308818032953,
+     "2": 0.9376600012723859,
+     "3": 0.9177249500397968,
+     "4": 0.862260698671081,
+     "5": 0.914428038056107,
+     "6": 0.8088254821656895,
+     "7": 0.7938262735525503,
+     "8": 0.8137183719307272,
+     "9": 0.647748630822006
+    },
+    "class_coverage": {
+     "n_output_factors": 16,
+     "factor_to_class": [
+      6,
+      0,
+      2,
+      3,
+      7,
+      4,
+      1,
+      7,
+      5,
+      5,
+      0,
+      6,
+      4,
+      7,
+      5,
+      1
+     ],
+     "classes_covered": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "classes_missing": [],
+     "complete": true
+    },
+    "nmf_stability": {
+     "0": 0.8763983368873596,
+     "1": 0.9723670542240143,
+     "2": 0.9158805191516877,
+     "3": 0.9263976752758026,
+     "4": 1.0000006914138795,
+     "5": 0.9133605360984802,
+     "6": 0.9474667072296142,
+     "7": 0.9905838906764984,
+     "8": 0.9123353242874146,
+     "9": 0.9134226739406586
+    },
+    "NOT_A_CRITERION": {
+     "note": "recorded for the rebuttal only; no selection step in this notebook reads these",
+     "fingerprint_silhouette": 0.20051167905330658,
+     "fingerprint_knn_acc": 0.9320219375467994,
+     "fingerprint_dim": 989
+    }
+   },
+   "final_bft_kwargs": {
+    "k_max": [
+     6,
+     5,
+     7,
+     6,
+     7,
+     6,
+     6,
+     4,
+     6,
+     16
+    ],
+    "n_branches": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     16
+    ],
+    "stimulus_threshold": 0.0,
+    "weighting": "img_selectivity",
+    "normalization": "none",
+    "conf_per_class": 250,
+    "conv_pool_method": "avg"
+   },
+   "figure": "figs/15_hp_selection/fig_hp_imagenet_cnn.pdf",
+   "wall_s_total": 30513.6
+  }
+ }
+}
