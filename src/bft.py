@@ -572,6 +572,10 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     # Resolve factorization and normalization callables.
     factorize_fn = _resolve_factorization(factorization)
     normalize_fn = _resolve_normalization(normalization)
+    # the line below checks if it's a signed factorization, which should
+    # have an attribute `requires_sign_split`set to False
+    # if the function comes with no such attribue, by default it is set to True
+    needs_split  = getattr(factorize_fn, 'requires_sign_split', True)
 
     # Build unified params dict; factorization_params overrides legacy explicit params.
     _fp: dict = {'random_state': random_state, 'max_iter': max_iter,
@@ -584,14 +588,18 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     # Apply normalization to raw joint before the pos/neg split.
     raw_joint = normalize_fn(raw_joint)
 
-    # Split into positive/negative parts for separate factorization.
-    pos_joint = np.clip(raw_joint, 0, None)
-    neg_joint = np.clip(-raw_joint, 0, None)
+    # Split into positive/negative parts for separate factorization (if not signed)
+    if needs_split:
+        pos_joint = np.clip(raw_joint, 0, None)
+        neg_joint = np.clip(-raw_joint, 0, None)
+    else:
+        pos_joint = raw_joint # do nothing to the signed raw
+        neg_joint = None # keep this for compatibility
 
     if verbose >= 2:
         tag = f'[BFT{_layer_tag}]'
         print(f'{tag}   joint arbor: {raw_joint.shape}  '
-              f'pos {pos_joint.shape}  neg {neg_joint.shape}')
+              f'pos {pos_joint.shape}  neg {neg_joint.shape if neg_joint is not None else '<None>'}')
 
     _t0 = time.perf_counter() if verbose >= 2 else None
     img_f, con_f, lams = _run_factorization(
@@ -600,7 +608,7 @@ def trace_single_layer(W, act_input, stimulus_weights, k_max=None,
     if verbose >= 2:
         print(f'{tag}   factorize pos  K={len(lams)}  {time.perf_counter() - _t0:.2f} s')
 
-    if neg_joint.max() > 0:
+    if neg_joint is not None and neg_joint.max() > 0:
         _t0_neg = time.perf_counter() if verbose >= 2 else None
         neg_img_f, neg_con_f, neg_lams = _run_factorization(
             neg_joint, factorize_fn, k_fixed, k_max, recon_threshold, **_fp,
