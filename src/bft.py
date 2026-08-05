@@ -244,9 +244,66 @@ def _nmf_factorize(X, n_components, **params):
     """Default NMF factorization — wraps full_nmf_pipeline."""
     return full_nmf_pipeline(X, n_components, **params)
 
+def _seminmf_factorize(X, n_components, random_state=0, max_iter=500, tol=1e-4,
+                       patience=25, **params):
+    """Semi-NMF: X ≈ W H^T with W >= 0 (stimulus loadings), H signed (connections).
 
-_FACTORIZATIONS: dict = {'nmf': _nmf_factorize}
+    Ding, Li & Jordan (2010), "Convex and semi-nonnegative matrix factorizations".
+    Their X ≈ F G^T (F unconstrained, G >= 0) maps to ours with F = H, G = W,
+    applied to X^T. NMF-specific params (init, l1_ratio, n_jobs) are ignored.
+    """
+    from sklearn.cluster import KMeans
 
+    X = np.asarray(X, dtype=np.float32)
+    S = X.shape[0]
+    K = int(n_components)
+    eps = 1e-6
+
+    # Init W from k-means on the stimuli (Ding et al. §5): cluster indicator + 0.2.
+    # The offset matters: a zero entry is frozen under multiplicative updates.
+    km = KMeans(n_clusters=K, n_init=10, random_state=random_state).fit(X)
+    W = np.zeros((S, K), dtype=np.float32)
+    W[np.arange(S), km.labels_] = 1.0
+    W += 0.2
+
+    X_norm = np.linalg.norm(X)
+    best_err, best_W, best_H, n_no_improve = np.inf, None, None, 0
+
+    for _ in range(int(max_iter)):
+        # H = X^T W (W^T W)^-1 — unconstrained least squares, hence signed.
+        H = np.linalg.lstsq(W.T @ W, W.T @ X, rcond=None)[0].T      # (n_feat, K)
+
+        # Scale fixing: unit-norm W columns, scale absorbed into H. Keeps the
+        # two factors from drifting apart in magnitude across iterations.
+        w_norms = np.linalg.norm(W, axis=0)
+        active = w_norms > eps
+        W[:, active] /= w_norms[active]
+        H[:, active] *= w_norms[active]
+
+        XH, HtH = X @ H, H.T @ H
+        num = np.clip(XH, 0, None) + W @ np.clip(-HtH, 0, None)
+        den = np.clip(-XH, 0, None) + W @ np.clip(HtH, 0, None) + eps
+        W = W * np.sqrt(num / den)
+
+        err = np.linalg.norm(X - W @ H.T) / (X_norm + eps)
+        if err < best_err - tol:
+            best_err, best_W, best_H, n_no_improve = err, W.copy(), H.copy(), 0
+        else:
+            n_no_improve += 1
+            if n_no_improve >= patience:
+                break
+
+    if best_W is not None:
+        W, H = best_W, best_H
+
+    W, H, lambdas = normalize_factors(W, H)
+    W, H, lambdas, _ = sort_by_lambda(W, H, lambdas)
+    scale = np.sqrt(lambdas)
+    return W * scale, H * scale, lambdas
+
+_seminmf_factorize.requires_sign_split = False
+
+_FACTORIZATIONS: dict = {'nmf': _nmf_factorize, 'semi_nmf': _seminmf_factorize}
 
 def _resolve_factorization(factorization):
     if callable(factorization):
