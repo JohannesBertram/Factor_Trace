@@ -74,3 +74,12 @@ from .robustness_utils import (
     plot_nmf_stability_figure,
     plot_k_sensitivity_figure,
 )
+from . import arbors, cache_utils, hp_selection, separability, pruning
+from .arbors import (node_joint_arbor, node_pos_arbor, activation_matrix,
+                     nodes_by_layer, nodes_per_layer)
+from .cache_utils import cached_tree, cached_result, clear_cache
+from .hp_selection import select_ranks, heldout_curve, pick_K, build_profile
+from .separability import (metrics as sep_metrics_v2, activation_reps,
+                           fingerprint_slices, paired_matched,
+                           evaluate as separability_evaluate, weight_term_control)
+from .pruning import run_pruning, aggregate as pruning_aggregate, pack_obs

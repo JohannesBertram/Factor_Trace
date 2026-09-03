@@ -1,10 +1,4 @@
 {
- "act.aligned": 1,
- "act.reps.0.dim": 40,
- "act.reps.0.label": "$L_2$ act.",
- "act.reps.1.dim": 20,
- "act.reps.1.label": "$L_3$ act.",
- "act.reps.__list__": 2,
  "agree": 0.6963,
  "block_color_keys": [
   "id_data",
@@ -91,7 +85,7 @@
  "n_block": 30,
  "n_classes": 10,
  "n_factors": 125,
- "r_ood": 0.8978721546435904,
+ "r_ood": 0.8978721546435907,
  "rows.0.color_key": "id_data",
  "rows.0.label": "0",
  "rows.1.color_key": "id_data",
@@ -128,7 +122,7 @@
  "sep.0.dim": 125,
  "sep.0.knn": 0.9773119782764439,
  "sep.0.label": "BFT\nfingerprint",
- "sep.0.silhouette": 0.5594817399978638,
+ "sep.0.silhouette": 0.5594815611839294,
  "sep.1.color_key": "0.55",
  "sep.1.dim": 40,
  "sep.1.knn": 0.9870503350032065,
@@ -143,12 +137,12 @@
  "sep.3.dim": 844,
  "sep.3.knn": 0.984770864246558,
  "sep.3.label": "all act.",
- "sep.3.silhouette": 0.17326846718788147,
+ "sep.3.silhouette": 0.17326843738555908,
  "sep.4.color_key": "0.55",
  "sep.4.dim": 784,
  "sep.4.knn": 0.9668486086030219,
  "sep.4.label": "pixels",
- "sep.4.silhouette": 0.11085712909698486,
+ "sep.4.silhouette": 0.11085712164640427,
  "sep.__list__": 5,
- "sil": 0.5594817399978638
+ "sil": 0.5594815611839294
 }
