@@ -1,0 +1,591 @@
+{
+ "experiment": "vit_mnist",
+ "notebook": "15",
+ "mode": "cluster",
+ "rule": "K*(l) = smallest K whose HELD-OUT arbor reconstruction R2 is within 0.01 of that layer's best held-out R2 (K <= K_CAP); holdout_frac=0.3. No fingerprint metric enters the selection.",
+ "complete": true,
+ "n_samples": 9820,
+ "n_classes": 2,
+ "n_layers": 4,
+ "layer_names": [
+  "B0-V",
+  "B0-O",
+  "B0-FFN1",
+  "B0-FFN2"
+ ],
+ "scale": {
+  "conf_per_class": null,
+  "k_cap": 10,
+  "last_extra": 2,
+  "b_second_last": 2
+ },
+ "stimulus_threshold": 0.0,
+ "reference_trace": {
+  "k_max": [
+   10,
+   10,
+   10,
+   10
+  ],
+  "n_branches": [
+   1,
+   1,
+   2,
+   4
+  ],
+  "stimulus_threshold": 0.0
+ },
+ "config": {
+  "sweep_rows": 900,
+  "sweep_max_iter": 300,
+  "trace_max_iter": 500,
+  "holdout_frac": 0.3,
+  "plateau_eps": 0.01,
+  "max_arbor_cols": null,
+  "max_nodes_layer": 2,
+  "split_seed": 0
+ },
+ "completed_sections": [
+  "context",
+  "sweep_L0",
+  "sweep_L1",
+  "sweep_L2",
+  "sweep_L3",
+  "profile",
+  "verification",
+  "DONE"
+ ],
+ "sweep": {
+  "0": {
+   "layer_idx": 0,
+   "layer_name": "B0-V",
+   "layer_type": "attn",
+   "n_nodes_pooled": 2,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 1024
+    },
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 1024
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.612318605032249,
+     "insample_r2": 0.6005847917070686,
+     "heldout_rel_err": 0.555523536969359,
+     "n_nodes": 2
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.6668521530429363,
+     "insample_r2": 0.6486043671685904,
+     "heldout_rel_err": 0.5143324222531351,
+     "n_nodes": 2
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.6969536282189256,
+     "insample_r2": 0.6738903122078829,
+     "heldout_rel_err": 0.4911125188376032,
+     "n_nodes": 2
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.7104132035290072,
+     "insample_r2": 0.6839058328197787,
+     "heldout_rel_err": 0.4794478137498593,
+     "n_nodes": 2
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.7198923671028872,
+     "insample_r2": 0.693624117410965,
+     "heldout_rel_err": 0.471515045813819,
+     "n_nodes": 2
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.7264466003289122,
+     "insample_r2": 0.7005444269245631,
+     "heldout_rel_err": 0.46595115798403786,
+     "n_nodes": 2
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.7297408315716624,
+     "insample_r2": 0.6984246802988056,
+     "heldout_rel_err": 0.4637936287028844,
+     "n_nodes": 2
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.7340091740161065,
+     "insample_r2": 0.7016873847632048,
+     "heldout_rel_err": 0.46017591051909934,
+     "n_nodes": 2
+    },
+    {
+     "K": 9,
+     "heldout_r2": 0.7371649959030805,
+     "insample_r2": 0.7033368915288603,
+     "heldout_rel_err": 0.45745108901995946,
+     "n_nodes": 2
+    },
+    {
+     "K": 10,
+     "heldout_r2": 0.7394078946057063,
+     "insample_r2": 0.7040248847081354,
+     "heldout_rel_err": 0.45547786756719166,
+     "n_nodes": 2
+    }
+   ],
+   "selection": {
+    "K": 7,
+    "best_heldout_r2": 0.7394078946057063,
+    "K_argmax": 10,
+    "selected_at_sweep_cap": false,
+    "still_rising": false,
+    "reason": "smallest K within 0.01 of best held-out R2 0.7394",
+    "K_at_r2_90": null,
+    "K_at_r2_95": null
+   },
+   "wall_s": 3.0
+  },
+  "1": {
+   "layer_idx": 1,
+   "layer_name": "B0-O",
+   "layer_type": "fc",
+   "n_nodes_pooled": 2,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 1024
+    },
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 1024
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.3415749937045356,
+     "insample_r2": 0.33859699033024887,
+     "heldout_rel_err": 0.7483010887164635,
+     "n_nodes": 2
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.49616899687372035,
+     "insample_r2": 0.46320195785060836,
+     "heldout_rel_err": 0.6525577880556528,
+     "n_nodes": 2
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.5520334706194654,
+     "insample_r2": 0.5262635626139869,
+     "heldout_rel_err": 0.6162466880752191,
+     "n_nodes": 2
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.5903337260792023,
+     "insample_r2": 0.5672480065619936,
+     "heldout_rel_err": 0.5906934769522979,
+     "n_nodes": 2
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.6320760107082081,
+     "insample_r2": 0.6032794596489297,
+     "heldout_rel_err": 0.5600694998893019,
+     "n_nodes": 2
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.6516062287036559,
+     "insample_r2": 0.6269465579035863,
+     "heldout_rel_err": 0.5455179027215777,
+     "n_nodes": 2
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.665860210043949,
+     "insample_r2": 0.6431588949237785,
+     "heldout_rel_err": 0.5344982594924197,
+     "n_nodes": 2
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.6781396185643975,
+     "insample_r2": 0.6560904945711818,
+     "heldout_rel_err": 0.5246745140994835,
+     "n_nodes": 2
+    },
+    {
+     "K": 9,
+     "heldout_r2": 0.6896678486061011,
+     "insample_r2": 0.6660996618831247,
+     "heldout_rel_err": 0.5151896048470719,
+     "n_nodes": 2
+    },
+    {
+     "K": 10,
+     "heldout_r2": 0.7004418471406842,
+     "insample_r2": 0.6743373440576153,
+     "heldout_rel_err": 0.5061193561671916,
+     "n_nodes": 2
+    }
+   ],
+   "selection": {
+    "K": 10,
+    "best_heldout_r2": 0.7004418471406842,
+    "K_argmax": 10,
+    "selected_at_sweep_cap": true,
+    "still_rising": true,
+    "reason": "smallest K within 0.01 of best held-out R2 0.7004",
+    "K_at_r2_90": null,
+    "K_at_r2_95": null
+   },
+   "wall_s": 11.9
+  },
+  "2": {
+   "layer_idx": 2,
+   "layer_name": "B0-FFN1",
+   "layer_type": "fc",
+   "n_nodes_pooled": 2,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 2048
+    },
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 2048
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.6016930617316658,
+     "insample_r2": 0.5996896049418725,
+     "heldout_rel_err": 0.6122074174734337,
+     "n_nodes": 2
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.6672928431325635,
+     "insample_r2": 0.6556257869265738,
+     "heldout_rel_err": 0.5596313850312987,
+     "n_nodes": 2
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.6963193537201593,
+     "insample_r2": 0.6822665558387278,
+     "heldout_rel_err": 0.5343402197206649,
+     "n_nodes": 2
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.7161977297953981,
+     "insample_r2": 0.7011992094903297,
+     "heldout_rel_err": 0.5164877281871678,
+     "n_nodes": 2
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.7273779387442216,
+     "insample_r2": 0.7121064093469296,
+     "heldout_rel_err": 0.5062237105249061,
+     "n_nodes": 2
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.7343778290024234,
+     "insample_r2": 0.7183218549051917,
+     "heldout_rel_err": 0.4996552048572451,
+     "n_nodes": 2
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.7408944075300337,
+     "insample_r2": 0.7245427789259449,
+     "heldout_rel_err": 0.49354678376912803,
+     "n_nodes": 2
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.744664058713508,
+     "insample_r2": 0.7280266834241913,
+     "heldout_rel_err": 0.4899438905473241,
+     "n_nodes": 2
+    },
+    {
+     "K": 9,
+     "heldout_r2": 0.7488055002357652,
+     "insample_r2": 0.7309182010830959,
+     "heldout_rel_err": 0.4860386501042397,
+     "n_nodes": 2
+    },
+    {
+     "K": 10,
+     "heldout_r2": 0.7493702287041876,
+     "insample_r2": 0.7312772004215855,
+     "heldout_rel_err": 0.48549747924285125,
+     "n_nodes": 2
+    }
+   ],
+   "selection": {
+    "K": 7,
+    "best_heldout_r2": 0.7493702287041876,
+    "K_argmax": 10,
+    "selected_at_sweep_cap": false,
+    "still_rising": false,
+    "reason": "smallest K within 0.01 of best held-out R2 0.7494",
+    "K_at_r2_90": null,
+    "K_at_r2_95": null
+   },
+   "wall_s": 3.0
+  },
+  "3": {
+   "layer_idx": 3,
+   "layer_name": "B0-FFN2",
+   "layer_type": "fc",
+   "n_nodes_pooled": 1,
+   "meta": [
+    {
+     "sub_cols": null,
+     "n_fit": 630,
+     "n_ho": 270,
+     "n_cols": 2048
+    }
+   ],
+   "curve": [
+    {
+     "K": 1,
+     "heldout_r2": 0.2293309130110539,
+     "insample_r2": 0.20951649633562652,
+     "heldout_rel_err": 0.8410462038929274,
+     "n_nodes": 1
+    },
+    {
+     "K": 2,
+     "heldout_r2": 0.39066285182790517,
+     "insample_r2": 0.35989413374889256,
+     "heldout_rel_err": 0.7478503707486265,
+     "n_nodes": 1
+    },
+    {
+     "K": 3,
+     "heldout_r2": 0.49477061806006384,
+     "insample_r2": 0.4591529871737562,
+     "heldout_rel_err": 0.6809734582784193,
+     "n_nodes": 1
+    },
+    {
+     "K": 4,
+     "heldout_r2": 0.5620496188014357,
+     "insample_r2": 0.5295308059965307,
+     "heldout_rel_err": 0.6340132583032114,
+     "n_nodes": 1
+    },
+    {
+     "K": 5,
+     "heldout_r2": 0.6022162859070437,
+     "insample_r2": 0.5757179626371343,
+     "heldout_rel_err": 0.6042398789547921,
+     "n_nodes": 1
+    },
+    {
+     "K": 6,
+     "heldout_r2": 0.6291329340284408,
+     "insample_r2": 0.609293954192916,
+     "heldout_rel_err": 0.5834384136328981,
+     "n_nodes": 1
+    },
+    {
+     "K": 7,
+     "heldout_r2": 0.6605237655983275,
+     "insample_r2": 0.6427284906985232,
+     "heldout_rel_err": 0.5582009529304763,
+     "n_nodes": 1
+    },
+    {
+     "K": 8,
+     "heldout_r2": 0.6873301845879811,
+     "insample_r2": 0.6720932922059574,
+     "heldout_rel_err": 0.5357089030974802,
+     "n_nodes": 1
+    },
+    {
+     "K": 9,
+     "heldout_r2": 0.7043673615985189,
+     "insample_r2": 0.6947368960714785,
+     "heldout_rel_err": 0.520909256805423,
+     "n_nodes": 1
+    },
+    {
+     "K": 10,
+     "heldout_r2": 0.7199581721870119,
+     "insample_r2": 0.7117081992562604,
+     "heldout_rel_err": 0.5069875998415785,
+     "n_nodes": 1
+    }
+   ],
+   "selection": {
+    "K": 10,
+    "best_heldout_r2": 0.7199581721870119,
+    "K_argmax": 10,
+    "selected_at_sweep_cap": true,
+    "still_rising": true,
+    "reason": "smallest K within 0.01 of best held-out R2 0.7200",
+    "K_at_r2_90": null,
+    "K_at_r2_95": null
+   },
+   "wall_s": 23.7
+  }
+ },
+ "profile": {
+  "k_max": [
+   7,
+   10,
+   7,
+   10
+  ],
+  "n_branches": [
+   1,
+   1,
+   2,
+   10
+  ],
+  "k_from_criterion": [
+   7,
+   10,
+   7,
+   10
+  ],
+  "notes": [
+   "output k_max 10 came from the criterion (already >= floor 4)",
+   "n_branches[out] = k_max[out] = 10 (every output factor traced)",
+   "n_branches[out-1] = 2 (>= 2: every circuit splits, unless K*=1 there)",
+   "WARNING: the held-out curve had not plateaued by the sweep ceiling in layers [1, 3] \u2014 raise k_cap (10) and re-run those; their K* is a ceiling, not a selection"
+  ],
+  "k_cap_hit": [
+   1,
+   3
+  ],
+  "output_floor_applied": false,
+  "n_nodes_estimate": 51
+ },
+ "verification": {
+  "wall_s": 61.8,
+  "n_nodes": 51,
+  "n_samples": 9820,
+  "ranks": {
+   "0": {
+    "k_max": 7,
+    "k_star_min": 6,
+    "k_star_max": 7,
+    "k_star_equals_kmax": true,
+    "ceiling_bound": false
+   },
+   "1": {
+    "k_max": 10,
+    "k_star_min": 10,
+    "k_star_max": 10,
+    "k_star_equals_kmax": true,
+    "ceiling_bound": true
+   },
+   "2": {
+    "k_max": 7,
+    "k_star_min": 7,
+    "k_star_max": 7,
+    "k_star_equals_kmax": true,
+    "ceiling_bound": false
+   },
+   "3": {
+    "k_max": 10,
+    "k_star_min": 10,
+    "k_star_max": 10,
+    "k_star_equals_kmax": true,
+    "ceiling_bound": true
+   }
+  },
+  "heldout_r2_final": {
+   "0": 0.7137450339748126,
+   "1": 0.6986421954694977,
+   "2": 0.7408944075300337,
+   "3": 0.7199581721870119
+  },
+  "class_coverage": {
+   "n_output_factors": 10,
+   "factor_to_class": [
+    1,
+    1,
+    0,
+    0,
+    1,
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "classes_covered": [
+    0,
+    1
+   ],
+   "classes_missing": [],
+   "complete": true
+  },
+  "nmf_stability": {
+   "0": 0.8603841185569763,
+   "1": 0.8424942076206208,
+   "2": 0.8961320877075195,
+   "3": 0.8558971464633942
+  },
+  "NOT_A_CRITERION": {
+   "note": "recorded for the rebuttal only; no selection step in this notebook reads these",
+   "fingerprint_silhouette": 0.12852589786052704,
+   "fingerprint_knn_acc": 0.9817719662979961,
+   "fingerprint_dim": 419
+  }
+ },
+ "final_bft_kwargs": {
+  "k_max": [
+   7,
+   10,
+   7,
+   10
+  ],
+  "n_branches": [
+   1,
+   1,
+   2,
+   10
+  ],
+  "stimulus_threshold": 0.0,
+  "weighting": "img_selectivity",
+  "normalization": "none"
+ },
+ "figure": "figs/15_hp_selection/fig_hp_vit_mnist.pdf",
+ "wall_s_total": 226.4
+}
