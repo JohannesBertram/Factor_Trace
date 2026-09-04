@@ -86,9 +86,11 @@ def run_pruning(replicates, eval_loader, target_classes, *, n_classes,
 
     Parameters
     ----------
-    replicates : list of dict, each {'seed', 'model', 'tree', 'layer_names'} —
-                 one trained model, its BFT circuit tree, and the prunable layer
-                 names (from collect_layer_dicts). One per model seed.
+    replicates : list of dict, each {'seed', 'model', 'tree', 'layer_names', 'targets'} —
+                 one trained model, its BFT circuit tree, the prunable layer names
+                 (from collect_layer_dicts), and the traced samples' task labels.
+                 ``targets`` is required for layer-dict traces (their
+                 ``bft_result.targets`` is all-zeros); primary-mode traces may omit it.
     eval_loader : DataLoader — held-out set scored per class after each prune.
     target_classes : which class circuits to prune.
     layer_indices : restrict pruning to these layer_idx (None = all). Pass a subset
@@ -104,6 +106,7 @@ def run_pruning(replicates, eval_loader, target_classes, *, n_classes,
                                 label_transform=label_transform, device=device,
                                 layer_indices=layer_indices,
                                 layer_names=rep.get('layer_names'),
+                                targets=rep.get('targets'),
                                 n_random_repeats=n_random_repeats, verbose=0)
             per_obs.append(pack_obs(ab, rep['seed'], d))
             if verbose:
