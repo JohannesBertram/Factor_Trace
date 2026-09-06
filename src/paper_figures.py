@@ -1658,12 +1658,41 @@ def lam_weighted(v, w):
     return float((v * w).sum() / w.sum())
 
 
+def _purity_point_from_profile(D):
+    """Per-layer lambda-weighted purity from the bundle's own precomputed
+    class_profile — needs no per-stimulus labels. Used as the point estimate and
+    as the CI fallback when aligned labels are unavailable."""
+    out = []
+    for _name, nodes in cnn_layers(D['nodes']):
+        pur = np.concatenate([np.asarray(nd['class_profile'], float).max(1) for nd in nodes])
+        lam = np.concatenate([np.asarray(nd['lam_share'], float) for nd in nodes])
+        out.append(lam_weighted(pur, lam))
+    return out
+
+
 def purity_ci_by_layer(D, labels, n_boot=800, seed=0):
     """Per layer (output first): (point, lo, hi) of the lambda-weighted class
     purity with a 95% stimulus-bootstrap CI. Reconstructs each factor's class
-    profile from per-stimulus loadings + labels so the resample is honest; labels
-    come from the aligned fingerprint bundle. Numpy only (Appendix stats)."""
-    labels = np.asarray(labels); classes = np.unique(labels)
+    profile from per-stimulus loadings + labels so the resample is honest.
+
+    Labels must be aligned to the *circuit* tree's population. When they are not
+    (e.g. the circuit and fingerprint trees now use different populations under the
+    two-tree split), the per-node stim_idx cannot index them; we then fall back to
+    the bundle's precomputed class_profile for the point estimate and return a
+    zero-width CI, so the figure still renders the correct purity without error
+    bars. Re-export the circuit bundle with `stim_labels` to restore the CI."""
+    labels = np.asarray(labels)
+    D_labels = D.get('stim_labels')                      # circuit-tree's own labels, if exported
+    if D_labels is not None:
+        labels = np.asarray(D_labels)
+    classes = np.unique(labels)
+    # Can every node's stim_idx be indexed by these labels?
+    max_idx = max((int(np.asarray(nd['stim_idx']).max())
+                   for _n, nds in cnn_layers(D['nodes']) for nd in nds
+                   if 'stim_idx' in nd), default=-1)
+    if max_idx >= len(labels):
+        pts = _purity_point_from_profile(D)
+        return [(p, p, p) for p in pts]
     rng = np.random.default_rng(seed)
     out = []
     for _name, nodes in cnn_layers(D['nodes']):
@@ -2241,13 +2270,20 @@ def figG_vit_circuits(D):
     gsa = gs_top[0, 0].subgridspec(1, len(STAGES))
     for i, (name, nodes) in enumerate(STAGES):
         ax = fig.add_subplot(gsa[0, i])
-        L = np.stack([n['lam_share'] for n in nodes])
-        x = np.arange(L.shape[1])
-        ax.bar(x, L.mean(0), color=tint(C_BFT, 0.45), edgecolor='0.25',
+        # nodes at a layer can have different K (AutoNMF prunes per node), so the
+        # lam_share vectors are ragged — pad to the max with NaN and use nanmean.
+        _lams = [np.asarray(n['lam_share'], float) for n in nodes]
+        _K = max(len(v) for v in _lams)
+        L = np.full((len(_lams), _K), np.nan)
+        for _r, _v in enumerate(_lams):
+            L[_r, :len(_v)] = _v
+        x = np.arange(_K)
+        ax.bar(x, np.nanmean(L, 0), color=tint(C_BFT, 0.45), edgecolor='0.25',
                linewidth=0.3, width=0.75, zorder=1)
         if len(nodes) > 1:
             for row in L:
-                ax.scatter(x, row, s=1.6, color=C_BFT, zorder=2, edgecolor='none')
+                _m = ~np.isnan(row)
+                ax.scatter(x[_m], row[_m], s=1.6, color=C_BFT, zorder=2, edgecolor='none')
         ax.set_ylim(0, 0.72)
         ax.set_yticks([0, 0.25, 0.5])
         ax.set_yticklabels(['0', '', '.5'] if i == 0 else [])
@@ -2340,8 +2376,10 @@ def figG_vit_circuits(D):
     anchors['d'] = img_first[0]
 
     # ── (e) CLS attention: shared across factors ─────────────────────────────
-    A_all = np.stack([n['attn_mean'] for n in ATTN])          # (nodes, K, T)
-    A_flat = A_all.reshape(-1, A_all.shape[-1])
+    # ragged K per node -> concatenate the (K_i, T) maps and track node offsets
+    _am = [np.asarray(n['attn_mean'], float) for n in ATTN]   # each (K_i, T)
+    _starts = np.cumsum([0] + [a.shape[0] for a in _am])[:-1]  # first-row of each node
+    A_flat = np.concatenate(_am, axis=0)                      # (sum K, T)
     A_flat = A_flat / A_flat.sum(1, keepdims=True)
     Ua = unit(A_flat)
     cos_min = (Ua @ Ua.T).min()
@@ -2357,7 +2395,7 @@ def figG_vit_circuits(D):
     vmax = np.abs(dev).max()
     for i, node in enumerate(ATTN):
         ax = fig.add_subplot(gse[0, i + 2])
-        ax.imshow(dev[i * node['attn_mean'].shape[0]].reshape(side, side), cmap='RdBu_r',
+        ax.imshow(dev[_starts[i]].reshape(side, side), cmap='RdBu_r',
                   vmin=-vmax, vmax=vmax, interpolation='nearest')
         ax.set_xticks([]); ax.set_yticks([])
         for s_ in ax.spines.values():

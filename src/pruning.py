@@ -78,6 +78,23 @@ def aggregate(per_obs, n_classes, fractions=DEFAULT_FRACTIONS, methods=DEFAULT_M
     return agg
 
 
+def pruning_results_dict(experiment, run_result, fractions=DEFAULT_FRACTIONS,
+                         frac_stat=0.20):
+    """Shape a run_pruning() result into the nb13/nb14 results-JSON schema that
+    `scripts/build_pruning_bundle.py` consumes (works for both build paths).
+
+    Written to data/results/<name>.json with mode='cluster'; the build script then
+    re-encodes it into the figdata bundle the pruning panels read."""
+    agg = run_result['aggregate']
+    return {'experiment': f'{experiment}_pruning', 'mode': 'cluster',
+            'per_obs': run_result['per_obs'],
+            'aggregate': {'methods': agg['methods'], 'fractions': agg['fractions'],
+                          'n_obs': agg['n_obs']},
+            'stats': {'frac_stat': agg['frac_stat'], 'drops': agg['drops'],
+                      'tests': agg['tests'], 'n_obs': agg['n_obs']},
+            'config': {'fractions': list(fractions), 'frac_stat': frac_stat}}
+
+
 def run_pruning(replicates, eval_loader, target_classes, *, n_classes,
                 fractions=DEFAULT_FRACTIONS, methods=DEFAULT_METHODS,
                 label_transform=None, device=None, layer_indices=None,

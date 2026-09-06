@@ -83,3 +83,5 @@ from .separability import (metrics as sep_metrics_v2, activation_reps,
                            fingerprint_slices, paired_matched,
                            evaluate as separability_evaluate, weight_term_control)
 from .pruning import run_pruning, aggregate as pruning_aggregate, pack_obs
+from .validation import run_validation
+from .pruning import pruning_results_dict
