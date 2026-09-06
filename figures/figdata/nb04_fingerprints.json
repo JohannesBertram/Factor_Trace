@@ -1,10 +1,4 @@
 {
- "act.aligned": 0,
- "act.reps.0.dim": 32,
- "act.reps.0.label": "attn out",
- "act.reps.1.dim": 64,
- "act.reps.1.label": "FFN act.",
- "act.reps.__list__": 2,
  "cond.0.color_key": "id_data",
  "cond.0.label": "ID test",
  "cond.1.color_key": "near_ood",

@@ -1,10 +1,4 @@
 {
- "act.aligned": 1,
- "act.reps.0.dim": 128,
- "act.reps.0.label": "conv4 act.",
- "act.reps.1.dim": 256,
- "act.reps.1.label": "classifier act.",
- "act.reps.__list__": 2,
  "class_names": [
   "airplane",
   "automobile",
@@ -49,5 +43,5 @@
  "like.5.label": "inverted",
  "like.__list__": 6,
  "n_classes": 10,
- "n_factors": 156
+ "n_factors": 173
 }
