@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Add the network's own activations to the fingerprint bundles.
+"""OBSOLETE — notebooks 01-05 §5 now write the aligned `act` entry themselves,
+straight from the layer inputs they collect (see CLAUDE.md / PUBLICATION.md).
+Kept for reference only; running it would overwrite the aligned in-notebook
+baseline with a post-hoc reconstruction at the OLD stimulus populations.
+
+Add the network's own activations to the fingerprint bundles.
 
 The fingerprint figures compare the BFT fingerprint against the representation the
 network itself computes — same stimuli, same 2-D PCA treatment, dots colored by

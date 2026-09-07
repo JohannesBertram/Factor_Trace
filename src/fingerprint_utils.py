@@ -25,6 +25,34 @@ from .types import BFTNode, BFTResult, FingerprintResult
 
 # ── 1. Factor fingerprints ─────────────────────────────────────────────────────
 
+def truncate_tree(tree, depth=2):
+    """Copy the top ``depth`` levels of a BFT tree (root = level 1).
+
+    The publication fingerprint is the fingerprint of the circuit tree's top two
+    levels — the output-layer factors plus their immediate sub-circuits — so
+    ``extract_fingerprint_matrix(truncate_tree(tree))`` is the single-tree
+    fingerprint, and projecting new stimuli onto the truncated tree only solves
+    the NNLS at those two levels.
+
+    Nodes are shallow-copied (factor arrays are shared with the source tree, and
+    every consumer treats them as read-only; ``project_stimuli_onto_tree`` makes
+    its own deep copy before mutating).
+    """
+    root = tree.root if isinstance(tree, BFTResult) else tree
+
+    def _cut(node, d):
+        node = copy.copy(node)
+        node.children = [] if d <= 1 else [_cut(c, d - 1) for c in node.children]
+        return node
+
+    new_root = _cut(root, depth)
+    if isinstance(tree, BFTResult):
+        res = copy.copy(tree)
+        res.root = new_root
+        return res
+    return new_root
+
+
 def extract_fingerprint_matrix(root_node, stimulus_indices):
     """Build a (n_stimuli, fingerprint_dim) fingerprint matrix.
 
