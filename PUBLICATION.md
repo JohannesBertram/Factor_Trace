@@ -46,16 +46,26 @@ New points this round surfaced:
 - **fig2e x-axis**: `pruning_panel` still draws xticks at 0/25/50% but the grid now caps at 20% — small `src/paper_figures.py` tweak when re-rendering.
 - **ImageNet `act_out`**: not measurable without the val set locally; comes automatically from §7/§9 in the rerun (conv root → no logits control; note this in the paper as n/a).
 
+## Publication refactor (2026-09-08, done locally — this repo state)
+
+The repo was cut down to the publishable core ahead of the cluster rerun; full plan/rationale in the session plan, headline changes:
+
+- **Deleted**: notebooks 08–16, `executed_09_*`, the six `fig0N` notebooks (`scripts/render_figures.py` + `src/paper_figures.py` is the only figure path now); obsolete scripts (`add_activation_baselines`, `last_layer_separability`, the nb09/nb10 cluster drivers); side-project src modules; figdata bundles no figure loads (nb11/12/15/16, error_consistency); tracked `logs/09_validation` PDFs; ~2k lines of dead src code. `pruning.py`'s aggregation merged into `bundles.pruning_bundle` (single stats path).
+- **Bundle shrink (export side, before the rerun)**: shared uint8 `stimulus_pool` replaces per-node `top_images` (`paper_figures.top_stims` gathers, backward-compatible); `wavg` uint8; conv `conn` marginals-only via lowered `max_matrix`; nb03/nb05 drop scaffold edges + slim spatial maps; nb04 gains `stim_idx`; every circuit bundle exports full-length `stim_labels` (fixes the CIFAR purity-CI IndexError — fig6d/figN error bars change for the better). Projected sizes: nb02 ~3.5 / nb03 ~10 / nb04 ~4 / nb05 ~12 MB → the whole figdata dir fits GitHub without LFS.
+- **§8 rework**: cache key now includes seeds/fractions/eval-size (extending `_reps` recomputes instead of stale-hitting); **ImageNet pruning downsized and moved into nb05 §8** — seeded ≤50 images/category eval subsample (~400), 4-point grid to 20%, `n_random=3`, category-mapped accuracy via `pred_transform`. Cancel the old long-running nb14-style cluster job; its replacement runs inside nb05.
+- Verified locally: nb01 end-to-end (all four bundle writes, caches hit, pruning floor rejects the smoke run), 12/12 registry figures render from mixed old/new bundles, `compute_checklist_stats.py` completes (stale-bundle sections skip cleanly until the rerun).
+- **docs/ website is frozen**: `docs/build_data.py` is compatible with the new bundle format but must NOT be run until the updated circuits are ready (user supplies them later).
+- After the rerun + figure verification: create the fresh squashed public history (orphan branch / new repo) — the old 981 MB `.git` contains a >100 MB blob and cannot push to GitHub.
+
 ## Run plan
 
 **Cluster (one pass):**
-1. Pull this repo state. Run notebooks 01–05 (`nbconvert --execute`, same commands as before). Each writes all four of its bundles into `figures/figdata/`. For the pruning seed grids, extend `_reps` in §8 with the extra checkpoints (nb01: seeds 0–4; nb02/nb03 if checkpoints exist).
-2. Let the already-running ImageNet pruning finish; it writes `nb14_pruning_imagenet_cnn.json` → bundle via `build_pruning_bundle.py imagenet_cnn` (or rerun nb05 §8 under the refactor).
-3. Copy `figures/figdata/` here (plus `logs/results/`, `data/results/` for provenance if convenient).
+1. Pull this repo state. Run notebooks 01–05 (`nbconvert --execute`, same commands as before). Each writes all four of its bundles into `figures/figdata/`. For the pruning seed grids, extend `_reps` in §8 with the extra checkpoints (nb01: seeds 0–4; nb02/nb03 if checkpoints exist). Circuit-tree caches still hit; §7/§9 recompute at top2; §8 recomputes under the new key. nb05 §8 now runs the downsized ImageNet pruning itself — cancel the old in-flight nb14 job.
+2. Copy `figures/figdata/` here (plus `logs/results/`, `data/results/` for provenance if convenient). Check no bundle exceeds ~10 MB (`find figures/figdata -size +10M`).
 
 **Local (after figdata arrives):**
-4. `python scripts/render_figures.py` — then eyeball fig4 and figfp_ood/figfp_structure closely: the fingerprint dimensionality changed a lot (e.g. even/odd 13→5, ImageNet 236→~105), so panel layouts may need adjusting.
-5. `python scripts/compute_checklist_stats.py` → re-paste every number/CI into `paper.md`.
+4. `python scripts/render_figures.py` — then eyeball fig4 and figfp_ood/figfp_structure closely: the fingerprint dimensionality changed a lot (e.g. even/odd 13→5, ImageNet 236→~105), so panel layouts may need adjusting. Do NOT rebuild `docs/` — the website waits for the user-supplied updated circuits.
+5. `python scripts/compute_checklist_stats.py` → re-paste every number/CI into `paper.md`. The previously-skipping sections (CIFAR fp/act paired, CIFAR purity CI) must now compute; the ImageNet pruning stats text must state the downsized protocol (≤50 imgs/category, 4-point grid, n_random=3).
 6. `paper.md` text pass: replace the two-tree description (§2.4 "Two trees" paragraph, Table 3's fingerprint-tree block, Appendix rank-sweep last paragraph, validation-suite mentions) with the top-2-slice definition; update the separability discussion per the comparison rules above (logits control, PCA-matched penultimate); update stale captions (node counts figE 131 / figN 273 / figG 51; fig2e axis; the `%` comment block above the pruning stats in appx marks the numbers to re-paste); rescope the headline: CIFAR strengthens, ImageNet fingerprint number shrinks but stays a clear win, even/odd fine story survives at 0.38, ViT stays a feasibility demo.
 7. One caveat to write honestly: on the tiny even/odd MLP, PCA-compressing the **full activation concatenation** to the fingerprint's 5 dims scores 0.571 on digit labels — above the 5-dim fingerprint's 0.383 (nb01 §7 verified locally). At very small matched dims, PCA concentration favors wide activation stacks; the fingerprint's wins are the conv models and the depth/same-layer-matched comparisons. Frame the claim accordingly rather than as a universal "beats activations".
 
