@@ -65,7 +65,12 @@ def to_rgb(chw, mean, std, is_wavg):
     Grayscale models are already in [0,1]; weighted averages are contrast-
     stretched so the (necessarily faint) average pattern is legible.
     """
-    x = np.asarray(chw, np.float32)
+    if np.asarray(chw).dtype == np.uint8:      # new-format bundles: already
+        x = np.asarray(chw, np.float32) / 255.0  # denormalized uint8
+        mean = None
+        is_wavg = False
+    else:
+        x = np.asarray(chw, np.float32)
     c = x.shape[0]
     if mean is not None:
         m = np.asarray(mean, np.float32).reshape(-1, 1, 1)
@@ -168,7 +173,13 @@ def build_model(spec):
     n_tiles = 0
     for i, node in enumerate(nodes):
         wavg = np.asarray(node["wavg"])            # (K, C, H, W)
-        exs = np.asarray(node["top_images"])       # (K, T, C, H, W)
+        if "top_images" in node:                   # old-format bundle
+            exs = np.asarray(node["top_images"])   # (K, T, C, H, W)
+        else:                                      # new format: shared pool + top_idx
+            pool = bundle["images"]
+            pos = np.searchsorted(np.asarray(pool["index"]),
+                                  np.asarray(node["top_idx"]))
+            exs = np.asarray(pool["images"])[pos]
         K, T = wavg.shape[0], exs.shape[1]
         cols = 1 + T
         prof, _ = pick_profile(node)
