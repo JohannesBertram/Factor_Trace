@@ -3033,7 +3033,7 @@ def _faith_row(name, D):
     the ViT's attention nodes)."""
     caps = D['caps']
     li, r2, src = _val_causal_nodes(D)
-    rc = D['recon_controls']
+    rc = D.get('recon_controls', {})     # empty for models with no fc-root controls
 
     def cv(key):
         vs = ([float(n[key]['preact_r2']) for n in rc.values() if key in n]

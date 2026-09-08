@@ -129,17 +129,25 @@ def _stability(tree, layer_inputs, n_seeds=5, max_iter=300, sub=800):
 # ── class-relevant structure: separability with all baselines ──────────────────
 
 def _sep_block(fp_tree, layer_inputs, labels, seed=0):
-    """{bft_fingerprint, raw_activations, bft_matched, act_matched, act_randproj}."""
+    """{bft_fingerprint, raw_activations, bft_matched, act_matched, act_randproj}
+    plus the penultimate and (fc/attn roots) same-layer-output controls."""
     y = np.asarray(labels).astype(int)
     n = fp_tree.root.img_factors.shape[0]
     fp = _sep.fingerprint_slices(fp_tree, n, with_per_layer=False)['full']
-    acts = _sep.activation_reps(layer_inputs)['full']
+    reps = _sep.activation_reps(layer_inputs, root=fp_tree.root)
+    acts = reps['full']
     d = int(min(fp.shape[1], acts.shape[1]))
     out = {'bft_fingerprint': _mk(_sep.metrics(fp, y)),
            'raw_activations': _mk(_sep.metrics(acts, y)),
            'bft_matched': _mk(_sep.metrics(_sep._match(fp, d, 'pca'), y)),
            'act_matched': _mk(_sep.metrics(_sep._match(acts, d, 'pca'), y)),
-           'act_randproj': _mk(_sep.metrics(_sep._match(acts, d, 'grp', seed), y))}
+           'act_randproj': _mk(_sep.metrics(_sep._match(acts, d, 'grp', seed), y)),
+           'act_penult': _mk(_sep.metrics(reps['penult'], y)),
+           'act_penult_matched': _mk(_sep.metrics(
+               _sep._match(reps['penult'], min(fp.shape[1], reps['penult'].shape[1]),
+                           'pca'), y))}
+    if 'out' in reps:
+        out['act_out'] = _mk(_sep.metrics(reps['out'], y))
     return out, fp.shape[1], acts.shape[1], d
 
 

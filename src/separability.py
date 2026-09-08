@@ -65,10 +65,20 @@ def _pool(a):
     return a.reshape(len(a), -1)
 
 
-def activation_reps(layer_inputs):
-    """penultimate (classifier input) and full-concatenation activation baselines."""
+def activation_reps(layer_inputs, root=None):
+    """Activation baselines: penultimate (root-layer input), last-two-layer and
+    full concatenations, and — when the traced root node is passed and is
+    fc/attn — the root layer's own output pre-activation ('out', e.g. the
+    logits), the same-layer control for an output-only fingerprint."""
     layers = [_pool(li) for li in layer_inputs]
-    return {'penult': layers[-1], 'full': np.concatenate(layers, axis=1)}
+    reps = {'penult': layers[-1],
+            'last2': np.concatenate(layers[-2:], axis=1) if len(layers) > 1 else layers[-1],
+            'full': np.concatenate(layers, axis=1)}
+    if root is not None and getattr(root, 'layer_type', None) in ('fc', 'attn'):
+        from .arbors import activation_matrix
+        a_in = activation_matrix(root, layer_inputs[-1])
+        reps['out'] = a_in @ np.asarray(root.weight).T
+    return reps
 
 
 def _slice_predicates(L_out):
@@ -149,7 +159,7 @@ def evaluate(tree, y, layer_inputs, grp_seed=0):
     dim-matched fingerprint-vs-activation comparisons. Mirrors nb16's per-tree row."""
     y = np.asarray(y).astype(int)
     n_rows = tree.root.img_factors.shape[0]
-    acts = activation_reps(layer_inputs)
+    acts = activation_reps(layer_inputs, root=tree.root)
     slices = fingerprint_slices(tree, n_rows)
 
     native = {}
@@ -160,10 +170,20 @@ def evaluate(tree, y, layer_inputs, grp_seed=0):
     pairs = {}
     for aname, A in acts.items():
         pairs[f'fp_full__vs__act_{aname}'] = paired_matched(slices['full'], A, y, grp_seed)
-    for sname in ('output_only', 'top_half', 'spine', 'bottom_half'):
+    for sname in ('output_only', 'top2', 'top_half', 'spine', 'bottom_half'):
         if sname in slices:
             pairs[f'fp_{sname}__vs__act_penult'] = paired_matched(
                 slices[sname], acts['penult'], y, grp_seed)
+    # depth-matched and same-layer controls for the publication (top-2) fingerprint
+    if 'top2' in slices:
+        pairs['fp_top2__vs__act_last2'] = paired_matched(
+            slices['top2'], acts['last2'], y, grp_seed)
+        if 'out' in acts:
+            pairs['fp_top2__vs__act_out'] = paired_matched(
+                slices['top2'], acts['out'], y, grp_seed)
+    if 'output_only' in slices and 'out' in acts:
+        pairs['fp_output_only__vs__act_out'] = paired_matched(
+            slices['output_only'], acts['out'], y, grp_seed)
 
     return {'n_rows': int(n_rows), 'fp_full_dim': int(slices['full'].shape[1]),
             'penult_dim': int(acts['penult'].shape[1]),
@@ -172,21 +192,29 @@ def evaluate(tree, y, layer_inputs, grp_seed=0):
 
 
 def weight_term_control(tree, y, layer_inputs, pool_method='avg'):
-    """Weight-term control: NMF on the arbor vs on activations alone, at matched rank.
+    """Weight-term control: NMF on the arbor vs on activations alone, matched
+    node for node — same rank, same stimulus weighting, same rows; only the
+    weight term differs.
 
-    Concatenates, per traced layer, the loadings of an NMF fit on the arbor and,
-    separately, on the activation-only matrix at the same rank, and reports the
-    separability of each concatenation. Isolates what the *weight* term buys.
+    For every node of the tree, an NMF at that node's selected rank is fitted on
+    the node's stimulus-weighted activation-only matrix, and the concatenated
+    activation-only loadings are compared to the concatenated arbor loadings
+    (the fingerprint the tree already carries). Isolates what the *weight* term
+    buys, without handing either side extra columns or an ungated population.
     """
-    from .arbors import nodes_by_layer
-    from .bft import run_nmf_minibatch, normalize_factors
+    from .types import BFTResult
+    from .bft import run_nmf_minibatch
     y = np.asarray(y).astype(int)
-    nbl = nodes_by_layer(tree)
-    arbor_parts, act_parts = [], []
-    for li in sorted(nbl):
-        nd = nbl[li]
+    root = tree.root if isinstance(tree, BFTResult) else tree
+    arbor_parts, act_parts, queue = [], [], [root]
+    while queue:
+        nd = queue.pop(0)
+        queue.extend(nd.children)
         k = int(nd.img_factors.shape[1])
-        A = activation_matrix(nd, layer_inputs[li])
+        A = activation_matrix(nd, layer_inputs[nd.layer_idx])
+        sw = getattr(nd, 'stimulus_weights', None)
+        if sw is not None and len(np.asarray(sw)) == len(A):
+            A = A * np.asarray(sw)[:, None]
         Aclip = np.clip(A, 0, None).astype(np.float32)
         Wa, _, _ = run_nmf_minibatch(Aclip, k, init='random', max_iter=300)
         act_parts.append(Wa)
