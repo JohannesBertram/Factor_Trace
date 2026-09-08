@@ -45,8 +45,8 @@ def pruning_results_dict(experiment, run_result, fractions=DEFAULT_FRACTIONS,
 
 def run_pruning(replicates, eval_loader, target_classes, *,
                 fractions=DEFAULT_FRACTIONS, methods=DEFAULT_METHODS,
-                label_transform=None, device=None, layer_indices=None,
-                n_random_repeats=10, frac_stat=0.20, verbose=1):
+                label_transform=None, pred_transform=None, device=None,
+                layer_indices=None, n_random_repeats=10, frac_stat=0.20, verbose=1):
     """Run the pruning sweep over trained replicates × target classes.
 
     Parameters
@@ -69,7 +69,8 @@ def run_pruning(replicates, eval_loader, target_classes, *,
         for d in target_classes:
             ab = ablation_sweep(rep['model'], rep['tree'], eval_loader, target_class=d,
                                 fractions=fractions, methods=methods,
-                                label_transform=label_transform, device=device,
+                                label_transform=label_transform,
+                                pred_transform=pred_transform, device=device,
                                 layer_indices=layer_indices,
                                 layer_names=rep.get('layer_names'),
                                 targets=rep.get('targets'),
