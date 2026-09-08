@@ -56,7 +56,7 @@ def metrics(X, y):
 
 # ── representations ───────────────────────────────────────────────────────────
 
-def _pool(a):
+def pool_activations(a):
     a = np.asarray(a, dtype=np.float32)
     if a.ndim == 4:
         return a.mean((2, 3))
@@ -70,7 +70,7 @@ def activation_reps(layer_inputs, root=None):
     full concatenations, and — when the traced root node is passed and is
     fc/attn — the root layer's own output pre-activation ('out', e.g. the
     logits), the same-layer control for an output-only fingerprint."""
-    layers = [_pool(li) for li in layer_inputs]
+    layers = [pool_activations(li) for li in layer_inputs]
     reps = {'penult': layers[-1],
             'last2': np.concatenate(layers[-2:], axis=1) if len(layers) > 1 else layers[-1],
             'full': np.concatenate(layers, axis=1)}

@@ -195,49 +195,6 @@ def full_nmf_pipeline(X, n_components, random_state=0, max_iter=500, init=None,
     return W * scale, H * scale, lambdas
 
 
-def auto_nmf_pipeline(X, k_max=None, random_state=0, max_iter=500, init=None,
-                      l1_ratio=0, recon_threshold=None, **factorizer_kwargs):
-    """Fit NMF at rank k_max then automatically select effective rank K*.
-
-    Paper: Sec. 2.2; auto-rank detailed in App. "Rank Selection: AutoNMF".
-
-    A single NMF fit is performed at k_max; components are pruned to K* so
-    re-fitting at every candidate rank is avoided.
-
-    K* is selected via the structural_recon heuristic: take the max of the
-    consecutive-ratio lambda drop (>= 1.5×) and the reconstruction-error floor.
-
-    Parameters
-    ----------
-    X               : (n_samples, n_features) non-negative matrix
-    k_max           : int or None — upper bound on rank; None → min(min(X.shape)-1, 20)
-    recon_threshold : float or None — maximum acceptable relative Frobenius reconstruction
-                      error. Default None uses 0.4 (40% error).
-
-    Returns
-    -------
-    img_factors        : (n_samples, k_star)
-    connection_factors : (n_features, k_star)
-    lambdas            : (k_star,) descending
-    k_star             : int — automatically selected rank
-    """
-    if k_max is None:
-        k_max = min(min(X.shape) - 1, 20)
-    k_max = max(int(k_max), 2)
-
-    img_f, con_f, lams = full_nmf_pipeline(X, k_max, random_state=random_state,
-                                            max_iter=max_iter, init=init,
-                                            l1_ratio=l1_ratio, **factorizer_kwargs)
-
-    rt = recon_threshold if recon_threshold is not None else 0.4
-    recon_errs = _partial_recon_errors(X, img_f, con_f)
-    k_frac  = _select_k_single(lams, min_k=1)
-    k_recon = _select_k_from_recon(recon_errs, rt, min_k=1)
-    k_star  = max(1, min(max(k_frac, k_recon), len(lams)))
-
-    return img_f[:, :k_star], con_f[:, :k_star], lams[:k_star], k_star
-
-
 # ── Factorization registry ────────────────────────────────────────────────────
 
 def _nmf_factorize(X, n_components, **params):
@@ -650,9 +607,13 @@ def _compute_trace_transition(weighting, img_f, lams, fi):
 
 # ── Data collection ───────────────────────────────────────────────────────────
 
-def _collect_layer_dicts(model, loader, device=None, only_correct=True,
+def collect_layer_dicts(model, loader, device=None, only_correct=True,
                          layer_filter=None, label_transform=None):
     """Hook Conv2d/Linear sub-modules, run the loader, return layer data.
+
+    Paper: Sec. 2.1 (Setup and Notation); arbor inputs, App. "Arbor Construction".
+    The returned 'layer_data' list is directly usable as the layer_dicts
+    argument to bft().
 
     Parameters
     ----------
@@ -751,45 +712,6 @@ def _collect_layer_dicts(model, loader, device=None, only_correct=True,
         })
     return {'images': imgs, 'targets': tgts, 'digits': digits,
             'confidences': confs, 'layer_data': layer_data}
-
-
-def collect_layer_dicts(model, loader, device=None, only_correct=True,
-                        layer_filter=None, label_transform=None):
-    """Collect layer-dict data for Conv2d/Linear layers in the model.
-
-    Paper: Sec. 2.1 (Setup and Notation); arbor inputs, App. "Arbor Construction".
-
-    Thin public wrapper around the internal hook-based collection. Use this
-    when you need to inspect or reuse the collected activations independently
-    from running BFT. The returned 'layer_data' list is directly usable as
-    the layer_dicts argument to bft().
-
-    Parameters
-    ----------
-    model        : nn.Module
-    loader       : DataLoader yielding (images, labels) batches
-    device       : torch device; defaults to model's first parameter device
-    only_correct : bool — keep only correctly classified samples (default True)
-    layer_filter : callable(name: str, mod: nn.Module) -> bool, or None.
-                   When provided, restricts capture to layers for which the
-                   callable returns True. Useful for non-sequential architectures
-                   (e.g. pass only the squeeze-conv spine of SqueezeNet to keep
-                   BFT's sequential-layer assumption valid). Default None captures
-                   all Conv2d and Linear layers.
-    label_transform : callable(tensor) -> tensor, or None. When provided, labels are
-                   mapped through it for the correctness check (returned as 'targets')
-                   and the raw labels are returned as 'digits'. Pass the same transform
-                   here that the model was trained on so the returned sample order
-                   matches BFT primary mode run on label_transformed_loader(loader, ...).
-
-    Returns
-    -------
-    dict: {'images', 'targets', 'digits', 'confidences', 'layer_data'}
-    """
-    return _collect_layer_dicts(model, loader, device=device,
-                                only_correct=only_correct,
-                                layer_filter=layer_filter,
-                                label_transform=label_transform)
 
 
 # ── BFT public entry point ────────────────────────────────────────────────────
@@ -906,7 +828,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
 
     elif isinstance(data, DataLoader):
         # Primary mode: collect layer data, then trace.
-        raw = _collect_layer_dicts(model, data, device=device, only_correct=only_correct)
+        raw = collect_layer_dicts(model, data, device=device, only_correct=only_correct)
         images_meta      = raw['images']
         targets_meta     = raw['targets']
         confidences_meta = raw['confidences']

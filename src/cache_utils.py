@@ -120,16 +120,3 @@ def cached_result(tag, compute_fn, *, params=None, force=False, verbose=True):
         if verbose:
             print(f'  [cache] saved {os.path.relpath(p, _REPO)}')
     return _jsonable(res)
-
-
-def clear_cache(tag_prefix=''):
-    """Delete cached files whose tag starts with ``tag_prefix`` (all if empty)."""
-    if not os.path.isdir(CACHE_DIR):
-        return 0
-    n = 0
-    for fn in os.listdir(CACHE_DIR):
-        fp = os.path.join(CACHE_DIR, fn)
-        if fn.startswith(tag_prefix) and os.path.isfile(fp):
-            os.remove(fp)
-            n += 1
-    return n

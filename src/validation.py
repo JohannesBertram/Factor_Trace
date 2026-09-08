@@ -227,13 +227,3 @@ def run_validation(exp, circuit_tree, fp_tree, layer_inputs, labels_task, labels
 
 def _wt(fp_tree, layer_inputs, labels):
     return _sep.weight_term_control(fp_tree, labels, layer_inputs)
-
-
-def _fp_layer_inputs(fp_tree, circuit_layer_inputs):
-    """Layer inputs aligned to the FP tree. If the fp tree was traced on the same
-    population (same n), reuse; else fall back to circuit inputs (separability then
-    uses whatever the fp tree stored). Callers pass matching inputs where possible."""
-    n_fp = fp_tree.root.img_factors.shape[0]
-    if circuit_layer_inputs and len(circuit_layer_inputs[0]) == n_fp:
-        return circuit_layer_inputs
-    return circuit_layer_inputs

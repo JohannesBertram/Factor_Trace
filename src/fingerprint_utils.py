@@ -18,9 +18,9 @@ from .bft import (
     compute_conv_joint_arbors,
     compute_attn_joint_arbors,
     _compute_trace_transition,
-    _collect_layer_dicts,
+    collect_layer_dicts,
 )
-from .types import BFTNode, BFTResult, FingerprintResult
+from .types import BFTNode, BFTResult
 
 
 # ── 1. Factor fingerprints ─────────────────────────────────────────────────────
@@ -79,23 +79,6 @@ def extract_fingerprint_matrix(root_node, stimulus_indices):
     return np.concatenate(parts, axis=1)            # (n_stimuli, fingerprint_dim)
 
 
-def extract_factor_fingerprint(root_node, stimulus_index):
-    """Return the fingerprint vector for a single stimulus.
-
-    Equivalent to extract_fingerprint_matrix(root_node, [stimulus_index])[0].
-
-    Parameters
-    ----------
-    root_node      : BFTNode or BFTResult
-    stimulus_index : int
-
-    Returns
-    -------
-    np.ndarray  shape (fingerprint_dim,)
-    """
-    return extract_fingerprint_matrix(root_node, [stimulus_index])[0]
-
-
 def compute_stimulus_similarity(fingerprint_matrix):
     """Pairwise cosine similarity from fingerprint vectors.
 
@@ -109,49 +92,6 @@ def compute_stimulus_similarity(fingerprint_matrix):
     """
     from sklearn.metrics.pairwise import cosine_similarity
     return cosine_similarity(fingerprint_matrix)
-
-
-def compute_fingerprints(bft_result, indices=None, normalize=True):
-    """Compute factor fingerprints for a set of stimuli from a BFT result.
-
-    Paper: Sec. 2.4 (Factor Fingerprints).
-
-    Parameters
-    ----------
-    bft_result : BFTResult or BFTNode
-    indices    : array-like of int or None — None uses all N samples
-    normalize  : bool — L2-normalize rows before computing cosine similarity
-
-    Returns
-    -------
-    FingerprintResult with:
-        .matrix     (N, D) — per-stimulus concatenated factor loadings
-        .similarity (N, N) — pairwise cosine similarity
-        .indices    (N,)   — which sample indices were used
-    """
-    from sklearn.metrics.pairwise import cosine_similarity
-
-    if isinstance(bft_result, BFTResult):
-        root = bft_result.root
-        n_total = bft_result.n_samples
-    else:
-        root = bft_result
-        n_total = root.img_factors.shape[0]
-
-    if indices is None:
-        indices = np.arange(n_total)
-    indices = np.asarray(indices)
-
-    matrix = extract_fingerprint_matrix(root, indices)
-
-    if normalize:
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        matrix_norm = matrix / (norms + 1e-12)
-    else:
-        matrix_norm = matrix
-
-    similarity = cosine_similarity(matrix_norm)
-    return FingerprintResult(matrix=matrix, similarity=similarity, indices=indices)
 
 
 # ── 2. NNLS projection ─────────────────────────────────────────────────────────
@@ -287,7 +227,7 @@ def project_onto_bft(bft_result, model, data, *,
     data         : DataLoader — yields (images, labels) batches
     only_correct : bool — keep only correctly classified samples (default False)
     device       : torch device or None
-    layer_filter : callable(name, mod) -> bool or None — passed to _collect_layer_dicts;
+    layer_filter : callable(name, mod) -> bool or None — passed to collect_layer_dicts;
                    use this for architectures with parallel branches (e.g. SqueezeNet)
                    to select only the sequential spine layers
 
@@ -295,7 +235,7 @@ def project_onto_bft(bft_result, model, data, *,
     -------
     BFTResult — same tree structure (same connection_factors) but new img_factors.
     """
-    raw = _collect_layer_dicts(model, data, device=device, only_correct=only_correct,
+    raw = collect_layer_dicts(model, data, device=device, only_correct=only_correct,
                                layer_filter=layer_filter)
     new_layer_inputs = [d['input_fmap'] for d in raw['layer_data']]
 

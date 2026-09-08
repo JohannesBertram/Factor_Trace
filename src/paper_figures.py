@@ -262,59 +262,6 @@ def pruning_panel_imagenet(ax, P):
         ax.spines[s].set_visible(False)
 
 
-def draw_scaffold(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
-                  out_labels=('even', 'odd'), highlight_out=0, legend=False):
-    """Neuron-level circuit graph L1 -> L2 -> L3, excitatory and inhibitory edges."""
-    ys = [np.linspace(0.98, 0.02, n) if n > 1 else np.array([0.5]) for n in layer_sizes]
-    xs = [np.full(n, float(li)) for li, n in enumerate(layer_sizes)]
-    off = np.cumsum([0] + list(layer_sizes))
-    load = np.asarray(loading, float)
-
-    for bi, (E, N) in enumerate(zip(edges, neg_edges)):
-        emax = max(E.max(), N.max(), 1e-12)              # per-boundary normalization
-        for M, col, lsty, z, al, sc in ((N, c_inh, (0, (1.4, 1.1)), 1, .55, 0.9),
-                                        (E, color, '-', 2, .95, 1.8)):
-            for i in range(M.shape[0]):
-                for j in range(M.shape[1]):
-                    w = M[i, j] / emax
-                    if w < 0.03:
-                        continue
-                    ax.plot([xs[bi][j], xs[bi + 1][i]], [ys[bi][j], ys[bi + 1][i]],
-                            lw=0.12 + sc * w, color=col, linestyle=lsty,
-                            alpha=al, zorder=z, solid_capstyle='round')
-
-    for li, n in enumerate(layer_sizes):
-        v = load[off[li]:off[li + 1]]
-        v = v / (v.max() + 1e-12)                        # per-layer normalization
-        on = v >= 0.05
-        ax.scatter(xs[li][on], ys[li][on], s=7 + 30 * v[on],
-                   c=[matplotlib.colors.to_rgba(color, 0.3 + 0.7 * vi) for vi in v[on]],
-                   edgecolors='0.25', linewidths=0.4, zorder=3)
-        ax.scatter(xs[li][~on], ys[li][~on], s=6, c='none',
-                   edgecolors='0.72', linewidths=0.4, zorder=3)
-
-    ax.annotate('', xy=(-0.18, 0.5), xytext=(-0.62, 0.5),
-                arrowprops=dict(arrowstyle='-|>', lw=0.5, color='0.45',
-                                shrinkA=0, shrinkB=0, mutation_scale=5))
-    ax.text(-0.66, 0.5, '784 px', ha='right', va='center', fontsize=6, color='0.35')
-    for li, lab in enumerate([r'$L_1$', r'$L_2$', r'$L_3$']):
-        ax.text(li, -0.10, lab, ha='center', va='top', fontsize=6.5)
-    for i, lab in enumerate(out_labels):
-        ax.text(2.12, ys[2][i], lab, ha='left', va='center', fontsize=6.5,
-                color=color if i == highlight_out else '0.55',
-                fontweight='bold' if i == highlight_out else 'normal')
-    if legend:
-        for yy, (col, lsty, lab) in enumerate(((color, '-', 'excitatory'),
-                                               (c_inh, (0, (1.4, 1.1)), 'inhibitory'))):
-            y = 0.20 - 0.14 * yy
-            ax.plot([-1.33, -1.05], [y, y], color=col, linestyle=lsty, lw=0.9,
-                    solid_capstyle='round')
-            ax.text(-1.0, y, lab, fontsize=6.2, ha='left', va='center', color='0.3')
-    ax.set_xlim(-1.35, 2.8)
-    ax.set_ylim(-0.2, 1.06)
-    ax.axis('off')
-
-
 def _circuit_colors(D):
     """Resolve every circuit's semantic color key once, in place."""
     for c in D['circuits']:
@@ -351,23 +298,6 @@ def support_overlap(S, n_shuffle=2000, seed=0):
     null = np.array([mean_cos(np.stack([rng.permutation(r) for r in S]))
                      for _ in range(n_shuffle)])
     return mean_cos(S), null
-
-
-def purity_by_layer(D):
-    """[(layer_idx, purity, lambda-share, circuit index)] for every factor of a trace.
-
-    Purity is the largest class share of a factor's stimulus loading: 1/n_classes
-    if the factor is class-agnostic, 1 if it fires for a single class.
-    """
-    out = []
-    for node in D['nodes']:
-        path = [int(i) for i in node['path']]
-        P, lam = node['class_profile'], node['lam_share']
-        for k in range(len(P)):
-            circuit = path[0] if path else k
-            out.append((int(node['layer_idx']), float(P[k].max()),
-                        float(lam[k]), circuit))
-    return out
 
 
 def draw_scaffold_pair(ax, circuits, layer_sizes, c_inh, out_labels, in_label='784 px'):
@@ -799,41 +729,6 @@ def pca_panel(ax, X, labels, colors, *, title=None, order=None, s=2.2, alpha=0.7
     return coords
 
 
-def cond_embedding(ax, F_id, labels, colors, *, near=None, far=(), c_near=None,
-                   c_far=None, order=None, near_label='near-OOD', s=3.5,
-                   legend=True, id_label=None):
-    """The in-distribution fingerprints in their own PCA plane, with the OOD
-    conditions projected into the same plane — where does OOD input land?"""
-    mu, Vt, evr = pca_fit(F_id)
-    if len(far):
-        P = np.concatenate([pca_apply(X, mu, Vt) for X in far])
-        ax.scatter(P[:, 0], P[:, 1], s=s, color=c_far, alpha=0.5, edgecolor='none',
-                   zorder=1, rasterized=True)
-    if near is not None:
-        P = pca_apply(near, mu, Vt)
-        ax.scatter(P[:, 0], P[:, 1], s=s, color=c_near, alpha=0.55, edgecolor='none',
-                   zorder=2, rasterized=True)
-    P = pca_apply(F_id, mu, Vt)
-    labels = np.asarray(labels)
-    for c in (order if order is not None else np.unique(labels)):
-        m = labels == c
-        ax.scatter(P[m, 0], P[m, 1], s=s, color=colors[int(c)], alpha=0.8,
-                   edgecolor='none', zorder=3, rasterized=True)
-    if legend:
-        for lab, col in ((id_label or 'in-distribution', '0.35'),
-                         (near_label, c_near), ('far-OOD', c_far)):
-            ax.scatter([], [], s=8, color=col, label=lab)
-        ax.legend(fontsize=6, frameon=False, loc='upper left', handlelength=0.7,
-                  handletextpad=0.25, borderpad=0.1, labelspacing=0.18,
-                  borderaxespad=0.15, scatterpoints=1)
-    ax.set_xticks([]); ax.set_yticks([])
-    ax.set_xlabel(f'PC 1 (var {evr[0]:.2f})', labelpad=1, fontsize=6)
-    ax.set_ylabel(f'PC 2 (var {evr[1]:.2f})', labelpad=1, fontsize=6)
-    for s_ in ax.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    return evr
-
-
 def act_rep(D, which=-1):
     """The activation baseline stored next to the fingerprints, or None.
 
@@ -874,17 +769,6 @@ def ramp_cmap(hex_color, name):
     return matplotlib.colors.LinearSegmentedColormap.from_list(
         name, [(1, 1, 1), tuple(p + (1 - p) * 0.78), tuple(p + (1 - p) * 0.42),
                tuple(p), tuple(p * 0.55)])
-
-
-def resolve_color(key, digit_color=None):
-    """Bundle color keys -> matplotlib colors ('digit:4' and grey levels included)."""
-    if not isinstance(key, str):
-        return key
-    if key.startswith('digit:'):
-        return digit_color[int(key.split(':')[1])]
-    if key.startswith('#') or key.replace('.', '').isdigit():
-        return key
-    return figstyle.color(key)
 
 
 def draw_scaffold_backbone(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
@@ -1538,26 +1422,6 @@ def rgb_strip(ax, shares, h=0.055):
         x += frac
 
 
-def color_arbor_recurrence(NODES, layer='features.0'):
-    """Do the conv1 nodes of different circuits find the same color factors?
-    Greedy-match each pair's factors by RGB profile and return the mean cosine."""
-    P = []
-    for n in NODES:
-        if n['layer_name'] == layer and 'conn' in n:
-            M = n['conn']['in_mass']
-            P.append(M / (M.sum(1, keepdims=True) + 1e-12))
-    vals = []
-    for a in range(len(P)):
-        for b in range(a + 1, len(P)):
-            A, B = unit(P[a]), unit(P[b])
-            S = A @ B.T
-            free = list(range(S.shape[1]))
-            for i in np.argsort(-S.max(1)):
-                j = free[int(np.argmax(S[i, free]))]
-                vals.append(float(S[i, j])); free.remove(j)
-    return float(np.mean(vals))
-
-
 def hcat(tiles, gaps, bg=1.0):
     """Lay (h, w, 3) tiles of equal height side by side, with per-gap spacing."""
     h = tiles[0].shape[0]
@@ -1567,17 +1431,6 @@ def hcat(tiles, gaps, bg=1.0):
     for i, t in enumerate(tiles):
         out[:, x:x + t.shape[1]] = t
         x += t.shape[1] + (int(gaps[i]) if i < len(gaps) else 0)
-    return out
-
-
-def vcat(rows, gap, bg=1.0):
-    w = max(r.shape[1] for r in rows)
-    H = sum(r.shape[0] for r in rows) + gap * (len(rows) - 1)
-    out = np.full((H, w, 3), bg, np.float32)
-    y = 0
-    for i, r in enumerate(rows):
-        out[y:y + r.shape[0], :r.shape[1]] = r
-        y += r.shape[0] + gap
     return out
 
 
@@ -1638,20 +1491,6 @@ def cnn_depth_stats(D, seed=0):
     rand = np.mean([color_spread(D, pool[rng.choice(len(pool), n_top, replace=False)])
                     for _ in range(300)])
     return rows, float(rand)
-
-
-def sibling_overlap(NODES, layer):
-    """Mean Jaccard overlap of the top-stimulus sets of sibling factors."""
-    vals = []
-    for n in NODES:
-        if n['layer_name'] != layer:
-            continue
-        T = n['top_idx']
-        for i in range(len(T)):
-            for j in range(i + 1, len(T)):
-                a, b = set(T[i].tolist()), set(T[j].tolist())
-                vals.append(len(a & b) / len(a | b))
-    return float(np.mean(vals)) if vals else float('nan')
 
 
 def lam_weighted(v, w):
@@ -2546,22 +2385,6 @@ def _val_causal_nodes(D):
     return None, None, None
 
 
-def _cfg_label(name):
-    """Sweep row id -> something a caption can carry: 'rank=rank x1.3' -> 'rank ×1.3'."""
-    return (str(name).replace('rank=rank ', 'rank ').replace('=', ' ')
-            .replace(' x', r' $\times$'))
-
-
-def _executed_k_max(k_max):
-    """The profile that actually runs: ``_auto_k_factorize`` floors ``k_max`` at 2.
-
-    The sweep emits raw ``round(m * K)`` profiles, so a requested rank of 1 is
-    printed here as the 2 that ``src/bft.py`` substitutes. Printing the request
-    instead would put a number in the figure that no notebook can be set to.
-    """
-    return [max(2, int(v)) for v in k_max]
-
-
 def _layer_shades(n, base):
     """Input layer darkest -> output layer lightest, so depth is readable."""
     return [tint(base, 0.62 * i / max(n - 1, 1)) for i in range(n)]
@@ -2581,20 +2404,6 @@ IMAGENET_LAYER_LABEL = {
     'features.7.squeeze': 'fire5', 'features.6.squeeze': 'fire4',
     'features.4.squeeze': 'fire3', 'features.3.squeeze': 'fire2',
     'features.0': 'conv1'}
-
-
-def imagenet_layer_label(name):
-    return IMAGENET_LAYER_LABEL.get(str(name), str(name))
-
-
-# depth labels L_1 (pixels) .. L_10 (classifier), matching Fig. 8's convention
-IMAGENET_LI_LABEL = {
-    'classifier.1': r'$L_{10}$', 'classifier': r'$L_{10}$',
-    'features.12.squeeze': r'$L_9$', 'features.11.squeeze': r'$L_8$',
-    'features.10.squeeze': r'$L_7$', 'features.9.squeeze': r'$L_6$',
-    'features.7.squeeze': r'$L_5$', 'features.6.squeeze': r'$L_4$',
-    'features.4.squeeze': r'$L_3$', 'features.3.squeeze': r'$L_2$',
-    'features.0': r'$L_1$'}
 
 
 def imagenet_li_label(name):
@@ -2618,20 +2427,6 @@ def imagenet_depth_purity(D):
         lam = np.concatenate([n['lam_share'] for n in nodes])
         rows.append(dict(layer=name, purity=pur, lam=lam))
     return rows
-
-
-def spatial_overlay(D, img, amap, gamma=0.7):
-    """RGB stimulus dimmed and tinted where a factor's channel-weighted activation
-    map is high — 'where in the image the factor fires'. amap is the coarse
-    (h, w) feature-map response, upsampled by nearest-neighbor to the image."""
-    rgb = cifar_rgb(D, img)
-    H, W = rgb.shape[:2]
-    a = amap.astype(float)
-    a = a / (a.max() + 1e-12)
-    a = np.kron(a, np.ones((H // a.shape[0] + 1, W // a.shape[1] + 1)))[:H, :W]
-    a = a[..., None] ** gamma
-    hot = np.array(matplotlib.colors.to_rgb(figstyle.color('ours')))
-    return np.clip(rgb * (1 - 0.55 * a) + hot * (0.55 * a), 0, 1)
 
 
 def fig8_imagenet_circuits(D):
