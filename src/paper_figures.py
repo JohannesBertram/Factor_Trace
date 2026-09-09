@@ -756,8 +756,17 @@ def fp_vs_act(D, fp_labels, which=-1):
     if rep is None:
         return None
     if rep['aligned']:
+        F = np.asarray(D['fp']['id'])
         idx = np.asarray(rep['index'])
-        return (D['fp']['id'][idx], np.asarray(fp_labels)[idx],
+        if len(idx) > len(F) and 'id_index' in D['fp']:
+            # the act baseline covers the full traced population while the
+            # fingerprint rows are a stimulus subsample (e.g. nb03): gather the
+            # act rows at the fingerprint's own stimulus indices so both sides
+            # describe the same stimuli, in the same order
+            pos = np.searchsorted(idx, np.asarray(D['fp']['id_index']))
+            return (F, np.asarray(fp_labels), np.asarray(rep['X'])[pos],
+                    np.asarray(fp_labels), rep)
+        return (F[idx], np.asarray(fp_labels)[idx],
                 rep['X'], np.asarray(fp_labels)[idx], rep)
     return (D['fp']['id'], np.asarray(fp_labels), rep['X'],
             np.asarray(rep['labels']), rep)
