@@ -86,3 +86,28 @@ The rerun landed (`3b9f274 new res`); bundles verified 2026-09-09. Status per mo
 - λ-weighted whole-tree fingerprint as a one-tree alternative that might keep ImageNet's 0.476 — untested; only worth it if the ImageNet regression bothers a reviewer.
 - ImageNet stimulus scale-up (S=544 is val-limited; relax `only_correct` or add fine classes per category).
 - nb15 ViT sweep was cap-bound at k_cap=10 in two layers; re-run with 16 if the ViT ever becomes more than a feasibility demo.
+
+## Key changes vs the submitted paper (archive/paper_sub.md)
+
+Recorded 2026-09-09, after the paper.md text pass. Methods first, then results.
+
+**Methods**
+
+- **Fingerprint = the circuit tree's top-2 slice.** The submission read the fingerprint from the full trace of a profile *selected on the fingerprint silhouette itself* (gated by causal R²); the interim revision fit a second fixed-rank fingerprint tree; the paper now fits **one tree** (metric-free held-out rank selection, Appendix rank-sweep) and truncates it to the output node + immediate sub-circuits. No hyperparameter is selected on any reported metric anymore.
+- **Rank selection is held-out and metric-free** across all five settings (smallest rank within 0.01 of the best held-out arbor-reconstruction R²), replacing the silhouette-driven profile selection of the submission.
+- **Weight-term control matched node for node** (same rank, same stimulus weighting on the activation side); the submission's version compared against one ungated node per layer, which overstated the arbor advantage on some models.
+- **ImageNet pruning exists now** (the submission did not prune ImageNet): downsized protocol — spine-only pool for every ranking, category accuracy via 1000-way argmax mapped through the category table, ≤50 val images/category, 4-point grid to 20%.
+- Pruning grid unified to ρ∈{0.02, 0.05, 0.1, 0.2} with both controls (least-important + random) on every pruned model; digit/CIFAR sweeps are seed-0 × 10 classes (the submission text implied seed grids).
+- Purity CIs are now honest stimulus bootstraps on full-length labels carried by the circuit bundles (the CIFAR CI silently degraded to zero-width before).
+
+**Results (old → new)**
+
+- Native-dim fingerprint-vs-penultimate silhouettes: CIFAR **0.54 vs 0.44 → 0.67 vs 0.36** (the top-2 slice repaired CIFAR), ImageNet **0.51 vs 0.21 → 0.43 vs 0.21**. Both still win every bootstrap resample.
+- Native per-model fingerprint silhouettes: even/odd parity 0.89→0.93 / digit 0.56→0.38; digit MLP 0.55→0.67; CIFAR 0.54→0.67; ViT 0.31/0.11→0.21/0.14; ImageNet 0.51→0.43.
+- **The "more separable on every model" claim is retracted** at matched dimension: vs the PCA-matched full activation stack the fingerprint wins the three class models (0.67/0.67/0.43 vs 0.22/0.37/0.12) but loses the 5-dim even/odd fingerprint (0.38 vs 0.57 — PCA concentration at tiny dims) and near-ties the ViT (0.15 vs 0.16). The universal claim is now the weight-term control (5/5, p=0.031); the penultimate claim is scoped to the conv models. Logits are reported but excluded as a representation (they are the decision itself).
+- **ImageNet pruning: causal but not category-specific.** Most-important pruning collapses all categories at 2% (target-vs-bystander p=0.95) yet far outranks random (AUC p=0.008) and the least-important end (p=0.043, bimodal per category — three collapse, five persist; bicycle undented). New main-figure panel Fig. 8c; new Limitations framing (necessity at scale yes, class-specific necessity no).
+- Ten-class pruning at the new grid: target collapses to 0.00 at 2% (digit 0.97→0, CIFAR 0.90→0), least-important <0.01 change, all AUC/specificity tests at p=0.002 (n=10); bystander collateral is heavier than the submission's finer-grid numbers suggested.
+- Output-layer purity vs shuffled null: CIFAR 0.58→0.51, ImageNet 0.57→0.58 (both still > all 2,000 draws); CIFAR conv4 purity 0.60→0.52; ImageNet early-module band 0.15–0.25→0.18–0.26.
+- Figure-level: fig4a drops the empty L1 column (top-2 fingerprint has no L1 nodes); fig6b now shows car/horse/airplane circuits (silver-vs-red cars; left-vs-right horses with grass-vs-white grounds; airplanes on grass vs against grass+sky); fig8 shows 10 of 16 output factors, a dog/car traceback (scene split; jeep-vs-race-car ImageNet-class split) and the new pruning panel; digit MLP has 8 circuits (was 7 — appendix figB caption still says seven, pending the appendix-caption pass).
+
+**Still open before submission** (also tracked above): appendix figure captions (figA/figB/figE/figN/figG/figP/figfp numbers — figB's "seven circuits", figP-c/d/e claims), the even/odd 5-seed pruning rerun (bundle provenance unverified), the CIFAR seeds-1–4 claim in Appendix "Number of runs" (verify checkpoints or weaken to seed-0), and the frozen explorer screenshot caption (website updates later).
