@@ -29,3 +29,7 @@ from .separability import evaluate as separability_evaluate, weight_term_control
 from .pruning import run_pruning, pruning_results_dict
 from .validation import run_validation
 from .bundles import validation_bundle, pruning_bundle
+from .tailored import (imagenet_class_names, find_imagenet_classes,
+                       collect_hypothesis_data, subsample_data, mixture_indices,
+                       factor_label_profile, substructure_scores,
+                       match_factors, refinement_score)
