@@ -1,15 +1,15 @@
 {
  "class_names": [
-  "airplane",
-  "automobile",
-  "bird",
-  "cat",
-  "deer",
-  "dog",
-  "frog",
-  "horse",
-  "ship",
-  "truck"
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9"
  ],
  "experiment": "cnn_cifar_pruning",
  "frac_stat": 0.2,
@@ -17,8 +17,8 @@
  "n_obs": 10,
  "n_seeds": 1,
  "p_target_vs_bystander": 0.001953125,
- "p_top_vs_bft_bottom_auc_t": 7.895335860791386e-13,
+ "p_top_vs_bft_bottom_auc_t": 7.895329769656211e-13,
  "p_top_vs_bft_bottom_auc_wilcoxon": 0.001953125,
- "p_top_vs_random_auc_t": 4.71461270024065e-09,
+ "p_top_vs_random_auc_t": 5.908673138792156e-09,
  "p_top_vs_random_auc_wilcoxon": 0.001953125
 }
