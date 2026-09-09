@@ -145,7 +145,8 @@ def pruning_panel(ax, P):
     bt, rd = P['methods']['bft_top'], P['methods']['random']
 
     ax.axhline(0.5, color='0.8', lw=0.5, ls=(0, (3, 2)), zorder=0)      # chance
-    ax.text(1.0, 0.5, 'chance', fontsize=6, color='0.55', ha='left', va='bottom')
+    # just below the line at the left; the legend is lifted clear of it
+    ax.text(1.5, 0.465, 'chance', fontsize=6, color='0.55', ha='left', va='top')
     ax.fill_between(fr, bt['target_mean'] - bt['target_sd'],
                     bt['target_mean'] + bt['target_sd'], color=C_BFT, alpha=0.15, lw=0)
     ax.plot(fr, bt['target_mean'], '-o', ms=2.2, lw=1.3, color=C_BFT, zorder=4,
@@ -164,11 +165,13 @@ def pruning_panel(ax, P):
     ax.tick_params(length=1.5, pad=1, labelsize=6)
     for s in ('top', 'right'):
         ax.spines[s].set_visible(False)
+    # lifted so all three rows sit above the chance line (its label lives below)
     ax.legend(loc='center right', fontsize=6, frameon=False, handlelength=1.3,
-              handletextpad=0.4, labelspacing=0.2, borderaxespad=0.1)
+              handletextpad=0.4, labelspacing=0.2, borderaxespad=0.1,
+              bbox_to_anchor=(1.0, 0.67), bbox_transform=ax.transAxes)
 
 
-def pruning_panel_multi(ax, P, xmax=10.0, legend_loc='upper right'):
+def pruning_panel_multi(ax, P, xmax=10.0, legend_loc='upper right', legend_y=0.62):
     """Causal check for the ten-class settings (Fig. 6f, Fig. Bd), same grammar
     as Fig. 2e: prune the weights BFT ranks most important for one class circuit
     and read the per-class accuracy. Most-important pruning collapses the target
@@ -210,25 +213,35 @@ def pruning_panel_multi(ax, P, xmax=10.0, legend_loc='upper right'):
     # bystander dashes (settle just above chance)
     ax.legend(loc=legend_loc, fontsize=6, frameon=False, handlelength=1.3,
               handletextpad=0.4, labelspacing=0.15, borderaxespad=0.0,
-              bbox_to_anchor=(1.0, 0.62), bbox_transform=ax.transAxes)
+              bbox_to_anchor=(1.0, legend_y), bbox_transform=ax.transAxes)
+
+
+# the ImageNet pruning bundle stores numeric category ids as class_names; map
+# them to the category labels (nb05 §1 CATEGORY_CLASSES order)
+_IMAGENET_CAT = {'0': 'airplane', '1': 'ship', '2': 'car', '3': 'bicycle',
+                 '4': 'elephant', '5': 'bear', '6': 'dog', '7': 'bird'}
 
 
 def pruning_panel_imagenet(ax, P):
-    """Causal check on the pretrained SqueezeNet (Fig. N d), same grammar as
-    Fig. 2e / 6f but read differently: the pool is the traced squeeze spine and
-    accuracy is argmax over all 1000 classes (chance ~2/1000, i.e. the x-axis).
-    At this scale most-important pruning is total rather than class-preferential
-    — target and bystanders collapse together at the smallest fraction — yet the
+    """Causal check on the pretrained SqueezeNet (Fig. 8c / N d), same grammar
+    as Fig. 2e / 6f but read differently: the pool is the traced squeeze spine
+    and accuracy is argmax over all 1000 classes (chance ~2/1000, i.e. the
+    x-axis). At this scale most-important pruning is total rather than
+    class-preferential — target and bystanders collapse together at the
+    smallest fraction (no specificity: target-vs-bystander p=.95) — yet the
     ranking still orders the damage: far above random pruning of the same pool
-    (target-drop AUC, Wilcoxon p=.016) and above the least-important end
-    (p=.031). Least-important pruning splits the categories, so each is its own
-    dotted line rather than a misleading mean: three stay near baseline
-    (airplane through the full 50% sweep), four collapse."""
+    (target-drop AUC, Wilcoxon p=.008) and above the least-important end
+    (p=.043). Least-important pruning splits the categories, so each is its own
+    dotted line rather than a misleading mean: three collapse at the first
+    fraction, five persist (bicycle undented through the 20% sweep)."""
     fr = np.asarray(P['fractions']) * 100.0            # % of pool weights pruned
+    fmax = float(fr.max())
     C_TOP, C_BOT = figstyle.color('ours'), figstyle.color('bft_bottom')
     C_RAND = figstyle.color('random')
     bt, bb = P['methods']['bft_top'], P['methods']['bft_bottom']
     rd = P['methods']['random']
+    cats = list(P['class_names'])
+    obs_cls = np.asarray(P['obs_class'])
 
     for row in bb['target_all']:                       # bimodal — no honest mean
         ax.plot(fr, row, ':', lw=0.8, color=C_BOT, alpha=0.85, zorder=2)
@@ -240,19 +253,24 @@ def pruning_panel_imagenet(ax, P):
 
     # the panel is too narrow for a legend that clears the data, so the lines
     # are named in place, color-bound (grammar as in Fig. 2e/6f); the white halo
-    # breaks the per-category dotted lines behind the text
+    # breaks the per-category dotted lines behind the text. Positions are
+    # fractions of the sweep so the 20%-grid and 50%-grid bundles both work.
     halo = [matplotlib.patheffects.withStroke(linewidth=1.6, foreground='white')]
-    ax.text(26, 0.905, 'least imp. (per cat.)', fontsize=5.8, color=C_BOT,
+    ax.text(0.52 * fmax, 0.905, 'least imp. (per cat.)', fontsize=5.8, color=C_BOT,
             ha='center', va='bottom', path_effects=halo)
-    ax.text(49, 0.775, 'airplane', fontsize=5.5, color=C_BOT,
-            ha='right', va='top', path_effects=halo)   # the line that carries (d)
-    ax.text(27, 0.125, 'most imp. (all cat.)', fontsize=5.8, color=C_TOP,
+    # name the flattest surviving least-imp. line at its right end
+    surv = int(np.argmax(np.asarray(bb['target_all'])[:, -1]))
+    ax.text(0.98 * fmax, float(bb['target_all'][surv][-1]) + 0.025,
+            _IMAGENET_CAT.get(cats[int(obs_cls[surv])], cats[int(obs_cls[surv])]),
+            fontsize=5.8, color=C_BOT, ha='right', va='bottom', path_effects=halo)
+    ax.text(0.60 * fmax, 0.055, 'most imp. (all cat.)', fontsize=5.8, color=C_TOP,
             ha='center', va='bottom', path_effects=halo)
-    ax.text(6.8, 0.55, 'random', fontsize=5.8, color=C_RAND,
+    ax.text(0.14 * fmax, 0.50, 'random', fontsize=5.8, color=C_RAND,
             ha='left', va='center', path_effects=halo)
 
-    ax.set_xlim(0, fr.max()); ax.set_ylim(-0.02, 1.06)
-    ax.set_xticks([0, 25, 50]); ax.set_yticks([0, 0.5, 1.0])
+    ax.set_xlim(0, fmax); ax.set_ylim(-0.02, 1.06)
+    ax.set_xticks([0, fmax / 2, fmax]); ax.set_yticks([0, 0.5, 1.0])
+    ax.set_xticklabels([f'{v:g}' for v in (0, fmax / 2, fmax)])
     ax.set_yticklabels(['0', '.5', '1'])
     pct = r'\%' if matplotlib.rcParams['text.usetex'] else '%'   # bare % is a LaTeX comment
     ax.set_xlabel(f'{pct} weights pruned', labelpad=1, fontsize=6)
@@ -858,7 +876,9 @@ def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
         act = Mn[[int(d) for d in D['digit_order']].index(int(digit))]
     amax = float(act.max()) if amax is None else float(amax)
 
-    LAYERS = [2, 1, 0]                      # left to right: the trace's direction
+    # left to right in the trace's direction; a layer the fingerprint does not
+    # reach (L1 under the top-2 slice) is dropped rather than drawn empty
+    LAYERS = [li for li in (2, 1, 0) if (np.asarray(dims)[:, 0] == li).any()]
     BLOCKS = [('even', C_EVEN, list(D['cols_even']), 0.755),
               ('odd', C_ODD, list(D['cols_odd']), 0.215)]
     SPREAD = {2: 0.0, 1: 0.115, 0: 0.115}   # vertical step between sibling factors
@@ -876,7 +896,7 @@ def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
 
         # edges: only the top-lambda factor of a node branches (n_branches=1 below
         # the output), so every factor of a layer hangs off its parent's factor 0
-        for li_par, li_ch in ((2, 1), (1, 0)):
+        for li_par, li_ch in zip(LAYERS, LAYERS[1:]):
             if not by_layer[li_par] or not by_layer[li_ch]:
                 continue
             x0, y0 = pos[by_layer[li_par][0]]
@@ -894,8 +914,9 @@ def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
     if label:
         ax.text(-0.78, 1.20, label, ha='left', va='top', fontsize=6.5,
                 color=label_color)
+    xmax = len(LAYERS) - 1 + 0.30
     if not show_layers:
-        ax.set_xlim(-0.78, 2.30)
+        ax.set_xlim(-0.78, xmax)
         ax.set_ylim(-0.06, 1.30 if label else 1.06)
         ax.axis('off')
         return
@@ -905,7 +926,7 @@ def mlp_factor_tree(ax, D, digit=None, amax=None, label=None, label_color='0.2',
         # is drawn at half height (two copies in one cell)
         ax.text(xi, -0.045, rf'$L_{{{li + 1}}}$ ({n})', ha='center', va='top',
                 fontsize=6.5)
-    ax.set_xlim(-0.78, 2.30)
+    ax.set_xlim(-0.78, xmax)
     ax.set_ylim(-0.24, 1.30 if label else 1.06)
     ax.axis('off')
 
@@ -1133,7 +1154,7 @@ def fig4_fingerprints_main(D):
     ax_i.set_xticks(xg)
     ax_i.set_xticklabels(labels, fontsize=6, linespacing=1.15)
     ax_i.set_ylim(0, max(fp_s + act_s) * 1.34)
-    ax_i.set_yticks([0, 0.2, 0.4])
+    ax_i.set_yticks([0, 0.2, 0.4, 0.6])
     ax_i.set_ylabel('silhouette', labelpad=1)
     ax_i.tick_params(length=1.5, pad=1)
     for s_ in ('top', 'right'):
@@ -1610,10 +1631,10 @@ def fig6_cnn_circuits(D):
     n_root = root['n_factors']
     CLASS_COLOR = class_colors(range(len(CLS)))
 
-    SHOW = [0, 1, 9]           # trees in (b): car (automobile), horse, airplane
+    SHOW = [0, 2, 12]          # trees in (b): car (automobile), horse, airplane
     # which conv4 sub-factors to open per circuit: the horse's f0/f1 are near
     # duplicates, so f1/f2 make the split between the two groups legible.
-    SUB = {0: [0, 1], 1: [1, 2], 9: [0, 1]}
+    SUB = {0: [0, 1], 2: [1, 2], 12: [0, 1]}
     LEAF = (9, 0, 0, 0)        # the conv1 node panel (c) opens
     N_TREE = 2                 # two conv4 sub-factors per circuit
 
@@ -1790,7 +1811,8 @@ def fig6_cnn_circuits(D):
 
     # ── (f) causal validation by pruning (loaded from its own bundle) ────────
     ax_f = fig.add_subplot(gsc[0, 3])
-    pruning_panel_multi(ax_f, _fd.load('nb14_pruning_cnn_cifar'))
+    # legend lifted above the bystander dashes (they settle ~0.55 on CIFAR)
+    pruning_panel_multi(ax_f, _fd.load('nb14_pruning_cnn_cifar'), legend_y=0.85)
     anchors['f'] = ax_f
 
     figstyle.freeze(fig)
@@ -2479,25 +2501,28 @@ def fig8_imagenet_circuits(D):
     n_root = root['n_factors']
     CLASS_COLOR = class_colors(range(N_CLASSES))
 
-    # Circuits traced in (b): f0, f1, f2 -- bear, airplane, dog. Only root factors
-    # with a sub-tree can be traced, and the root entry of n_branches (5) decides
-    # how many there are, so f0-f4 are the candidates.
-    SHOW = [0, 1, 2]
+    # Circuits traced in (b): f0 dog and f2 car (the airplane tree was cut to
+    # make room for the causal-pruning panel). The car's f0/f1 fire8 groups are
+    # near duplicates, so f1/f2 make the split legible.
+    SHOW = [0, 2]
+    SUB = {0: [0, 1], 2: [1, 2]}
     N_TREE = 2                 # two fire8 sub-factors per circuit
+    N_ROOT_SHOW = min(10, n_root)   # (a) shows the 10 strongest output factors
 
     # row heights in inches, derived from the image grids they hold
     W = 6.975
-    s_a = W / n_root                                   # (a) montage side, square
+    s_a = W / N_ROOT_SHOW                              # (a) montage side, square
     ha = s_a + 0.30 + 0.13                             # montage + class bars + label
-    W_PUR = 1.50                                       # (c) purity plot width
-    # a narrower (c) plus tighter inter-tree/side gaps hand the sub-factor
+    W_PUR = 1.50                                       # (d) purity plot width
+    W_PRUNE = 1.55                                     # (c) causal-pruning width
+    # a narrower (d) plus tighter inter-tree/side gaps hand the sub-factor
     # montages more width, so the stimuli in (b) read larger; a short pill row
     # and a small a->b spacer then pull (b) up against (a) so the bigger images
     # cost no height.
     PAD_B, GAP_B, GAP_IN = 0.10, 0.38, 0.11            # side / inter-tree / intra-pair
     NODE_H, FLAB_H = 0.16, 0.13                        # node-label / f-label rows
-    s_b = (W - W_PUR) / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B
-                         + len(SHOW) * GAP_IN + 2 * PAD_B)
+    s_b = (W - W_PUR - W_PRUNE) / (N_TREE * len(SHOW) + (len(SHOW) - 1) * GAP_B
+                                   + len(SHOW) * GAP_IN + 2 * PAD_B)
     hb = NODE_H + s_b + FLAB_H                          # node label + image + f label
     sp, sp_ab = 0.13, 0.10                             # top label / a->b gap
     rows = [sp, ha, sp_ab, hb]
@@ -2523,9 +2548,9 @@ def fig8_imagenet_circuits(D):
     # ── (a) output factors: stimuli and the full category distribution ───────
     # The f label rides on the bar chart, not the stimulus montage — over a
     # photograph it is unreadable whatever the stroke.
-    gsa = gs[1].subgridspec(3, n_root, height_ratios=[s_a, 0.30, 0.13])
+    gsa = gs[1].subgridspec(3, N_ROOT_SHOW, height_ratios=[s_a, 0.30, 0.13])
     pmax = root['class_profile'].max()
-    for k in range(n_root):
+    for k in range(N_ROOT_SHOW):
         ax = stim_panel(fig, gsa[0, k], D, top_stims(D, root, k), 2, 2)
         prof = root['class_profile'][k]
         c = int(np.argmax(prof))
@@ -2545,8 +2570,9 @@ def fig8_imagenet_circuits(D):
         if k == 0:
             anchors['a'] = ax
 
-    # ── row 2: (b) traceback | (c) category purity by depth ──────────────────
-    gs_row = gs[3].subgridspec(1, 2, width_ratios=[W - W_PUR, W_PUR])
+    # ── row 2: (b) traceback | (c) causal pruning | (d) category purity ──────
+    gs_row = gs[3].subgridspec(1, 3, width_ratios=[W - W_PUR - W_PRUNE,
+                                                   W_PRUNE, W_PUR])
     # two image cells per circuit with a small gap between them (so the two
     # sub-factors read as distinct), circuits separated by a wider gap.
     widths, col_of = [PAD_B], {}
@@ -2567,7 +2593,7 @@ def fig8_imagenet_circuits(D):
                      va='center', fontsize=6.5, color='white',
                      bbox=dict(boxstyle='round,pad=0.28', fc=C_BFT, ec='none'))
         subs = []
-        for slot, k in enumerate(range(N_TREE)):        # slot -> columns base, base+2
+        for slot, k in enumerate(SUB[r]):               # slot -> columns base, base+2
             col = base + 2 * slot
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
@@ -2585,7 +2611,13 @@ def fig8_imagenet_circuits(D):
         if j_ == 0:
             anchors['b'] = node_ax
 
-    # ── (c) category purity falls toward the input ───────────────────────────
+    # ── (c) causal pruning on the spine (was appendix-only) ──────────────────
+    from src import figdata as _fd
+    ax_p = fig.add_subplot(gs_row[0, 1])
+    pruning_panel_imagenet(ax_p, _fd.load('nb14_pruning_imagenet_cnn'))
+    anchors['p'] = ax_p
+
+    # ── (d) category purity falls toward the input ───────────────────────────
     stats = imagenet_depth_purity(D)
     x = np.arange(len(stats))
     chance = 1.0 / N_CLASSES
@@ -2593,7 +2625,7 @@ def fig8_imagenet_circuits(D):
     # convention of Fig. 2; stats run output-first, so the ticks descend
     n_lay = len(stats)
     xt = [rf'$L_{{{n_lay - i}}}$' for i in range(n_lay)]
-    ax_c = fig.add_subplot(gs_row[0, 1])
+    ax_c = fig.add_subplot(gs_row[0, 2])
     pur = [lam_weighted(st['purity'], st['lam']) for st in stats]
     ax_c.axhline(chance, color='0.65', lw=0.6, ls=(0, (3, 2)), zorder=0)
     for i_, st in enumerate(stats):
@@ -2635,9 +2667,11 @@ def fig8_imagenet_circuits(D):
                  spacers[spacer].get_position().y0 + 0.004, text, ha='left',
                  va='bottom', fontsize=PANEL_LABEL, fontweight='bold', **kw)
 
-    _label('a', 0, '(a) output factors, with super-category distribution', dx=-0.004)
+    _label('a', 0, '(a) output factors, with super-category distribution '
+                   f'({N_ROOT_SHOW} of {n_root} — all in Fig. N)', dx=-0.004)
     _label('b', 1, r'(b) traceback to $L_9$', dx=-0.010)
-    _label('c', 1, '(c) category purity by depth', dx=-0.030)
+    _label('p', 1, '(c) causal pruning', dx=-0.042)
+    _label('c', 1, '(d) category purity by depth', dx=-0.030)
     return fig
 
 
