@@ -372,67 +372,91 @@
  "separability": {
   "by_task": {
    "bft_fingerprint": {
-    "silhouette": 0.5594817399978638,
-    "knn_acc": 0.9756535403802786
+    "silhouette": 0.6652189493179321,
+    "knn_acc": 0.9830093572066617
    },
    "raw_activations": {
     "silhouette": 0.17326848208904266,
     "knn_acc": 0.9825948601854182
    },
    "bft_matched": {
-    "silhouette": 0.5594817399978638,
-    "knn_acc": 0.9756535403802786
+    "silhouette": 0.6652189493179321,
+    "knn_acc": 0.9830093572066617
    },
    "act_matched": {
-    "silhouette": 0.19747352600097656,
-    "knn_acc": 0.9787618011548989
+    "silhouette": 0.22079026699066162,
+    "knn_acc": 0.9794869857981401
    },
    "act_randproj": {
-    "silhouette": 0.15286946296691895,
-    "knn_acc": 0.9727525120168073
+    "silhouette": 0.12300632894039154,
+    "knn_acc": 0.9492345312564497
+   },
+   "act_penult": {
+    "silhouette": 0.8220829963684082,
+    "knn_acc": 0.994923546502586
+   },
+   "act_penult_matched": {
+    "silhouette": 0.8220829963684082,
+    "knn_acc": 0.994923546502586
+   },
+   "act_out": {
+    "silhouette": 0.8615628480911255,
+    "knn_acc": 0.9945091460781782
    }
   },
   "by_fine": {
    "bft_fingerprint": {
-    "silhouette": 0.5594817399978638,
-    "knn_acc": 0.9756535403802786
+    "silhouette": 0.6652189493179321,
+    "knn_acc": 0.9830093572066617
    },
    "raw_activations": {
     "silhouette": 0.17326848208904266,
     "knn_acc": 0.9825948601854182
    },
    "bft_matched": {
-    "silhouette": 0.5594817399978638,
-    "knn_acc": 0.9756535403802786
+    "silhouette": 0.6652189493179321,
+    "knn_acc": 0.9830093572066617
    },
    "act_matched": {
-    "silhouette": 0.19747352600097656,
-    "knn_acc": 0.9787618011548989
+    "silhouette": 0.22079026699066162,
+    "knn_acc": 0.9794869857981401
    },
    "act_randproj": {
-    "silhouette": 0.15286946296691895,
-    "knn_acc": 0.9727525120168073
+    "silhouette": 0.12300632894039154,
+    "knn_acc": 0.9492345312564497
+   },
+   "act_penult": {
+    "silhouette": 0.8220829963684082,
+    "knn_acc": 0.994923546502586
+   },
+   "act_penult_matched": {
+    "silhouette": 0.8220829963684082,
+    "knn_acc": 0.994923546502586
+   },
+   "act_out": {
+    "silhouette": 0.8615628480911255,
+    "knn_acc": 0.9945091460781782
    }
   },
   "dims": {
-   "fingerprint": 125,
+   "fingerprint": 46,
    "activations": 844,
-   "matched": 125
+   "matched": 46
   },
   "null_shuffled_labels": {
-   "silhouette": -0.01311325840651989,
-   "knn_acc": 0.10277697226749931
+   "silhouette": -0.015799107030034065,
+   "knn_acc": 0.0994617044743461
   }
  },
  "A1_weight_vs_activation": {
   "fingerprint_separability": {
    "arbor_nmf": {
-    "silhouette": 0.6620527505874634,
-    "knn_acc": 0.9781397819319998
+    "silhouette": 0.6652189493179321,
+    "knn_acc": 0.9830093572066617
    },
    "activation_nmf": {
-    "silhouette": -0.02794293500483036,
-    "knn_acc": 0.155925034158251
+    "silhouette": 0.29905804991722107,
+    "knn_acc": 0.9346227465326727
    }
   }
  },
