@@ -1,5 +1,5 @@
 {
- "act.aligned": 0,
+ "act.aligned": 1,
  "act.reps.0.dim": 32,
  "act.reps.0.label": "attn out",
  "act.reps.1.dim": 64,
@@ -46,5 +46,5 @@
  "like.5.label": "inverted",
  "like.__list__": 6,
  "n_classes": 2,
- "n_factors": 75
+ "n_factors": 80
 }

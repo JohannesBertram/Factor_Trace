@@ -262,59 +262,6 @@ def pruning_panel_imagenet(ax, P):
         ax.spines[s].set_visible(False)
 
 
-def draw_scaffold(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
-                  out_labels=('even', 'odd'), highlight_out=0, legend=False):
-    """Neuron-level circuit graph L1 -> L2 -> L3, excitatory and inhibitory edges."""
-    ys = [np.linspace(0.98, 0.02, n) if n > 1 else np.array([0.5]) for n in layer_sizes]
-    xs = [np.full(n, float(li)) for li, n in enumerate(layer_sizes)]
-    off = np.cumsum([0] + list(layer_sizes))
-    load = np.asarray(loading, float)
-
-    for bi, (E, N) in enumerate(zip(edges, neg_edges)):
-        emax = max(E.max(), N.max(), 1e-12)              # per-boundary normalization
-        for M, col, lsty, z, al, sc in ((N, c_inh, (0, (1.4, 1.1)), 1, .55, 0.9),
-                                        (E, color, '-', 2, .95, 1.8)):
-            for i in range(M.shape[0]):
-                for j in range(M.shape[1]):
-                    w = M[i, j] / emax
-                    if w < 0.03:
-                        continue
-                    ax.plot([xs[bi][j], xs[bi + 1][i]], [ys[bi][j], ys[bi + 1][i]],
-                            lw=0.12 + sc * w, color=col, linestyle=lsty,
-                            alpha=al, zorder=z, solid_capstyle='round')
-
-    for li, n in enumerate(layer_sizes):
-        v = load[off[li]:off[li + 1]]
-        v = v / (v.max() + 1e-12)                        # per-layer normalization
-        on = v >= 0.05
-        ax.scatter(xs[li][on], ys[li][on], s=7 + 30 * v[on],
-                   c=[matplotlib.colors.to_rgba(color, 0.3 + 0.7 * vi) for vi in v[on]],
-                   edgecolors='0.25', linewidths=0.4, zorder=3)
-        ax.scatter(xs[li][~on], ys[li][~on], s=6, c='none',
-                   edgecolors='0.72', linewidths=0.4, zorder=3)
-
-    ax.annotate('', xy=(-0.18, 0.5), xytext=(-0.62, 0.5),
-                arrowprops=dict(arrowstyle='-|>', lw=0.5, color='0.45',
-                                shrinkA=0, shrinkB=0, mutation_scale=5))
-    ax.text(-0.66, 0.5, '784 px', ha='right', va='center', fontsize=6, color='0.35')
-    for li, lab in enumerate([r'$L_1$', r'$L_2$', r'$L_3$']):
-        ax.text(li, -0.10, lab, ha='center', va='top', fontsize=6.5)
-    for i, lab in enumerate(out_labels):
-        ax.text(2.12, ys[2][i], lab, ha='left', va='center', fontsize=6.5,
-                color=color if i == highlight_out else '0.55',
-                fontweight='bold' if i == highlight_out else 'normal')
-    if legend:
-        for yy, (col, lsty, lab) in enumerate(((color, '-', 'excitatory'),
-                                               (c_inh, (0, (1.4, 1.1)), 'inhibitory'))):
-            y = 0.20 - 0.14 * yy
-            ax.plot([-1.33, -1.05], [y, y], color=col, linestyle=lsty, lw=0.9,
-                    solid_capstyle='round')
-            ax.text(-1.0, y, lab, fontsize=6.2, ha='left', va='center', color='0.3')
-    ax.set_xlim(-1.35, 2.8)
-    ax.set_ylim(-0.2, 1.06)
-    ax.axis('off')
-
-
 def _circuit_colors(D):
     """Resolve every circuit's semantic color key once, in place."""
     for c in D['circuits']:
@@ -351,23 +298,6 @@ def support_overlap(S, n_shuffle=2000, seed=0):
     null = np.array([mean_cos(np.stack([rng.permutation(r) for r in S]))
                      for _ in range(n_shuffle)])
     return mean_cos(S), null
-
-
-def purity_by_layer(D):
-    """[(layer_idx, purity, lambda-share, circuit index)] for every factor of a trace.
-
-    Purity is the largest class share of a factor's stimulus loading: 1/n_classes
-    if the factor is class-agnostic, 1 if it fires for a single class.
-    """
-    out = []
-    for node in D['nodes']:
-        path = [int(i) for i in node['path']]
-        P, lam = node['class_profile'], node['lam_share']
-        for k in range(len(P)):
-            circuit = path[0] if path else k
-            out.append((int(node['layer_idx']), float(P[k].max()),
-                        float(lam[k]), circuit))
-    return out
 
 
 def draw_scaffold_pair(ax, circuits, layer_sizes, c_inh, out_labels, in_label='784 px'):
@@ -799,41 +729,6 @@ def pca_panel(ax, X, labels, colors, *, title=None, order=None, s=2.2, alpha=0.7
     return coords
 
 
-def cond_embedding(ax, F_id, labels, colors, *, near=None, far=(), c_near=None,
-                   c_far=None, order=None, near_label='near-OOD', s=3.5,
-                   legend=True, id_label=None):
-    """The in-distribution fingerprints in their own PCA plane, with the OOD
-    conditions projected into the same plane — where does OOD input land?"""
-    mu, Vt, evr = pca_fit(F_id)
-    if len(far):
-        P = np.concatenate([pca_apply(X, mu, Vt) for X in far])
-        ax.scatter(P[:, 0], P[:, 1], s=s, color=c_far, alpha=0.5, edgecolor='none',
-                   zorder=1, rasterized=True)
-    if near is not None:
-        P = pca_apply(near, mu, Vt)
-        ax.scatter(P[:, 0], P[:, 1], s=s, color=c_near, alpha=0.55, edgecolor='none',
-                   zorder=2, rasterized=True)
-    P = pca_apply(F_id, mu, Vt)
-    labels = np.asarray(labels)
-    for c in (order if order is not None else np.unique(labels)):
-        m = labels == c
-        ax.scatter(P[m, 0], P[m, 1], s=s, color=colors[int(c)], alpha=0.8,
-                   edgecolor='none', zorder=3, rasterized=True)
-    if legend:
-        for lab, col in ((id_label or 'in-distribution', '0.35'),
-                         (near_label, c_near), ('far-OOD', c_far)):
-            ax.scatter([], [], s=8, color=col, label=lab)
-        ax.legend(fontsize=6, frameon=False, loc='upper left', handlelength=0.7,
-                  handletextpad=0.25, borderpad=0.1, labelspacing=0.18,
-                  borderaxespad=0.15, scatterpoints=1)
-    ax.set_xticks([]); ax.set_yticks([])
-    ax.set_xlabel(f'PC 1 (var {evr[0]:.2f})', labelpad=1, fontsize=6)
-    ax.set_ylabel(f'PC 2 (var {evr[1]:.2f})', labelpad=1, fontsize=6)
-    for s_ in ax.spines.values():
-        s_.set_color('0.6'); s_.set_linewidth(0.4)
-    return evr
-
-
 def act_rep(D, which=-1):
     """The activation baseline stored next to the fingerprints, or None.
 
@@ -874,17 +769,6 @@ def ramp_cmap(hex_color, name):
     return matplotlib.colors.LinearSegmentedColormap.from_list(
         name, [(1, 1, 1), tuple(p + (1 - p) * 0.78), tuple(p + (1 - p) * 0.42),
                tuple(p), tuple(p * 0.55)])
-
-
-def resolve_color(key, digit_color=None):
-    """Bundle color keys -> matplotlib colors ('digit:4' and grey levels included)."""
-    if not isinstance(key, str):
-        return key
-    if key.startswith('digit:'):
-        return digit_color[int(key.split(':')[1])]
-    if key.startswith('#') or key.replace('.', '').isdigit():
-        return key
-    return figstyle.color(key)
 
 
 def draw_scaffold_backbone(ax, edges, neg_edges, loading, layer_sizes, color, c_inh,
@@ -1501,9 +1385,31 @@ CNN_LI_LABEL = {'classifier': r'$L_5$', 'features.12': r'$L_4$',
 
 
 def cifar_rgb(D, x):
-    """One (3, H, W) normalized tensor -> (H, W, 3) in [0, 1]."""
+    """One (3, H, W) image -> (H, W, 3) in [0, 1].
+
+    uint8 images (the shared stimulus pool / wavg are stored denormalized) just
+    rescale; float images are undone with the bundle's normalization constants."""
+    if np.asarray(x).dtype == np.uint8:
+        return np.asarray(x, np.float32).transpose(1, 2, 0) / 255.0
     return np.clip(x * D['image_std'][:, None, None] + D['image_mean'][:, None, None],
                    0, 1).transpose(1, 2, 0)
+
+
+def top_stims(D, node, k=None):
+    """A node's top-loading stimuli, gathered from the bundle's shared pool.
+
+    New-format bundles store every needed stimulus once (``D['images']`` =
+    dict(index, images uint8)) and per-node only ``top_idx``; old bundles carried
+    per-node ``top_images`` — both render identically through here."""
+    if 'top_images' in node:
+        t = node['top_images']
+        return t if k is None else t[k]
+    idx = np.asarray(node['top_idx'])
+    if k is not None:
+        idx = idx[k]
+    pool = D['images']
+    pos = np.searchsorted(np.asarray(pool['index']), idx)
+    return np.asarray(pool['images'])[pos]
 
 
 def montage(D, imgs, nrow, ncol, pad=1, bg=1.0):
@@ -1538,26 +1444,6 @@ def rgb_strip(ax, shares, h=0.055):
         x += frac
 
 
-def color_arbor_recurrence(NODES, layer='features.0'):
-    """Do the conv1 nodes of different circuits find the same color factors?
-    Greedy-match each pair's factors by RGB profile and return the mean cosine."""
-    P = []
-    for n in NODES:
-        if n['layer_name'] == layer and 'conn' in n:
-            M = n['conn']['in_mass']
-            P.append(M / (M.sum(1, keepdims=True) + 1e-12))
-    vals = []
-    for a in range(len(P)):
-        for b in range(a + 1, len(P)):
-            A, B = unit(P[a]), unit(P[b])
-            S = A @ B.T
-            free = list(range(S.shape[1]))
-            for i in np.argsort(-S.max(1)):
-                j = free[int(np.argmax(S[i, free]))]
-                vals.append(float(S[i, j])); free.remove(j)
-    return float(np.mean(vals))
-
-
 def hcat(tiles, gaps, bg=1.0):
     """Lay (h, w, 3) tiles of equal height side by side, with per-gap spacing."""
     h = tiles[0].shape[0]
@@ -1567,17 +1453,6 @@ def hcat(tiles, gaps, bg=1.0):
     for i, t in enumerate(tiles):
         out[:, x:x + t.shape[1]] = t
         x += t.shape[1] + (int(gaps[i]) if i < len(gaps) else 0)
-    return out
-
-
-def vcat(rows, gap, bg=1.0):
-    w = max(r.shape[1] for r in rows)
-    H = sum(r.shape[0] for r in rows) + gap * (len(rows) - 1)
-    out = np.full((H, w, 3), bg, np.float32)
-    y = 0
-    for i, r in enumerate(rows):
-        out[y:y + r.shape[0], :r.shape[1]] = r
-        y += r.shape[0] + gap
     return out
 
 
@@ -1628,42 +1503,57 @@ def cnn_depth_stats(D, seed=0):
     for name, nodes in cnn_layers(D['nodes']):
         pur = np.concatenate([n['class_profile'].max(1) for n in nodes])
         lam = np.concatenate([n['lam_share'] for n in nodes])
-        spread = np.array([color_spread(D, n['top_images'][k])
+        spread = np.array([color_spread(D, top_stims(D, n, k))
                            for n in nodes for k in range(n['n_factors'])])
         rows.append(dict(layer=name, purity=pur, lam=lam, spread=spread))
-    pool = np.concatenate([n['top_images'].reshape(-1, *n['top_images'].shape[-3:])
+    pool = np.concatenate([top_stims(D, n).reshape(-1, *top_stims(D, n).shape[-3:])
                            for n in D['nodes']])
     rng = np.random.default_rng(seed)
-    n_top = D['nodes'][0]['top_images'].shape[1]
+    n_top = np.asarray(D['nodes'][0]['top_idx']).shape[1]
     rand = np.mean([color_spread(D, pool[rng.choice(len(pool), n_top, replace=False)])
                     for _ in range(300)])
     return rows, float(rand)
-
-
-def sibling_overlap(NODES, layer):
-    """Mean Jaccard overlap of the top-stimulus sets of sibling factors."""
-    vals = []
-    for n in NODES:
-        if n['layer_name'] != layer:
-            continue
-        T = n['top_idx']
-        for i in range(len(T)):
-            for j in range(i + 1, len(T)):
-                a, b = set(T[i].tolist()), set(T[j].tolist())
-                vals.append(len(a & b) / len(a | b))
-    return float(np.mean(vals)) if vals else float('nan')
 
 
 def lam_weighted(v, w):
     return float((v * w).sum() / w.sum())
 
 
+def _purity_point_from_profile(D):
+    """Per-layer lambda-weighted purity from the bundle's own precomputed
+    class_profile — needs no per-stimulus labels. Used as the point estimate and
+    as the CI fallback when aligned labels are unavailable."""
+    out = []
+    for _name, nodes in cnn_layers(D['nodes']):
+        pur = np.concatenate([np.asarray(nd['class_profile'], float).max(1) for nd in nodes])
+        lam = np.concatenate([np.asarray(nd['lam_share'], float) for nd in nodes])
+        out.append(lam_weighted(pur, lam))
+    return out
+
+
 def purity_ci_by_layer(D, labels, n_boot=800, seed=0):
     """Per layer (output first): (point, lo, hi) of the lambda-weighted class
     purity with a 95% stimulus-bootstrap CI. Reconstructs each factor's class
-    profile from per-stimulus loadings + labels so the resample is honest; labels
-    come from the aligned fingerprint bundle. Numpy only (Appendix stats)."""
-    labels = np.asarray(labels); classes = np.unique(labels)
+    profile from per-stimulus loadings + labels so the resample is honest.
+
+    Labels must be aligned to the *circuit* tree's population. When they are not
+    (e.g. the circuit and fingerprint trees now use different populations under the
+    two-tree split), the per-node stim_idx cannot index them; we then fall back to
+    the bundle's precomputed class_profile for the point estimate and return a
+    zero-width CI, so the figure still renders the correct purity without error
+    bars. Re-export the circuit bundle with `stim_labels` to restore the CI."""
+    labels = np.asarray(labels)
+    D_labels = D.get('stim_labels')                      # circuit-tree's own labels, if exported
+    if D_labels is not None:
+        labels = np.asarray(D_labels)
+    classes = np.unique(labels)
+    # Can every node's stim_idx be indexed by these labels?
+    max_idx = max((int(np.asarray(nd['stim_idx']).max())
+                   for _n, nds in cnn_layers(D['nodes']) for nd in nds
+                   if 'stim_idx' in nd), default=-1)
+    if max_idx >= len(labels):
+        pts = _purity_point_from_profile(D)
+        return [(p, p, p) for p in pts]
     rng = np.random.default_rng(seed)
     out = []
     for _name, nodes in cnn_layers(D['nodes']):
@@ -1758,7 +1648,7 @@ def fig6_cnn_circuits(D):
     gsa = gs[1].subgridspec(3, n_root, height_ratios=[s_a, 0.30, 0.13])
     pmax = root['class_profile'].max()                  # common bar scale (honest)
     for k in range(n_root):
-        ax = stim_panel(fig, gsa[0, k], D, root['top_images'][k], 2, 2)
+        ax = stim_panel(fig, gsa[0, k], D, top_stims(D, root, k), 2, 2)
         prof = root['class_profile'][k]
         c = int(np.argmax(prof))
         axb = fig.add_subplot(gsa[1, k])                # class distribution, 10 bars
@@ -1804,7 +1694,7 @@ def fig6_cnn_circuits(D):
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[1, col], D, node['top_images'][k], 2, 2,
+            ax = stim_panel(fig, gsb[1, col], D, top_stims(D, node, k), 2, 2,
                             ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
             if off:                                     # flag only a cross-class group
                 tag(ax, CLS[c][:5], x=0.5, y=0.04, size=6, color=C_X)
@@ -1826,11 +1716,11 @@ def fig6_cnn_circuits(D):
     leaf = by_path[LEAF]
     gscl = gsc[0, 0].subgridspec(2, n_leaf, height_ratios=[s_c, 0.17])
     for k in range(n_leaf):
-        ax = stim_panel(fig, gscl[0, k], D, leaf['top_images'][k], 2, 2)
+        ax = stim_panel(fig, gscl[0, k], D, top_stims(D, leaf, k), 2, 2)
         rgb_strip(ax, leaf['conn']['in_mass'][k])
         tag(ax, rf'$f_{{{k}}}$')
         lab = fig.add_subplot(gscl[1, k]); lab.set_axis_off()
-        lab.text(0.5, 1.0, f'{color_spread(D, leaf["top_images"][k]):.2f}', ha='center',
+        lab.text(0.5, 1.0, f'{color_spread(D, top_stims(D, leaf, k)):.2f}', ha='center',
                  va='top', fontsize=6, color='0.2')
         if k == 0:
             anchors['c'] = ax
@@ -2033,7 +1923,7 @@ def figE_cnn_details(D):
             axa.set_xticks([]); axa.set_yticks([])
             for s_ in axa.spines.values():
                 s_.set_color(C_BFT); s_.set_linewidth(1.0)
-            stim_panel(fig, gsb[irow, ec], D, node['top_images'][k], EX_R, EX_C,
+            stim_panel(fig, gsb[irow, ec], D, top_stims(D, node, k), EX_R, EX_C,
                        ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
             la = fig.add_subplot(gsb[lrow, ac]); la.set_axis_off()
             la.text(0.5, 0.95, 'avg', ha='center', va='top', fontsize=6,
@@ -2049,7 +1939,7 @@ def figE_cnn_details(D):
     for i, n in enumerate(spine):
         for k in range(n_show[i]):
             kk = 9 if i == 0 else k                    # the root column is f9 itself
-            tiles.append(montage(D, n['top_images'][kk], 2, 2))
+            tiles.append(montage(D, top_stims(D, n, kk), 2, 2))
             gaps.append(24 if k == n_show[i] - 1 else 6)
             meta.append((i, n, kk))
     comp_c = hcat(tiles, gaps[:-1])
@@ -2241,13 +2131,20 @@ def figG_vit_circuits(D):
     gsa = gs_top[0, 0].subgridspec(1, len(STAGES))
     for i, (name, nodes) in enumerate(STAGES):
         ax = fig.add_subplot(gsa[0, i])
-        L = np.stack([n['lam_share'] for n in nodes])
-        x = np.arange(L.shape[1])
-        ax.bar(x, L.mean(0), color=tint(C_BFT, 0.45), edgecolor='0.25',
+        # nodes at a layer can have different K (AutoNMF prunes per node), so the
+        # lam_share vectors are ragged — pad to the max with NaN and use nanmean.
+        _lams = [np.asarray(n['lam_share'], float) for n in nodes]
+        _K = max(len(v) for v in _lams)
+        L = np.full((len(_lams), _K), np.nan)
+        for _r, _v in enumerate(_lams):
+            L[_r, :len(_v)] = _v
+        x = np.arange(_K)
+        ax.bar(x, np.nanmean(L, 0), color=tint(C_BFT, 0.45), edgecolor='0.25',
                linewidth=0.3, width=0.75, zorder=1)
         if len(nodes) > 1:
             for row in L:
-                ax.scatter(x, row, s=1.6, color=C_BFT, zorder=2, edgecolor='none')
+                _m = ~np.isnan(row)
+                ax.scatter(x[_m], row[_m], s=1.6, color=C_BFT, zorder=2, edgecolor='none')
         ax.set_ylim(0, 0.72)
         ax.set_yticks([0, 0.25, 0.5])
         ax.set_yticklabels(['0', '', '.5'] if i == 0 else [])
@@ -2340,8 +2237,10 @@ def figG_vit_circuits(D):
     anchors['d'] = img_first[0]
 
     # ── (e) CLS attention: shared across factors ─────────────────────────────
-    A_all = np.stack([n['attn_mean'] for n in ATTN])          # (nodes, K, T)
-    A_flat = A_all.reshape(-1, A_all.shape[-1])
+    # ragged K per node -> concatenate the (K_i, T) maps and track node offsets
+    _am = [np.asarray(n['attn_mean'], float) for n in ATTN]   # each (K_i, T)
+    _starts = np.cumsum([0] + [a.shape[0] for a in _am])[:-1]  # first-row of each node
+    A_flat = np.concatenate(_am, axis=0)                      # (sum K, T)
     A_flat = A_flat / A_flat.sum(1, keepdims=True)
     Ua = unit(A_flat)
     cos_min = (Ua @ Ua.T).min()
@@ -2357,7 +2256,7 @@ def figG_vit_circuits(D):
     vmax = np.abs(dev).max()
     for i, node in enumerate(ATTN):
         ax = fig.add_subplot(gse[0, i + 2])
-        ax.imshow(dev[i * node['attn_mean'].shape[0]].reshape(side, side), cmap='RdBu_r',
+        ax.imshow(dev[_starts[i]].reshape(side, side), cmap='RdBu_r',
                   vmin=-vmax, vmax=vmax, interpolation='nearest')
         ax.set_xticks([]); ax.set_yticks([])
         for s_ in ax.spines.values():
@@ -2370,14 +2269,14 @@ def figG_vit_circuits(D):
                     rf'(all {len(A_flat)} factor maps: pairwise $\cos\geq{cos_min:.2f}$)')
 
     # ── (f) the strongest real stimuli of each output circuit ────────────────
-    n_top = min(8, NODES[0]['top_images'].shape[1])
+    n_top = min(8, np.asarray(NODES[0]['top_idx']).shape[1])
     gsf = gs_bot[0, 1].subgridspec(n_c, n_top + 1, width_ratios=[0.42] + [1] * n_top)
     for j, c in enumerate(CIRC):
         row_label(fig, gsf[j, 0], rf"$f_{{{int(c['k'])}}}$",
                   color=C_EVEN if c['profile'][0] > 0.5 else C_ODD)
         for t in range(n_top):
             ax = fig.add_subplot(gsf[j, t + 1])
-            ax.imshow(NODES[0]['top_images'][j, t, 0], cmap='gray_r',
+            ax.imshow(top_stims(D, NODES[0], j)[t, 0], cmap='gray_r',
                       interpolation='nearest')
             ax.set_xticks([]); ax.set_yticks([])
             for s in ax.spines.values():
@@ -2508,22 +2407,6 @@ def _val_causal_nodes(D):
     return None, None, None
 
 
-def _cfg_label(name):
-    """Sweep row id -> something a caption can carry: 'rank=rank x1.3' -> 'rank ×1.3'."""
-    return (str(name).replace('rank=rank ', 'rank ').replace('=', ' ')
-            .replace(' x', r' $\times$'))
-
-
-def _executed_k_max(k_max):
-    """The profile that actually runs: ``_auto_k_factorize`` floors ``k_max`` at 2.
-
-    The sweep emits raw ``round(m * K)`` profiles, so a requested rank of 1 is
-    printed here as the 2 that ``src/bft.py`` substitutes. Printing the request
-    instead would put a number in the figure that no notebook can be set to.
-    """
-    return [max(2, int(v)) for v in k_max]
-
-
 def _layer_shades(n, base):
     """Input layer darkest -> output layer lightest, so depth is readable."""
     return [tint(base, 0.62 * i / max(n - 1, 1)) for i in range(n)]
@@ -2535,19 +2418,6 @@ def _layer_shades(n, base):
 # reuse its stimulus helpers (montage, stim_panel, cifar_rgb, rgb_strip). What
 # differs is the model: a pretrained 1000-way SqueezeNet 1.1, traced along its
 # squeeze spine (conv1 -> fire2..fire9 -> classifier), 8 held-out categories.
-
-IMAGENET_LAYER_LABEL = {
-    'classifier.1': 'classifier', 'classifier': 'classifier',
-    'features.12.squeeze': 'fire9', 'features.11.squeeze': 'fire8',
-    'features.10.squeeze': 'fire7', 'features.9.squeeze': 'fire6',
-    'features.7.squeeze': 'fire5', 'features.6.squeeze': 'fire4',
-    'features.4.squeeze': 'fire3', 'features.3.squeeze': 'fire2',
-    'features.0': 'conv1'}
-
-
-def imagenet_layer_label(name):
-    return IMAGENET_LAYER_LABEL.get(str(name), str(name))
-
 
 # depth labels L_1 (pixels) .. L_10 (classifier), matching Fig. 8's convention
 IMAGENET_LI_LABEL = {
@@ -2580,20 +2450,6 @@ def imagenet_depth_purity(D):
         lam = np.concatenate([n['lam_share'] for n in nodes])
         rows.append(dict(layer=name, purity=pur, lam=lam))
     return rows
-
-
-def spatial_overlay(D, img, amap, gamma=0.7):
-    """RGB stimulus dimmed and tinted where a factor's channel-weighted activation
-    map is high — 'where in the image the factor fires'. amap is the coarse
-    (h, w) feature-map response, upsampled by nearest-neighbor to the image."""
-    rgb = cifar_rgb(D, img)
-    H, W = rgb.shape[:2]
-    a = amap.astype(float)
-    a = a / (a.max() + 1e-12)
-    a = np.kron(a, np.ones((H // a.shape[0] + 1, W // a.shape[1] + 1)))[:H, :W]
-    a = a[..., None] ** gamma
-    hot = np.array(matplotlib.colors.to_rgb(figstyle.color('ours')))
-    return np.clip(rgb * (1 - 0.55 * a) + hot * (0.55 * a), 0, 1)
 
 
 def fig8_imagenet_circuits(D):
@@ -2658,7 +2514,7 @@ def fig8_imagenet_circuits(D):
     gsa = gs[1].subgridspec(3, n_root, height_ratios=[s_a, 0.30, 0.13])
     pmax = root['class_profile'].max()
     for k in range(n_root):
-        ax = stim_panel(fig, gsa[0, k], D, root['top_images'][k], 2, 2)
+        ax = stim_panel(fig, gsa[0, k], D, top_stims(D, root, k), 2, 2)
         prof = root['class_profile'][k]
         c = int(np.argmax(prof))
         axb = fig.add_subplot(gsa[1, k])
@@ -2704,7 +2560,7 @@ def fig8_imagenet_circuits(D):
             prof = node['class_profile'][k]
             c = int(np.argmax(prof))
             off = c != own and prof[c] - prof[own] > 0.10
-            ax = stim_panel(fig, gsb[1, col], D, node['top_images'][k], 2, 2,
+            ax = stim_panel(fig, gsb[1, col], D, top_stims(D, node, k), 2, 2,
                             ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
             if off:
                 tag(ax, CLS[c][:6], x=0.5, y=0.04, size=6, color=C_X)
@@ -2909,7 +2765,7 @@ def figN_imagenet_details(D):
             axa.set_xticks([]); axa.set_yticks([])
             for s_ in axa.spines.values():
                 s_.set_color(C_BFT); s_.set_linewidth(1.0)
-            stim_panel(fig, gsb[irow, ec], D, cnode['top_images'][k], EX_R, EX_C,
+            stim_panel(fig, gsb[irow, ec], D, top_stims(D, cnode, k), EX_R, EX_C,
                        ec=C_X if off else '0.6', lw=1.1 if off else 0.4)
             la = fig.add_subplot(gsb[lrow, ac]); la.set_axis_off()
             la.text(0.5, 0.95, 'avg', ha='center', va='top', fontsize=6, color='0.45')
@@ -2922,7 +2778,7 @@ def figN_imagenet_details(D):
     tiles, gaps, meta = [], [], []
     for i, n in enumerate(spine):
         kk = SPINE_CIRC if i == 0 else 0                   # root: the circuit factor
-        tiles.append(montage(D, n['top_images'][kk], 2, 2))
+        tiles.append(montage(D, top_stims(D, n, kk), 2, 2))
         gaps.append(10)
         meta.append((n, kk))
     comp_c = hcat(tiles, gaps[:-1])
@@ -2995,7 +2851,7 @@ def _faith_row(name, D):
     the ViT's attention nodes)."""
     caps = D['caps']
     li, r2, src = _val_causal_nodes(D)
-    rc = D['recon_controls']
+    rc = D.get('recon_controls', {})     # empty for models with no fc-root controls
 
     def cv(key):
         vs = ([float(n[key]['preact_r2']) for n in rc.values() if key in n]

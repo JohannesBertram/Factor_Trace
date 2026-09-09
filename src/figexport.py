@@ -25,7 +25,8 @@ from __future__ import annotations
 import numpy as np
 
 __all__ = ['factor_matrix', 'class_profile', 'node_summary', 'export_tree',
-           'scaffold_summary', 'example_stimuli', 'trace_meta', 'subsample_by_class']
+           'scaffold_summary', 'example_stimuli', 'trace_meta', 'subsample_by_class',
+           'to_uint8', 'stimulus_pool']
 
 
 # ── small helpers ─────────────────────────────────────────────────────────────
@@ -36,6 +37,46 @@ def _downsample(imgs, max_side):
         return imgs
     step = int(np.ceil(max(imgs.shape[-2:]) / max_side))
     return imgs[..., ::step, ::step]
+
+
+def to_uint8(imgs, mean=None, std=None):
+    """Images -> uint8 [0, 255] for the bundle (4-8x smaller than float32).
+
+    ``mean``/``std`` are the dataset normalization constants (per channel);
+    when given, the images are denormalized first. Without them the images are
+    min-max scaled per array, which is what every display path does anyway.
+    """
+    x = np.asarray(imgs, np.float32)
+    if mean is not None:
+        m = np.asarray(mean, np.float32).reshape(1, -1, 1, 1)
+        s = np.asarray(std, np.float32).reshape(1, -1, 1, 1)
+        x = x * s + m
+        x = np.clip(x, 0.0, 1.0)
+    else:
+        lo, hi = float(x.min()), float(x.max())
+        x = (x - lo) / (hi - lo + 1e-12)
+    return np.round(x * 255.0).astype(np.uint8)
+
+
+def stimulus_pool(images, nodes, extra_idx=(), max_side=64, mean=None, std=None):
+    """One shared, deduplicated image pool for the whole bundle.
+
+    Per-node ``top_images`` duplicated the same stimuli across every node — for
+    the conv models hundreds of times. Instead the bundle stores each needed
+    stimulus once: the union of every node's ``top_idx`` (plus ``extra_idx``,
+    e.g. spatial-map stimuli), downsampled and uint8. Figures gather a node's
+    top images via ``paper_figures.top_stims`` (searchsorted on ``index``).
+
+    Returns dict(index=(M,) sorted original indices, images=(M, C, h, w) uint8).
+    """
+    used = [np.asarray(n['top_idx']).ravel() for n in nodes if 'top_idx' in n]
+    if isinstance(extra_idx, (list, tuple)) and len(extra_idx) and np.ndim(extra_idx[0]) >= 1:
+        used += [np.asarray(e).ravel() for e in extra_idx if np.size(e)]
+    elif np.size(extra_idx):
+        used += [np.asarray(extra_idx).ravel()]
+    idx = np.unique(np.concatenate(used).astype(int)) if used else np.arange(0)
+    imgs = _downsample(np.asarray(images), max_side)[idx]
+    return dict(index=idx, images=to_uint8(imgs, mean=mean, std=std))
 
 
 def subsample_by_class(labels, classes, per_class, seed=0):
@@ -100,11 +141,14 @@ def class_profile(node, labels, classes, neg=False):
 
 def node_summary(node, *, labels=None, classes=None, images=None, n_top=8,
                  stim_idx=None, max_matrix=400_000, img_max_side=64,
-                 example_max_side=112):
+                 img_mean=None, img_std=None):
     """Everything about one trace node that a figure could plausibly need.
 
     `stim_idx` limits the *per-stimulus* arrays (which scale with N) to a subset;
-    class profiles and top stimuli are still computed on all stimuli.
+    class profiles and top stimuli are still computed on all stimuli. Top images
+    are NOT stored per node — only `top_idx`; build one `stimulus_pool` for the
+    bundle and gather at render time. `img_mean`/`img_std` are the dataset
+    normalization constants, used to store `wavg` as denormalized uint8.
     """
     H, W = node.img_factors, node.weight
     K = H.shape[1]
@@ -127,7 +171,7 @@ def node_summary(node, *, labels=None, classes=None, images=None, n_top=8,
         d['neg_lam'] = nl
         d['neg_lam_share'] = nl / (nl.sum() + 1e-12)
     if node.neg_img_factors is not None:
-        d['neg_img_factors'] = node.neg_img_factors[keep].astype(np.float32)
+        d['neg_img_factors'] = node.neg_img_factors[keep].astype(np.float16)
 
     conn = _conn_export(node, False, max_matrix)
     if conn:
@@ -155,10 +199,10 @@ def node_summary(node, *, labels=None, classes=None, images=None, n_top=8,
     if images is not None:
         imgs = _downsample(np.asarray(images), img_max_side)
         flat = imgs.reshape(len(imgs), -1)
-        d['wavg'] = np.stack([(H[:, k, None] * flat).sum(0) / (H[:, k].sum() + 1e-12)
-                              for k in range(K)]).reshape((K,) + imgs.shape[1:])
-        ex = _downsample(np.asarray(images), example_max_side)
-        d['top_images'] = np.stack([ex[d['top_idx'][k]] for k in range(K)])
+        wavg = np.stack([(H[:, k, None] * flat).sum(0) / (H[:, k].sum() + 1e-12)
+                         for k in range(K)]).reshape((K,) + imgs.shape[1:])
+        d['wavg'] = (to_uint8(wavg, mean=img_mean, std=img_std)
+                     if wavg.ndim == 4 else wavg.astype(np.float32))
     return d
 
 
@@ -182,12 +226,13 @@ def scaffold_summary(edges, neg_edges, loading, layer_sizes):
                 layer_sizes=np.asarray(layer_sizes, int))
 
 
-def example_stimuli(images, labels, classes, per_class=8, max_side=112, seed=0):
-    """A few real stimuli per class, small enough to commit."""
+def example_stimuli(images, labels, classes, per_class=8, max_side=112, seed=0,
+                    mean=None, std=None):
+    """A few real stimuli per class, small enough to commit (uint8)."""
     idx = subsample_by_class(labels, classes, per_class, seed=seed)
     imgs = _downsample(np.asarray(images)[idx], max_side)
-    return dict(images=imgs.astype(np.float32), labels=np.asarray(labels)[idx],
-                index=idx)
+    return dict(images=to_uint8(imgs, mean=mean, std=std),
+                labels=np.asarray(labels)[idx], index=idx)
 
 
 def trace_meta(result_or_root, **config):

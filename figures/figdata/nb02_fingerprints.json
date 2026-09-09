@@ -5,7 +5,7 @@
  "act.reps.1.dim": 20,
  "act.reps.1.label": "$L_3$ act.",
  "act.reps.__list__": 2,
- "agree": 0.6963,
+ "agree": 0.7675,
  "block_color_keys": [
   "id_data",
   "id_data",
@@ -90,8 +90,8 @@
  "like.__list__": 6,
  "n_block": 30,
  "n_classes": 10,
- "n_factors": 125,
- "r_ood": 0.8978721546435904,
+ "n_factors": 46,
+ "r_ood": 0.9381645048801592,
  "rows.0.color_key": "id_data",
  "rows.0.label": "0",
  "rows.1.color_key": "id_data",
@@ -125,10 +125,10 @@
  "rows.__list__": 15,
  "sel_per_digit": 40,
  "sep.0.color_key": "ours",
- "sep.0.dim": 125,
- "sep.0.knn": 0.9773119782764439,
+ "sep.0.dim": 46,
+ "sep.0.knn": 0.9831132088128516,
  "sep.0.label": "BFT\nfingerprint",
- "sep.0.silhouette": 0.5594817399978638,
+ "sep.0.silhouette": 0.6652189493179321,
  "sep.1.color_key": "0.55",
  "sep.1.dim": 40,
  "sep.1.knn": 0.9870503350032065,
@@ -150,5 +150,5 @@
  "sep.4.label": "pixels",
  "sep.4.silhouette": 0.11085712909698486,
  "sep.__list__": 5,
- "sil": 0.5594817399978638
+ "sil": 0.6652189493179321
 }

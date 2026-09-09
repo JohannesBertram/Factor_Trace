@@ -131,8 +131,15 @@ fpact = {}
 for key, bundle, name in [('cifar', 'nb03_fingerprints', 'CIFAR-10 CNN'),
                           ('imagenet', 'nb05_fingerprints', 'ImageNet')]:
     D = figdata.load(bundle)
-    Xf, lf, Xa, la, rep = fp_vs_act(D, D['fp']['id_targets'])
-    r = boot_silhouette_paired(Xf, lf, Xa, la)
+    try:
+        Xf, lf, Xa, la, rep = fp_vs_act(D, D['fp']['id_targets'])
+        r = boot_silhouette_paired(Xf, lf, Xa, la)
+    except (IndexError, ValueError) as e:
+        # a stale (pre-refactor) act baseline is not row-aligned with the
+        # fingerprint; the in-notebook §5 export fixes this on the next run
+        print(f'{name:12s} SKIPPED — fp/act rows misaligned in {bundle} '
+              f'(stale act baseline; rerun the notebook): {e}')
+        continue
     r['aligned'] = int(rep['aligned']); r['name'] = name
     r['fp_dim'] = int(Xf.shape[1]); r['act_dim'] = int(Xa.shape[1])
     fpact[key] = r
@@ -176,12 +183,25 @@ print('\n=== 4. lambda-weighted purity per layer ===')
 def layer_purity_ci(circ_bundle, fp_bundle, chance, n_boot=B, seed=RNG_SEED):
     """Per BFT layer: lambda-weighted class purity + bootstrap CI over stimuli.
     Reconstructs class_profile from per-stimulus img_factors + labels so the
-    resample is honest. Labels come from the aligned fingerprint bundle."""
+    resample is honest. Labels come from the circuit bundle's own full-length
+    ``stim_labels`` (exported since the single-tree refactor); older bundles
+    fall back to the fingerprint bundle's id_targets, which can be a subsample
+    of the circuit population."""
     Dc = figdata.load(circ_bundle); Df = figdata.load(fp_bundle)
-    labels_full = np.asarray(Df['fp']['id_targets'])
+    labels_full = (np.asarray(Dc['stim_labels']) if 'stim_labels' in Dc
+                   else np.asarray(Df['fp']['id_targets']))
     classes = np.unique(labels_full)
     # group nodes by layer_idx (output layer = max idx)
     nodes = Dc['nodes']
+    # Old bundles without stim_labels can carry stim_idx that the (possibly
+    # subsampled) fingerprint labels cannot index — refuse rather than crash;
+    # the rerun exports stim_labels and restores the CI.
+    max_idx = max((int(np.asarray(nd['stim_idx']).max()) for nd in nodes
+                   if 'stim_idx' in nd), default=-1)
+    if max_idx >= len(labels_full):
+        print(f'  {circ_bundle}: SKIPPED — stim_idx exceeds available labels '
+              f'({max_idx + 1} > {len(labels_full)}); re-export with stim_labels')
+        return None
     layer_ids = sorted({int(n['layer_idx']) for n in nodes}, reverse=True)  # output first
     out = []
     for li in layer_ids:
@@ -252,6 +272,8 @@ for key, cb, fb, chance, name in [
         ('cifar', 'nb03_circuits', 'nb03_fingerprints', 0.10, 'CIFAR'),
         ('imagenet', 'nb05_circuits', 'nb05_fingerprints', 0.125, 'ImageNet')]:
     r = layer_purity_ci(cb, fb, chance)
+    if r is None:
+        continue
     OUT.setdefault('purity', {})[key] = r
     print(f'-- {name} (chance {chance}) output-first:')
     for L in r['layers']:
