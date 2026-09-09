@@ -1,0 +1,22 @@
+{
+ "class_names": [
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7"
+ ],
+ "experiment": "imagenet_cnn_pruning",
+ "frac_stat": 0.2,
+ "n_classes": 8,
+ "n_obs": 8,
+ "n_seeds": 1,
+ "p_target_vs_bystander": 0.9453125,
+ "p_top_vs_bft_bottom_auc_t": 0.014324911775975535,
+ "p_top_vs_bft_bottom_auc_wilcoxon": 0.043114446783075355,
+ "p_top_vs_random_auc_t": 1.3854617885174484e-06,
+ "p_top_vs_random_auc_wilcoxon": 0.0078125
+}
