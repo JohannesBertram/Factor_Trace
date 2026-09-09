@@ -223,8 +223,12 @@ def project_stimuli_onto_tree(root_node, new_layer_inputs):
         new_input = new_layer_inputs[l_idx]
 
         raw_joint = _joint_for_node_weighted(node, new_input, stimulus_weights)
-        pos_joint = np.clip(raw_joint,  0, None)
-        neg_joint = np.clip(-raw_joint, 0, None)
+        if node.factorization == 'semi_nmf':
+            pos_joint = raw_joint          # signed basis, signed target
+            neg_joint = None
+        else:
+            pos_joint = np.clip(raw_joint,  0, None)
+            neg_joint = np.clip(-raw_joint, 0, None)
 
         node.img_factors = _nnls_project(node.connection_factors, pos_joint)
 

@@ -127,6 +127,12 @@ def extract_importance_scores(path_nodes, selectivity_weights=None, neg_selectiv
             else:
                 fi_neg = min(fi, neg_nf.shape[1] - 1)
                 flat = flat + neg_nf[:, fi_neg]
+                
+        # Semi-NMF connection factors are signed: a strongly inhibitory weight has
+        # a large negative value. Rank by magnitude so it isn't sorted into the
+        # least-important group. No-op for NMF, where flat >= 0 already.
+        if flat.min() < 0:
+            flat = np.abs(flat)
 
         if ltype == 'conv':
             C_out, C_in, kH, kW = W.shape

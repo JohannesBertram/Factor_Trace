@@ -296,6 +296,11 @@ def _seminmf_factorize(X, n_components, random_state=0, max_iter=500, tol=1e-4,
     if best_W is not None:
         W, H = best_W, best_H
 
+    # Gated-out stimuli have all-zero arbor rows. The semi-NMF W update keeps
+    # them nonzero (its numerator has a term independent of X), unlike NMF and
+    # unlike the NNLS projection, so enforce the zero explicitly (§2.4).
+    W[~np.any(X != 0, axis=1)] = 0
+    
     W, H, lambdas = normalize_factors(W, H)
     W, H, lambdas, _ = sort_by_lambda(W, H, lambdas)
     scale = np.sqrt(lambdas)
@@ -875,6 +880,7 @@ def _dict_to_bft_node(d: dict) -> BFTNode:
         neg_connection_factors=d.get('neg_connection_factors'),
         neg_lambdas=d.get('neg_lambdas'),
         weighting=d.get('weighting', 'img_selectivity'),
+        factorization=d.get('factorization', 'nmf'),
         stimulus_threshold=d.get('stimulus_threshold', 0.0),
         attn_weights=d.get('attn_weights'),
         recon_validation=d.get('recon_validation'),
@@ -1076,6 +1082,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             'neg_lambdas': neg_lams,
             'stimulus_weights_in': stimulus_weights.copy(),
             'weighting': weighting,
+            'factorization': factorization,
             'stimulus_threshold': stimulus_threshold,
             'path': path, 'children': [],
         }

@@ -52,6 +52,7 @@ class BFTNode:
     neg_connection_factors: Optional[np.ndarray] = None
     neg_lambdas: Optional[np.ndarray] = None
     weighting: str = 'img_selectivity'
+    factorization: str = 'nmf'
     stimulus_threshold: float = 0.0
     attn_weights: Optional[np.ndarray] = None
     recon_validation: Optional[dict] = None
