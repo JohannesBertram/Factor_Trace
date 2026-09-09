@@ -47,19 +47,25 @@ def main():
     for name in names:
         bundle, render, mode = FIGURES[name]
         if bundle not in have:
-            skipped.append((name, bundle))
+            skipped.append((name, f'bundle {bundle!r} not in figures/figdata/'))
             continue
         if bundle not in cache:
             cache[bundle] = figdata.load(bundle)
-        fig = render(cache[bundle])
+        try:
+            fig = render(cache[bundle])
+        except FileNotFoundError as e:
+            # cross-model figures load further bundles internally; a missing one
+            # (e.g. a model whose notebook section has not run yet) skips the
+            # figure instead of aborting the whole render pass
+            skipped.append((name, str(e)))
+            continue
         figstyle.save_fig(fig, name)
         matplotlib.pyplot.close(fig)
         done.append(name)
 
     print(f'\nrendered {len(done)}/{len(names)} figures')
-    for name, bundle in skipped:
-        print(f'  skipped {name}: bundle {bundle!r} not in figures/figdata/ — '
-              'run the notebook section that builds it')
+    for name, why in skipped:
+        print(f'  skipped {name}: {why} — run the notebook section that builds it')
 
 
 if __name__ == '__main__':

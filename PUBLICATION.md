@@ -33,8 +33,8 @@ Comparison rules for the paper (from the same experiment): the primary control i
 
 | open point (was in REGEN_STATUS) | necessary? | status / action |
 |---|---|---|
-| 1. fig2e even/odd pruning, 5 seeds | **yes** (main-figure panel) | you ran it — when the results JSON lands, `python scripts/build_pruning_bundle.py mlp_even_odd` (or it builds automatically if §8 ran in the refactored notebook) |
-| 2. figN ImageNet pruning | **no** — paper's limitations already scope ImageNet out of pruning; nothing else depends on it | running on cluster; if the per-layer-sparsity result is clean, add the panel + a sentence; if null, keep excluded (no silent drop — one honest sentence) |
+| 1. fig2e even/odd pruning, 5 seeds | **yes** (main-figure panel) | **still open (2026-09-09)**: the per-seed result files turned out to be five identical seed-0 copies (driver bug) — rerun the §8 seed grid with real per-seed checkpoints; see the cluster-run section below |
+| 2. figN ImageNet pruning | **no** — paper's limitations already scope ImageNet out of pruning; nothing else depends on it | **resolved (2026-09-09)**: the downsized nb05 §8 run came back null (p_tvb=0.945, 8 categories) — keep excluded with one honest sentence |
 | 3. paired CIFAR/ViT `act` baseline | **yes** (fig4 + paired stats) | **resolved by the refactor** — comes for free with the rerun below |
 | 4. CIFAR causal-recon panel (figP-a "n/a") | **no** — paper methods scope recon to the two MLPs | optional restore: trace CIFAR in primary mode with a pre-filtered 2000-image loader + `validate=True` |
 | 5. decide CIFAR/ViT fingerprint HPs | — | **superseded** by the single-tree decision |
@@ -56,6 +56,17 @@ The repo was cut down to the publishable core ahead of the cluster rerun; full p
 - Verified locally: nb01 end-to-end (all four bundle writes, caches hit, pruning floor rejects the smoke run), 12/12 registry figures render from mixed old/new bundles, `compute_checklist_stats.py` completes (stale-bundle sections skip cleanly until the rerun).
 - **docs/ website is frozen**: `docs/build_data.py` is compatible with the new bundle format but must NOT be run until the updated circuits are ready (user supplies them later).
 - After the rerun + figure verification: create the fresh squashed public history (orphan branch / new repo) — the old 981 MB `.git` contains a >100 MB blob and cannot push to GitHub.
+
+## Cluster run 2026-09-09 — verification, results, remaining gaps
+
+The rerun landed (`3b9f274 new res`); bundles verified 2026-09-09. Status per model:
+
+- **Complete (nb01, nb02, nb04, nb05)**: all bundles present and new-format (uint8 `images` pool, `stim_labels`, no per-node `top_images`); fingerprint bundles carry the aligned `act` baseline (`aligned=1`); validation JSONs in `logs/results/` are fresh (Sep 9). Sizes: nb01 1.2 / nb02 2.8 / nb04 8.8 / nb05 19.4 MB circuits — everything comfortably under GitHub limits, no LFS needed.
+- **nb03 (CIFAR) died after §3**: `nb03_circuits` arrived (15.5 MB, new format), but `nb03_fingerprints`, `nb09_cnn_cifar_validation`, and the §8 pruning bundle are missing, and `logs/results/nb09_cnn_cifar.json` is still the stale Sep 7 one. **Action: rerun nb03 §4–§9 on the cluster** (the §2 tree cache hits, so this is cheap). This blocks fig4, figP, figfp_ood, figfp_structure and the CIFAR entries of the checklist (silhouette expected ≈0.665 per the top-2 experiment).
+- **Pruning bundles**: ImageNet's downsized §8 ran and passed the floor — 8 category-observations, 4-point grid, **p_tvb=0.945: the honest null** — keep ImageNet excluded from the pruning claims with one sentence, as already planned. Digit MLP: 10 obs, p=0.002, but **1 seed × 10 classes** — the paper's stats text must say exactly that (or extend `_reps` with seed 1–4 checkpoints in a future pass). CIFAR: bundle restored from the pre-cleanup state (refactor-era 1 seed × 10 classes, p=0.002; valid — pruning runs on the circuit tree, which the single-tree fingerprint change does not touch).
+- **Even/odd 5-seed pruning is NOT recovered**: the five per-seed result files (`data/results/nb13_pruning_mlp_even_odd{0..4}.json`) are **byte-identical copies of the seed-0 run** — the driver never switched checkpoints, so no 5-seed data exists. The pre-cleanup 10-observation bundle was restored so fig2e renders, but it is old-schema and its seed provenance cannot be verified from the bundle. **Action: rerun the even/odd §8 seed grid with `_reps` actually loading the seed-0–4 checkpoints, and check the resulting `obs_seed` really spans five seeds.**
+- **Fresh headline numbers** (checklist, native-dim silhouettes): even/odd parity 0.925 / digit-structure **0.383** (as predicted); digit MLP **0.665** (up from 0.554, beats dim-matched act 0.221 by +0.444); **ImageNet 0.432** [0.410, 0.467] — the feared drop to ~0.30 did not materialize (old two-tree was 0.476; fp beats matched act 0.206 with P(fp>act)=1.000); ViT 0.208 parity / 0.137 digit (still the feasibility case). Weight-term control: 4/4 available models arbor-NMF > activation-NMF. CIFAR purity CI now computes with real error bars from `stim_labels` (output-layer 0.507, the §1.3 bug fix working); NMF stability min 0.816 (one layer below the 0.85 gate — same as before, mention in text).
+- **Figures**: 8/12 regenerated from the new bundles (fig2, figA, figB, fig6, figE, fig8, figN, figG); fig4/figP/figfp_ood/figfp_structure wait on nb03. Small code changes in this pass: fig6 takes purity labels from the circuit bundle's own `stim_labels` (no more `nb03_fingerprints` dependency), `render_figures.py` and `compute_checklist_stats.py` skip missing bundles gracefully instead of aborting.
 
 ## Run plan
 

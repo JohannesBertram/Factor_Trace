@@ -1742,7 +1742,10 @@ def fig6_cnn_circuits(D):
                      alpha=0.28, edgecolor='none', zorder=2)
     # 95% stimulus-bootstrap CI on the lambda-weighted purity (Appendix stats)
     from src import figdata as _fd
-    _lab = np.asarray(_fd.load('nb03_fingerprints')['fp']['id_targets'])
+    # circuit bundles carry their own full-length labels since the single-tree
+    # refactor; the fingerprint bundle is only a fallback for old-format data
+    _lab = (np.asarray(D['stim_labels']) if 'stim_labels' in D
+            else np.asarray(_fd.load('nb03_fingerprints')['fp']['id_targets']))
     _ci = purity_ci_by_layer(D, _lab)
     _yerr = np.array([[max(p - lo, 0), max(hi - p, 0)] for p, lo, hi in _ci]).T
     ax_d.errorbar(x, pur, yerr=_yerr, fmt='none', ecolor='0.25', elinewidth=0.7,

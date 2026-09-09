@@ -100,6 +100,17 @@ def boot_silhouette_paired(Xf, yf, Xa, ya, n_boot=B, seed=RNG_SEED):
                 frac_fp_gt_act=float(np.mean(diff_v > 0)))
 
 
+def load_soft(name):
+    """figdata.load that reports a missing bundle and returns None (so a model
+    whose notebook section has not run yet skips its entries instead of
+    aborting the whole stats pass)."""
+    try:
+        return figdata.load(name)
+    except FileNotFoundError:
+        print(f'  [missing] {name} — skipped (run its notebook section)')
+        return None
+
+
 # ══ 1. Native-dim fingerprint silhouettes (figfp_structure a-e; Fig 4) ═════════
 print('=== 1. native-dim fingerprint silhouettes ===')
 FP = {}
@@ -108,7 +119,10 @@ sil_res = {}
 # parity models: parity (id_targets) + digit (id_digits)
 for key, bundle, name in [('mlp_even_odd', 'nb01_fingerprints', '8x4 MLP'),
                           ('vit', 'nb04_fingerprints', 'TinyViT')]:
-    D = figdata.load(bundle); fp = D['fp']
+    D = load_soft(bundle)
+    if D is None:
+        continue
+    fp = D['fp']
     r_par = boot_silhouette(fp['id'], fp['id_targets'])
     r_dig = boot_silhouette(fp['id'], fp['id_digits'])
     sil_res[key] = dict(name=name, parity=r_par, digit=r_dig)
@@ -119,7 +133,10 @@ for key, bundle, name in [('mlp_even_odd', 'nb01_fingerprints', '8x4 MLP'),
 for key, bundle, name in [('mlp_digit', 'nb02_fingerprints', 'digit MLP'),
                           ('cifar', 'nb03_fingerprints', 'CIFAR-10 CNN'),
                           ('imagenet', 'nb05_fingerprints', 'ImageNet')]:
-    D = figdata.load(bundle); fp = D['fp']
+    D = load_soft(bundle)
+    if D is None:
+        continue
+    fp = D['fp']
     r = boot_silhouette(fp['id'], fp['id_targets'])
     sil_res[key] = dict(name=name, cls=r)
     print(f'{name:12s} class {r["point"]:.3f} [{r["lo"]:.3f},{r["hi"]:.3f}]')
@@ -130,7 +147,9 @@ print('\n=== 2. fp vs act native-dim (paired) ===')
 fpact = {}
 for key, bundle, name in [('cifar', 'nb03_fingerprints', 'CIFAR-10 CNN'),
                           ('imagenet', 'nb05_fingerprints', 'ImageNet')]:
-    D = figdata.load(bundle)
+    D = load_soft(bundle)
+    if D is None:
+        continue
     try:
         Xf, lf, Xa, la, rep = fp_vs_act(D, D['fp']['id_targets'])
         r = boot_silhouette_paired(Xf, lf, Xa, la)
@@ -171,11 +190,12 @@ def boot_within_between(X, y, n_boot=B, seed=RNG_SEED):
         lo, hi = np.percentile(v, [2.5, 97.5]); return dict(point=float(p), lo=float(lo), hi=float(hi))
     return dict(within=ci(wv, w0), between=ci(bv, b0))
 
-Dc = figdata.load('nb03_fingerprints')
-r = boot_within_between(Dc['fp']['id'], Dc['fp']['id_targets'])
-OUT['within_between_cosine_cifar'] = r
-print(f'CIFAR within {r["within"]["point"]:.3f} [{r["within"]["lo"]:.3f},{r["within"]["hi"]:.3f}]'
-      f'  between {r["between"]["point"]:.3f} [{r["between"]["lo"]:.3f},{r["between"]["hi"]:.3f}]')
+Dc = load_soft('nb03_fingerprints')
+if Dc is not None:
+    r = boot_within_between(Dc['fp']['id'], Dc['fp']['id_targets'])
+    OUT['within_between_cosine_cifar'] = r
+    print(f'CIFAR within {r["within"]["point"]:.3f} [{r["within"]["lo"]:.3f},{r["within"]["hi"]:.3f}]'
+          f'  between {r["between"]["point"]:.3f} [{r["between"]["lo"]:.3f},{r["between"]["hi"]:.3f}]')
 
 # ══ 4. class/category purity per layer + output-layer vs chance ════════════════
 print('\n=== 4. lambda-weighted purity per layer ===')
@@ -187,9 +207,9 @@ def layer_purity_ci(circ_bundle, fp_bundle, chance, n_boot=B, seed=RNG_SEED):
     ``stim_labels`` (exported since the single-tree refactor); older bundles
     fall back to the fingerprint bundle's id_targets, which can be a subsample
     of the circuit population."""
-    Dc = figdata.load(circ_bundle); Df = figdata.load(fp_bundle)
+    Dc = figdata.load(circ_bundle)
     labels_full = (np.asarray(Dc['stim_labels']) if 'stim_labels' in Dc
-                   else np.asarray(Df['fp']['id_targets']))
+                   else np.asarray(figdata.load(fp_bundle)['fp']['id_targets']))
     classes = np.unique(labels_full)
     # group nodes by layer_idx (output layer = max idx)
     nodes = Dc['nodes']
@@ -310,7 +330,9 @@ def paired_test(pairs, names, tag):
 
 fpd, wtc, names = [], [], []
 for name, b in VAL:
-    D = figdata.load(b)
+    D = load_soft(b)
+    if D is None:
+        continue
     sep = D['separability']['by_fine']
     a1 = D['A1_weight_vs_activation']['fingerprint_separability']
     fpd.append((float(sep['bft_fingerprint']['silhouette']),
@@ -350,7 +372,9 @@ print(f'digit MLP support cos {ov2:.3f}  null {null2.mean():.3f}±{null2.std():.
 print('\n=== 7. stability / k-sensitivity / refit spreads ===')
 stab_all = []; stab_rows = {}; ksens = {}
 for name, b in VAL:
-    D = figdata.load(b)
+    D = load_soft(b)
+    if D is None:
+        continue
     pl = D['stability']['per_layer']
     means = [pl[k]['mean'] for k in sorted(pl, key=int)]
     stab_all.extend(means)
@@ -367,13 +391,13 @@ OUT['stability'] = dict(per_model=stab_rows, k_sensitivity=ksens,
     gate=0.85, frac_above_gate=float((stab_all >= 0.85).mean()))
 print(f'stability across {len(stab_all)} layers: {stab_all.mean():.3f}±{stab_all.std():.3f} '
       f'(min {stab_all.min():.3f}); all >= 0.85 gate: {(stab_all>=0.85).all()}')
-kk = np.array([[ksens[n]['k_minus1'], ksens[n]['k_star'], ksens[n]['k_plus1']] for n in names])
+kk = np.array([[ksens[n]['k_minus1'], ksens[n]['k_star'], ksens[n]['k_plus1']] for n in ksens])
 print(f'k-sensitivity (mean over models): K*-1={kk[:,0].mean():.3f} K*=1.000 '
       f'K*+1={kk[:,2].mean():.3f}  min(K*-1)={kk[:,0].min():.3f} min(K*+1)={kk[:,2].min():.3f}')
 
 # refit spread (CIFAR root, the causal recon number 0.937)
-Dc = figdata.load('nb09_cnn_cifar_validation')
-for k, v in Dc['recon_controls'].items():
+Dc = load_soft('nb09_cnn_cifar_validation')
+for k, v in (Dc['recon_controls'].items() if Dc is not None else []):
     if isinstance(v, dict) and '_refit_spread' in v:
         rs = v['_refit_spread']
         runs = [round(float(x), 3) for x in rs['preact_r2_runs']]
@@ -386,4 +410,4 @@ for k, v in Dc['recon_controls'].items():
 _OUT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs', 'stats_checklist.json')
 with open(_OUT_PATH, 'w') as f:
     json.dump(OUT, f, indent=1)
-print('\nwrote logs/stats_checklist.json (complete)')
+print('\nwrote logs/stats_checklist.json')
