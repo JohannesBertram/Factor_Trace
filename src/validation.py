@@ -37,7 +37,11 @@ def _recon_from_tree(tree):
     summ = summarize_validation(tree.nodes())
     if summ is None:
         return None
-    per_node = [{'layer_idx': int(d['layer_idx']), 'preact_r2': float(d['preact_r2'])}
+    # preact_r2: true-scale R^2 (de-normalized by 1/pi); preact_r2_weighted: R^2 on the scale the
+    # factors were fitted on (see recon_validation). None when the tree predates the weighted key.
+    per_node = [{'layer_idx': int(d['layer_idx']), 'preact_r2': float(d['preact_r2']),
+                 'preact_r2_weighted': (float(d['preact_r2_weighted'])
+                                        if d.get('preact_r2_weighted') is not None else None)}
                 for d in summ['individual'] if d.get('preact_r2') is not None]
     return {'per_node': per_node, 'overall': summ['overall'],
             'per_layer': {str(k): v for k, v in summ['per_layer'].items()}}
@@ -61,7 +65,8 @@ def _recon_controls_root(tree, layer_inputs, n_seeds=3, max_iter=300, seed=0):
     K = int(root.img_factors.shape[1])
     Xpos = node_pos_arbor(root, act)
     node_id = f'L{li}:{root.layer_name}:root'.replace('.', '_')
-    ctrl = {'exact': {'preact_r2': 1.0}}
+    # The root's trace weights are uniform, so the weighted and true-scale R^2 coincide here.
+    ctrl = {'exact': {'preact_r2': 1.0, 'preact_r2_weighted': 1.0}}
     # random-rank floor: NMF at K from random inits, reconstruct, median preact-R²
     r2s = []
     rng = np.random.default_rng(seed)
@@ -72,7 +77,8 @@ def _recon_controls_root(tree, layer_inputs, n_seeds=3, max_iter=300, seed=0):
         # de-normalize: root arbor is unnormalized (pi=1), so Xhat is already z-scale
         ss_res = float(((z_true - Xhat) ** 2).sum())
         r2s.append(1.0 - ss_res / ss_tot)
-    ctrl['random_R'] = {'preact_r2': float(np.median(r2s))}
+    ctrl['random_R'] = {'preact_r2': float(np.median(r2s)),
+                        'preact_r2_weighted': float(np.median(r2s))}
     return {node_id: ctrl}
 
 

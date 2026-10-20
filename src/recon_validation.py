@@ -205,7 +205,8 @@ def validate_node_reconstruction(model, images, targets, node, device,
 
     Returns
     -------
-    dict with keys loss_ratio_all, real_ce, recon_ce, n_eval
+    dict with keys loss_ratio_all, loss_ratio_floored, abs_ce_gap, preact_r2,
+    preact_r2_weighted, real_ce, recon_ce, n_eval
     """
     if model is None or node.get('layer_type') != 'fc':
         return None
@@ -271,11 +272,31 @@ def validate_node_reconstruction(model, images, targets, node, device,
     ss_res = float(np.sum((zt - zr) ** 2))
     preact_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
 
+    # Weighted pre-activation R^2: the same comparison on the scale the factors were fitted on,
+    # i.e. both the true and the reconstructed pre-activation multiplied by sw_s / ||a_s|| (and by
+    # the connection weight cw_i when one is used). The
+    # de-normalization above divides each stimulus's reconstruction by its trace weight, which
+    # magnifies the errors of weakly routed stimuli (small sw_s) and lets them dominate
+    # preact_r2; here each stimulus counts in proportion to its weight. Equal to preact_r2 when
+    # the trace weights are uniform (root).
+    if uniform:
+        preact_r2_weighted = preact_r2
+    else:
+        scale = (sw[eval_idx] / (np.linalg.norm(act_input[eval_idx], axis=1) + 1e-8))[:, None]
+        if cw is not None:                                  # the fitted space also carries cw[i]
+            scale = scale * np.asarray(cw, dtype=float)[None, :]
+        ztw = (z_true[eval_idx] * scale).ravel()
+        zrw = (z_recon[eval_idx] * scale).ravel()
+        ss_tot_w = float(np.sum((ztw - ztw.mean()) ** 2))
+        ss_res_w = float(np.sum((ztw - zrw) ** 2))
+        preact_r2_weighted = 1.0 - ss_res_w / ss_tot_w if ss_tot_w > 0 else float('nan')
+
     return {
         'loss_ratio_all': loss_ratio_all,
         'loss_ratio_floored': loss_ratio_floored,
         'abs_ce_gap': abs_ce_gap,
         'preact_r2': preact_r2,
+        'preact_r2_weighted': preact_r2_weighted,
         'real_ce': real_all,
         'recon_ce': recon_all,
         'n_eval': int(len(eval_idx)),
@@ -307,7 +328,8 @@ def summarize_validation(nodes):
     """
     # Headline metrics: prefer the floored ratio, absolute CE gap, and pre-activation
     # R^2 over the raw (blow-up-prone) loss_ratio_all.
-    METRICS = ('loss_ratio_floored', 'abs_ce_gap', 'preact_r2', 'loss_ratio_all')
+    METRICS = ('loss_ratio_floored', 'abs_ce_gap', 'preact_r2', 'preact_r2_weighted',
+               'loss_ratio_all')
 
     individual = []
     for nd in nodes:
