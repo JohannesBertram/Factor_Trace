@@ -104,7 +104,9 @@ def reconstruct_preactivation(W, act_input, img_f, con_f, neg_img_f, neg_con_f,
     # Samples zeroed by the stimulus threshold carry no arbor signal.
     if stimulus_threshold > 0.0 and not uniform:
         cutoff = np.quantile(stimulus_weights, stimulus_threshold)
-        active_mask = stimulus_weights > cutoff
+        # Matches the gate in bft.compute_joint_arbors_normalized (rows with weight < cutoff are
+        # zeroed). Ties at the cutoff are kept; zero-weight rows carry no arbor signal.
+        active_mask = (stimulus_weights >= cutoff) & (stimulus_weights > 0)
     else:
         active_mask = np.ones(N, dtype=bool)
 
