@@ -334,7 +334,9 @@ def compute_joint_arbors_normalized(W, act_input, stimulus_weights=None, eps=1e-
     # Zero out lowest-weight stimuli to avoid diluting factor structure.
     if stimulus_threshold > 0.0 and (stimulus_weights is not None) and not np.allclose(stimulus_weights, 1.0):
         cutoff = np.quantile(stimulus_weights, stimulus_threshold)
-        joint[stimulus_weights <= cutoff] = 0.0
+        # Strict '<': with '<=', a tie at the cutoff (e.g. more than a fraction 1 - threshold of
+        # stimuli at the maximum weight 1.0) zeroes the stimuli the threshold is meant to keep.
+        joint[stimulus_weights < cutoff] = 0.0
 
     return joint
 
@@ -409,7 +411,9 @@ def compute_conv_joint_arbors(weight, input_fmap, stimulus_weights=None, eps=1e-
 
     if stimulus_threshold > 0.0 and (stimulus_weights is not None) and not np.allclose(stimulus_weights, 1.0):
         cutoff = np.quantile(stimulus_weights, stimulus_threshold)
-        joint[stimulus_weights <= cutoff] = 0.0
+        # Strict '<': with '<=', a tie at the cutoff (e.g. more than a fraction 1 - threshold of
+        # stimuli at the maximum weight 1.0) zeroes the stimuli the threshold is meant to keep.
+        joint[stimulus_weights < cutoff] = 0.0
 
     return joint
 
