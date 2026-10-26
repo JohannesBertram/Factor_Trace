@@ -748,7 +748,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
         random_state=0, max_iter=500, init=None, l1_ratio=0, k_fixed=None,
         conv_pool_method='avg', recon_threshold=None,
         factorization='nmf', factorization_params=None, normalization='none',
-        validate=False, validate_top_m=100, validate_device=None,
+        validate=False, validate_top_m=None, validate_sw_floor=0.5, validate_device=None,
         verbose=0, **factorizer_kwargs):
     """Backward Factor Trace (BFT).
 
@@ -807,8 +807,12 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
                           layer's real output; the rest of the model runs normally and
                           the cross-entropy loss ratio (recon / real) is recorded on the
                           node. Only available in primary mode (bft(model, loader)).
-    validate_top_m      : int — number of top images (by incoming trace weight) used
-                          to evaluate fidelity at non-root layers; ignored at the root
+    validate_top_m      : int or None — optional cap on the number of images evaluated at
+                          non-root layers (largest incoming trace weights among those at or
+                          above validate_sw_floor); None (default) = no cap; ignored at the root
+    validate_sw_floor   : float — minimum incoming trace weight for an image to be evaluated
+                          at non-root layers (default 0.5: images for which the node carries
+                          the larger share of their trace); ignored at the root
     validate_device     : torch device for validation forward passes (default: model's)
     verbose             : 0 (silent), 1 (per-layer summary), 2 (detailed timing)
 
@@ -949,6 +953,7 @@ def bft(model, data=None, *, k_max=5, n_branches=2, only_correct=True,
             rv = validate_node_reconstruction(
                 val_model, images_meta, targets_meta, node, val_device,
                 top_m=validate_top_m, real_ce_cache=_real_ce_cache,
+                sw_floor=validate_sw_floor,
             )
             node['recon_validation'] = rv
             # Drop the large activation reference so it is not retained on the node.
