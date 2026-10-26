@@ -2422,6 +2422,25 @@ def _val_na(ax, msg):
             fontsize=6, color='0.5', style='italic', linespacing=1.35)
 
 
+# Which causal-reconstruction R² the validation figures report: the weighted R² (on the scale the
+# factors were fitted on; recon_validation.preact_r2_weighted) or the true-scale one ('preact_r2').
+CAUSAL_R2_KEY = 'preact_r2_weighted'
+_warned_r2_fallback = set()
+
+
+def _causal_r2(d, where=''):
+    """d[CAUSAL_R2_KEY], falling back to the true-scale 'preact_r2' (with a one-time warning per
+    source) for bundles computed before the weighted R² existed."""
+    v = d.get(CAUSAL_R2_KEY)
+    if v is None:
+        if where not in _warned_r2_fallback:
+            _warned_r2_fallback.add(where)
+            print(f'[paper_figures] {where}: no {CAUSAL_R2_KEY!r}; falling back to '
+                  f"'preact_r2' — recompute the validation bundle")
+        v = d['preact_r2']
+    return float(v)
+
+
 def _val_causal_nodes(D):
     """(layer index, pre-activation R²) for every causally reconstructed node.
 
@@ -2432,12 +2451,12 @@ def _val_causal_nodes(D):
     if isinstance(D.get('recon'), dict):
         nodes = D['recon']['per_node']
         return (np.array([int(n['layer_idx']) for n in nodes]),
-                np.array([float(n['preact_r2']) for n in nodes]), 'S2')
+                np.array([_causal_r2(n, D.get('experiment', 'S2')) for n in nodes]), 'S2')
     fu2 = D.get('FU2_recon_fc')
     if isinstance(fu2, dict) and fu2:
         items = sorted(fu2.items())
         return (np.array([int(re.match(r'L(\d+)', k).group(1)) for k, _ in items]),
-                np.array([float(v['preact_r2']) for _, v in items]), 'FU2')
+                np.array([_causal_r2(v, D.get('experiment', 'FU2')) for _, v in items]), 'FU2')
     return None, None, None
 
 
@@ -2900,7 +2919,7 @@ def _faith_row(name, D):
     rc = D.get('recon_controls', {})     # empty for models with no fc-root controls
 
     def cv(key):
-        vs = ([float(n[key]['preact_r2']) for n in rc.values() if key in n]
+        vs = ([_causal_r2(n[key], f"{name} controls") for n in rc.values() if key in n]
               if isinstance(rc, dict) else [])
         return float(np.mean(vs)) if vs else None
 

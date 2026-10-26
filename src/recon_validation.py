@@ -104,7 +104,9 @@ def reconstruct_preactivation(W, act_input, img_f, con_f, neg_img_f, neg_con_f,
     # Samples zeroed by the stimulus threshold carry no arbor signal.
     if stimulus_threshold > 0.0 and not uniform:
         cutoff = np.quantile(stimulus_weights, stimulus_threshold)
-        active_mask = stimulus_weights > cutoff
+        # Matches the gate in bft.compute_joint_arbors_normalized (rows with weight < cutoff are
+        # zeroed). Ties at the cutoff are kept; zero-weight rows carry no arbor signal.
+        active_mask = (stimulus_weights >= cutoff) & (stimulus_weights > 0)
     else:
         active_mask = np.ones(N, dtype=bool)
 
@@ -177,7 +179,7 @@ def _forward_ce(model, images, targets, device, hook_module=None, z_recon=None,
 # ── node-level validation ──────────────────────────────────────────────────────
 
 def validate_node_reconstruction(model, images, targets, node, device,
-                                 top_m=100, real_ce_cache=None):
+                                 top_m=None, real_ce_cache=None, sw_floor=0.5):
     """Causal reconstruction validation for one BFT node.
 
     Returns None when validation is not applicable (non-fc layer, no model, or the
@@ -186,8 +188,10 @@ def validate_node_reconstruction(model, images, targets, node, device,
     The full reconstruction (all factors) is evaluated on the images that the
     currently traced path routes into this node: at the root / last layer the
     incoming trace weights are uniform, so all active samples are used; at every
-    deeper layer only the ``top_m`` images with the largest incoming trace weight
-    (``stimulus_weights_in``) are used.
+    deeper layer only the images with incoming trace weight (``stimulus_weights_in``)
+    of at least ``sw_floor`` are used, i.e. with the default 0.5 the images for which
+    this node carries the larger share of their trace. The floor also bounds by
+    1/sw_floor the amplification of fitted-space errors by the de-normalization.
 
     Parameters
     ----------
@@ -196,14 +200,17 @@ def validate_node_reconstruction(model, images, targets, node, device,
     targets  : (N,) labels, in BFT sample order
     node     : internal node dict from ``_trace_node``
     device   : torch device
-    top_m    : number of top images (by incoming trace weight) used to evaluate
-               fidelity at non-root layers; ignored at the root (all images used)
+    top_m    : optional cap on the number of evaluated images at non-root layers
+               (the highest incoming weights among those above the floor); None = no cap
     real_ce_cache : dict mapping a frozenset of row indices -> real CE, reused
                     across nodes to avoid recomputing the real forward pass
+    sw_floor : minimum incoming trace weight for an image to be evaluated at
+               non-root layers (default 0.5)
 
     Returns
     -------
-    dict with keys loss_ratio_all, real_ce, recon_ce, n_eval
+    dict with keys loss_ratio_all, loss_ratio_floored, abs_ce_gap, preact_r2,
+    preact_r2_weighted, real_ce, recon_ce, n_eval
     """
     if model is None or node.get('layer_type') != 'fc':
         return None
@@ -239,7 +246,8 @@ def validate_node_reconstruction(model, images, targets, node, device,
 
     # Select the images the current path routes into this node. At the root the
     # incoming trace weights are uniform, so all active samples are used; deeper in
-    # the tree only the top-M images by incoming weight (stimulus_weights_in) count.
+    # the tree only images with incoming weight >= sw_floor count (optionally capped
+    # at the top_m largest weights).
     active_idx = np.where(active_mask)[0]
     if len(active_idx) == 0:
         return None
@@ -248,8 +256,8 @@ def validate_node_reconstruction(model, images, targets, node, device,
         eval_idx = active_idx
     else:
         order = np.argsort(sw)[::-1]
-        order = order[active_mask[order]]                  # keep only active samples
-        eval_idx = order[:top_m]
+        order = order[active_mask[order] & (sw[order] >= sw_floor)]
+        eval_idx = order if top_m is None else order[:top_m]
     if len(eval_idx) == 0:
         return None
 
@@ -269,14 +277,35 @@ def validate_node_reconstruction(model, images, targets, node, device,
     ss_res = float(np.sum((zt - zr) ** 2))
     preact_r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else float('nan')
 
+    # Weighted pre-activation R^2: the same comparison on the scale the factors were fitted on,
+    # i.e. both the true and the reconstructed pre-activation multiplied by sw_s / ||a_s|| (and by
+    # the connection weight cw_i when one is used). The
+    # de-normalization above divides each stimulus's reconstruction by its trace weight, which
+    # magnifies the errors of weakly routed stimuli (small sw_s) and lets them dominate
+    # preact_r2; here each stimulus counts in proportion to its weight. Equal to preact_r2 when
+    # the trace weights are uniform (root).
+    if uniform:
+        preact_r2_weighted = preact_r2
+    else:
+        scale = (sw[eval_idx] / (np.linalg.norm(act_input[eval_idx], axis=1) + 1e-8))[:, None]
+        if cw is not None:                                  # the fitted space also carries cw[i]
+            scale = scale * np.asarray(cw, dtype=float)[None, :]
+        ztw = (z_true[eval_idx] * scale).ravel()
+        zrw = (z_recon[eval_idx] * scale).ravel()
+        ss_tot_w = float(np.sum((ztw - ztw.mean()) ** 2))
+        ss_res_w = float(np.sum((ztw - zrw) ** 2))
+        preact_r2_weighted = 1.0 - ss_res_w / ss_tot_w if ss_tot_w > 0 else float('nan')
+
     return {
         'loss_ratio_all': loss_ratio_all,
         'loss_ratio_floored': loss_ratio_floored,
         'abs_ce_gap': abs_ce_gap,
         'preact_r2': preact_r2,
+        'preact_r2_weighted': preact_r2_weighted,
         'real_ce': real_all,
         'recon_ce': recon_all,
         'n_eval': int(len(eval_idx)),
+        'sw_floor': None if uniform else float(sw_floor),
     }
 
 
@@ -305,7 +334,8 @@ def summarize_validation(nodes):
     """
     # Headline metrics: prefer the floored ratio, absolute CE gap, and pre-activation
     # R^2 over the raw (blow-up-prone) loss_ratio_all.
-    METRICS = ('loss_ratio_floored', 'abs_ce_gap', 'preact_r2', 'loss_ratio_all')
+    METRICS = ('loss_ratio_floored', 'abs_ce_gap', 'preact_r2', 'preact_r2_weighted',
+               'loss_ratio_all')
 
     individual = []
     for nd in nodes:
@@ -315,6 +345,7 @@ def summarize_validation(nodes):
         rec = {'layer_idx': nd.layer_idx, 'layer_name': nd.layer_name, 'path': nd.path}
         for m in METRICS:
             rec[m] = rv.get(m)
+        rec['n_eval'] = rv.get('n_eval')                     # size of the evaluation set
         individual.append(rec)
     if not individual:
         return None
