@@ -179,7 +179,7 @@ def _forward_ce(model, images, targets, device, hook_module=None, z_recon=None,
 # ── node-level validation ──────────────────────────────────────────────────────
 
 def validate_node_reconstruction(model, images, targets, node, device,
-                                 top_m=100, real_ce_cache=None):
+                                 top_m=None, real_ce_cache=None, sw_floor=0.5):
     """Causal reconstruction validation for one BFT node.
 
     Returns None when validation is not applicable (non-fc layer, no model, or the
@@ -188,8 +188,10 @@ def validate_node_reconstruction(model, images, targets, node, device,
     The full reconstruction (all factors) is evaluated on the images that the
     currently traced path routes into this node: at the root / last layer the
     incoming trace weights are uniform, so all active samples are used; at every
-    deeper layer only the ``top_m`` images with the largest incoming trace weight
-    (``stimulus_weights_in``) are used.
+    deeper layer only the images with incoming trace weight (``stimulus_weights_in``)
+    of at least ``sw_floor`` are used, i.e. with the default 0.5 the images for which
+    this node carries the larger share of their trace. The floor also bounds by
+    1/sw_floor the amplification of fitted-space errors by the de-normalization.
 
     Parameters
     ----------
@@ -198,10 +200,12 @@ def validate_node_reconstruction(model, images, targets, node, device,
     targets  : (N,) labels, in BFT sample order
     node     : internal node dict from ``_trace_node``
     device   : torch device
-    top_m    : number of top images (by incoming trace weight) used to evaluate
-               fidelity at non-root layers; ignored at the root (all images used)
+    top_m    : optional cap on the number of evaluated images at non-root layers
+               (the highest incoming weights among those above the floor); None = no cap
     real_ce_cache : dict mapping a frozenset of row indices -> real CE, reused
                     across nodes to avoid recomputing the real forward pass
+    sw_floor : minimum incoming trace weight for an image to be evaluated at
+               non-root layers (default 0.5)
 
     Returns
     -------
@@ -242,7 +246,8 @@ def validate_node_reconstruction(model, images, targets, node, device,
 
     # Select the images the current path routes into this node. At the root the
     # incoming trace weights are uniform, so all active samples are used; deeper in
-    # the tree only the top-M images by incoming weight (stimulus_weights_in) count.
+    # the tree only images with incoming weight >= sw_floor count (optionally capped
+    # at the top_m largest weights).
     active_idx = np.where(active_mask)[0]
     if len(active_idx) == 0:
         return None
@@ -251,8 +256,8 @@ def validate_node_reconstruction(model, images, targets, node, device,
         eval_idx = active_idx
     else:
         order = np.argsort(sw)[::-1]
-        order = order[active_mask[order]]                  # keep only active samples
-        eval_idx = order[:top_m]
+        order = order[active_mask[order] & (sw[order] >= sw_floor)]
+        eval_idx = order if top_m is None else order[:top_m]
     if len(eval_idx) == 0:
         return None
 
@@ -300,6 +305,7 @@ def validate_node_reconstruction(model, images, targets, node, device,
         'real_ce': real_all,
         'recon_ce': recon_all,
         'n_eval': int(len(eval_idx)),
+        'sw_floor': None if uniform else float(sw_floor),
     }
 
 
@@ -339,6 +345,7 @@ def summarize_validation(nodes):
         rec = {'layer_idx': nd.layer_idx, 'layer_name': nd.layer_name, 'path': nd.path}
         for m in METRICS:
             rec[m] = rv.get(m)
+        rec['n_eval'] = rv.get('n_eval')                     # size of the evaluation set
         individual.append(rec)
     if not individual:
         return None
