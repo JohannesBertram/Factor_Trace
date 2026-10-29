@@ -21,14 +21,13 @@ from src.paper_figures import (_VAL_MODELS, _OOD_MODELS, _cnn_fp_blocks, _faith_
                                lam_weighted, montage, nodes_by_path, ood_signature_one, pca2,
                                top_stims, unit)
 
-AR = 0.5
 SHORT = {'airplane': 'plane', 'automobile': 'car'}            # CIFAR names that fit a montage
 
 
 # ---------------------------------------------------------------- canvas and axes
 def canvas():
     """Slide with a full-bleed drawing canvas in inches (y down) behind the plot axes."""
-    fig = slide(AR)
+    fig = slide()
     plt.rcParams['savefig.bbox'] = 'standard'
     W, H = fig.get_size_inches()
     cv = fig.add_axes([0, 0, 1, 1], zorder=-1)
@@ -294,6 +293,148 @@ def slide_pruning():
     ax.legend(handles=hs, ncol=2, fontsize=6.5, frameon=False, loc='upper center',
               bbox_to_anchor=(-0.75, -0.34), columnspacing=1.5, handlelength=2.2)
     yield fig, 'pruning'
+
+
+# ---------------------------------------------------------------- rebuttal: links and sub-circuits
+def drop_matrix(ax, M, rnd, labels, vmax, values=False):
+    """Parent-factor drop per pruned child (rows) with the random-pruning row set apart below."""
+    n = len(M)
+    G = np.full((n + 2, n), np.nan)
+    G[:n], G[n + 1] = M, rnd
+    cmap = bft_cmap().with_extremes(bad=COLOR['bg'])
+    ax.imshow(np.clip(G, 0, None), cmap=cmap, vmin=0, vmax=vmax, aspect='auto',
+              interpolation='nearest')
+    if values:
+        for i, j in np.ndindex(G.shape):
+            if not np.isnan(G[i, j]):
+                v = max(G[i, j], 0)
+                txt(ax, j, i, f'{100 * v:.0f}', size=6.5,
+                    color=COLOR['bg'] if v > 0.55 * vmax else COLOR['fg'])
+    ax.set_xticks(range(n) if n <= 4 else [])
+    ax.set_xticklabels(labels if n <= 4 else [])
+    ax.set_yticks([*range(n), n + 1])
+    ax.set_yticklabels([*labels, 'random'])
+    ax.tick_params(length=0, labelsize=6.5)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    for y0, h in ((-0.5, n), (n + 0.5, 1)):                         # the black cells stay visible
+        ax.add_patch(Rectangle((-0.5, y0), n, h, fc='none', ec=COLOR['edge'], lw=0.6))
+
+
+def slide_layer_link():
+    """Pruning a child's top weights hits its own parent factor, not its siblings' parents."""
+    R = figdata.load('rebuttal')
+    L, C = R['link_mlp'], R['link_cnn']
+    fig, cv = canvas()
+    ax = ax_at(fig, 0.85, 0.42, 0.95, 1.05)
+    drop_matrix(ax, L['drop'], L['random'], L['labels'], 1.0, values=True)
+    ax.set_title(f'MLP even/odd, top {100 * L["frac"]:.0f}% of $W_1$', fontsize=7.5, pad=4)
+    style_plot(ax, ylabel='prune the child of', xlabel='drop of parent factor (%)')
+
+    names = [SHORT.get(c, c) for c in C['class_names']]
+    ax = ax_at(fig, 2.75, 0.42, 1.3, 1.3)
+    drop_matrix(ax, C['drop'], C['random'], [names[c] for c in C['top_class']], 0.75)
+    ax.set_title(f'CIFAR-10 CNN, top {100 * C["frac"]:.1f}% of conv4', fontsize=7.5, pad=4)
+    style_plot(ax, xlabel='drop of parent factor\n(same order)')
+    own = np.diag(C['drop'])
+    other = (C['drop'].sum(1) - own) / (len(own) - 1)
+    txt(cv, 2.45, 2.2, f'CNN: own parent {100 * own.mean():.0f}%, other parents '
+        f'{100 * other.mean():.0f}%, random {100 * C["random"].mean():.0f}%',
+        size=6.5, color=COLOR['muted'])
+    yield fig, 'layer_link'
+
+
+def digit_color(d):
+    """0 and 1 in the full class hue, 4 and 3 in a lighter shade of it (as in method.py)."""
+    c = np.array(mcolors.to_rgb(COLOR['even' if d in (0, 4) else 'odd']))
+    return tuple(c + (1 - c) * 0.45) if d in (4, 3) else tuple(c)
+
+
+def slide_subcircuit_mlp():
+    """Pruning the 0 sub-circuit of the even circuit removes 0s and spares 4s and the odd digits."""
+    R = figdata.load('rebuttal')['sub_mlp']
+    D = figdata.load('nb01_circuits')
+    even = next(c for c in D['circuits'] if c['name'] == 'even')
+    order = [int(d) for d in D['digit_order']]
+    prof = np.asarray(even['l1_profiles'], float)[:, [order.index(0), order.index(4)]]
+    share = prof / prof.sum(1, keepdims=True)
+    lam = np.asarray(even['l1_lam'], float)
+    fi = list(R['fractions']).index(0.05)
+    digits = [int(d) for d in R['digits']]
+    fig, cv = canvas()
+    ax = ax_at(fig, 1.25, 0.62, 2.6, 1.15)
+    groups = [('0_not_4', 'prune the\n0 sub-circuit', 0), ('4_not_0', 'prune the\n4 sub-circuit', 1)]
+    bw = 0.17
+    for g, (key, lab, col) in enumerate(groups + [('0_not_4', 'prune random\nweights', None)]):
+        v = R[key]['random' if col is None else 'factor_own'][fi]
+        for q, d in enumerate(digits):
+            ax.bar(g + (q - 1.5) * (bw + 0.02), max(100 * v[q], 0.4), bw, color=digit_color(d))
+            txt(ax, g + (q - 1.5) * (bw + 0.02), max(100 * v[q], 0.4) + 1.5, str(d), size=6.5,
+                color=COLOR['muted'], va='bottom')
+        if col is not None:                                        # the sub-circuit as a pixel arbor
+            k = int(np.argmax(np.where(share[:, col] >= 0.6, lam, -1)))
+            A = np.asarray(even['l1_arbors'][k])
+            image(fig, 1.25 + 2.6 * (g + 0.5) / 3 - 0.2, 0.08, 0.4,
+                  arbor_rgb(A, digit_color((0, 4)[col])))
+    ax.set_xticks(range(3))
+    ax.set_xticklabels([lab for _, lab, _ in groups] + ['prune random\nweights'], fontsize=7)
+    ax.tick_params(axis='x', length=0)
+    ax.set_xlim(-0.5, 2.5)
+    ax.set_ylim(0, 48)
+    ax.set_yticks([0, 20, 40])
+    style_plot(ax, ylabel='accuracy drop (pp)')
+    txt(cv, 2.55, 2.23, '5% of first-layer weights; odd side: 1 vs 3 is 61 vs 24 pp, 3 vs 1 not separable',
+        size=6.5, color=COLOR['muted'])
+    yield fig, 'subcircuit_mlp'
+
+
+def slide_subcircuit_cnn():
+    """Horse and ship circuits: pruning one orientation sub-factor hurts that orientation most.
+
+    Build 1: horse (conv4 f1 facing left, f2 facing right). Build 2: adds the ship (f1 vs f3).
+    """
+    R = figdata.load('rebuttal')['sub_cnn']
+    D = figdata.load('nb03_circuits')
+    by_path = {tuple(int(i) for i in n['path']): n for n in D['nodes']}
+    ours = COLOR['ours']
+    tone = [ours, mix(ours, 0.45, base='white')]                    # orientation a, orientation b
+    rows = [('horse', ['facing left', 'facing right']), ('ship', ['bow left', 'bow right'])]
+    s, rh = 0.42, 1.0
+    for step in (1, 2):
+        fig, cv = canvas()
+        for r, (name, ori) in enumerate(rows[:step]):
+            S = R[name]
+            fi = list(np.round(S['fractions'], 4)).index(0.02)
+            node = by_path[(int(S['node']),)]
+            y0 = 0.2 + r * rh
+            for q, k in enumerate((int(S['a']), int(S['b']))):
+                x = 0.5 + q * (s + 0.1)
+                image(fig, x, y0 + 0.08, s, montage(D, top_stims(D, node, k), 2, 2, bg=0.0),
+                      ec=tone[q], lw=1.4)
+                txt(cv, x + s / 2, y0 + 0.08 + s + 0.09, ori[q], size=6.5, color=tone[q])
+            txt(cv, 0.43, y0 + 0.08 + s / 2, name, size=7, ha='right')
+            ax = ax_at(fig, 1.95, y0, 1.75, 0.62)
+            bw = 0.25
+            for g, m in enumerate(('own', 'sibling', 'random')):
+                v = 100 * S[m][fi]
+                for q, c in enumerate([tone[0], tone[1], COLOR['random']]):
+                    ax.bar(g + (q - 1) * (bw + 0.02), max(v[q], 0.3), bw, color=c)
+            txt(ax, 2, 2, '≈ 0', size=6.5, color=COLOR['muted'], va='bottom')
+            ax.set_xticks(range(3))
+            ax.set_xticklabels([f'prune\n{ori[0]}', f'prune\n{ori[1]}', 'prune\nrandom'],
+                               fontsize=6.5, linespacing=1.0)
+            ax.tick_params(axis='x', length=0)
+            ax.set_xlim(-0.5, 2.5)
+            ax.set_ylim(0, 40)
+            ax.set_yticks([0, 20, 40])
+            style_plot(ax, ylabel='acc. drop (pp)')
+            hs = [Rectangle((0, 0), 1, 1, color=c, label=lab) for c, lab in
+                  zip([*tone, COLOR['random']], [*ori, 'other classes'])]
+            ax.legend(handles=hs, fontsize=6.5, frameon=False, loc='center left',
+                      bbox_to_anchor=(1.02, 0.5), handlelength=1, handleheight=0.8)
+        txt(cv, 2.35, 2.23, '2% of conv4 weights; test images, each group half mirrored',
+            size=6.5, color=COLOR['muted'])
+        yield fig, f'subcircuit_cnn_{step}'
 
 
 # ---------------------------------------------------------------- fingerprints
@@ -726,6 +867,112 @@ def slide_backup_ood_conditions():
     yield fig, 'backup_ood_conditions'
 
 
+def slide_backup_prune_baselines():
+    """Rebuttal: BFT's class pruning against magnitude, |W a|, Taylor and LRP rankings."""
+    B = figdata.load('rebuttal')['baselines']
+    meth = list(B['methods'])
+    bars = [('bft', None, COLOR['ours'], 'BFT'), ('magnitude', None, COLOR['magnitude'], '$|W|$'),
+            ('wxa', 'wxa_ctr', COLOR['baseline'], '$|W a|$'),
+            ('taylor', 'taylor_ctr', COLOR['taylor'], 'Taylor'),
+            ('lrp', 'lrp_ctr', COLOR['lrp'], 'LRP'), ('random', None, COLOR['random'], 'random')]
+    fig, cv = canvas()
+    ax = ax_at(fig, 0.9, 0.45, 3.0, 1.3)
+    bw = 0.13
+    for g, model in enumerate(('mlp_even_odd', 'mlp_digit', 'cnn_cifar')):
+        v = B[model]
+        for q, (m, ctr, c, _) in enumerate(bars):
+            x = g + (q - 2.5) * (bw + 0.01)
+            ax.bar(x, max(v[meth.index(m)], 0.006), bw, color=c)
+            if ctr:
+                ax.plot(x, v[meth.index(ctr)], marker='_', ms=7, mew=1.4, color=COLOR['fg'])
+    ax.set_xticks(range(3))
+    ax.set_xticklabels(['MLP even/odd', 'MLP digit', 'CIFAR-10 CNN'], fontsize=7)
+    ax.tick_params(axis='x', length=0)
+    ax.set_ylim(0, 1)
+    ax.set_yticks([0, 0.5, 1])
+    style_plot(ax, ylabel='class specificity\n(target $-$ other drop)')
+    hs = [Rectangle((0, 0), 1, 1, color=c, label=lab) for _, _, c, lab in bars]
+    hs.append(plt.Line2D([], [], color=COLOR['fg'], marker='_', ms=7, mew=1.4, ls='none',
+                         label='class-contrastive'))
+    ax.legend(handles=hs, fontsize=6.5, frameon=False, loc='lower center',
+              bbox_to_anchor=(0.5, 1.0), ncol=7, handlelength=1, handleheight=0.8,
+              columnspacing=0.9, handletextpad=0.4)
+    txt(cv, 2.4, 2.2, 'whole-network pruning, same stimuli and protocol; each baseline in its '
+        'better normalization', size=6.5, color=COLOR['muted'])
+    yield fig, 'backup_prune_baselines'
+
+
+def slide_backup_imagenet_heldout():
+    """Rebuttal: the frozen ImageNet tree on random held-out images, no confidence filter."""
+    I = figdata.load('rebuttal')['imagenet']
+    fig, cv = canvas()
+    ax = ax_at(fig, 1.0, 0.45, 2.9, 1.3)
+    labels = {'traced': 'traced', 'val_rest': 'misclassified', 'val_new': 'unseen\nclasses',
+              'train16': 'train set'}
+    x = np.arange(len(I['pools']))
+    for off, key, c, lab in [(-0.18, 'tree', COLOR['ours'], 'frozen BFT tree (root call)'),
+                             (0.18, 'network', COLOR['baseline'], "network's own prediction")]:
+        m, lo, hi = np.asarray(I[key], float).T
+        ax.bar(x + off, m, 0.34, color=c, label=lab,
+               yerr=[m - lo, hi - m], error_kw=dict(ecolor=COLOR['fg'], lw=0.7, capsize=1.5))
+    ax.axhline(I['chance'], color=COLOR['muted'], lw=0.7, ls=(0, (3, 2)))
+    txt(ax, 3.95, I['chance'] + 0.02, 'chance', size=6.5, color=COLOR['muted'], ha='right',
+        va='bottom')
+    ax.set_xticks(x)
+    ax.set_xticklabels([f'{labels[p]}\n(n = {n})' for p, n in zip(I['pools'], I['n'])],
+                       fontsize=6.5, linespacing=1.0)
+    ax.tick_params(axis='x', length=0)
+    ax.set_xlim(-0.5, 3.95)
+    ax.set_ylim(0, 1.05)
+    ax.set_yticks([0, 0.5, 1])
+    style_plot(ax, ylabel='super-category accuracy')
+    txt(cv, 2.45, 2.2, 'random val images unless noted, no confidence filter', size=6.5,
+        color=COLOR['muted'])
+    ax.legend(fontsize=6.5, frameon=False, loc='lower center', bbox_to_anchor=(0.5, 1.0), ncol=2,
+              handlelength=1, handleheight=0.8)
+    yield fig, 'backup_imagenet_heldout'
+
+
+def slide_backup_tau():
+    """Rebuttal: class pruning and fingerprint separability do not depend on the gate tau."""
+    T = figdata.load('rebuttal')['tau']
+    models = [('mlp_even_odd', 'MLP even/odd'), ('mlp_digit', 'MLP digit'),
+              ('cnn_cifar', 'CIFAR-10 CNN')]
+    ours = COLOR['ours']
+    fig, cv = canvas()
+    for i, (title, ylabel) in enumerate([('class pruning', 'accuracy drop'),
+                                         ('fingerprint', 'class silhouette')]):
+        ax = ax_at(fig, 0.75 + i * 2.05, 0.35, 1.3, 1.35)
+        for model, name in models:
+            R = T[model]
+            t = np.asarray(R['taus'])
+            ys = [(R['target'], '-')] + ([(R['bystander'], '--')] if i == 0 else []) \
+                if i == 0 else [(R['silhouette'], '-')]
+            for y, ls in ys:
+                ax.plot(t, y, ls, color=ours, lw=1.3, marker='o', ms=2.5)
+                p = list(t).index(R['paper_tau'])
+                ax.plot(t[p], y[p], 'o', ms=6, mfc='none', mec=COLOR['fg'], mew=0.9)
+            nudge = {'mlp_digit': -0.035, 'cnn_cifar': 0.035} if i == 1 else {}
+            txt(ax, 0.93, ys[0][0][-1] + nudge.get(model, 0), name, size=6.5, ha='left',
+                color=COLOR['muted'])
+        ax.set_xlim(-0.05, 0.92)
+        ax.set_xticks([0, 0.5, 0.9])
+        ax.set_xticklabels(['0', '0.5', '0.9'])
+        ax.set_ylim(-0.05, 1.0)
+        ax.set_yticks([0, 0.5, 1])
+        ax.set_title(title, fontsize=7.5, pad=4)
+        style_plot(ax, ylabel=ylabel, xlabel=r'gate $\tau$')
+    hs = [plt.Line2D([], [], color=ours, lw=1.3, label='target class'),
+          plt.Line2D([], [], color=ours, lw=1.3, ls='--', label='other classes'),
+          plt.Line2D([], [], color=COLOR['fg'], marker='o', ms=6, mfc='none', mew=0.9, ls='none',
+                     label=r'paper $\tau$')]
+    fig.axes[1].legend(handles=hs, fontsize=6.5, frameon=False, loc='lower left',
+                       bbox_to_anchor=(0.0, 0.0), handlelength=1.6)
+    txt(cv, 2.35, 2.2, 'factors two or more levels below the output do change with τ',
+        size=6.5, color=COLOR['muted'])
+    yield fig, 'backup_tau'
+
+
 if __name__ == '__main__':
     publish([*slide_mlp_circuits(), *slide_mlp_inhibition()],
             [*slide_circuits('nb03_circuits', 'cnn_circuits', [0, 2, 12],
@@ -734,6 +981,9 @@ if __name__ == '__main__':
                              {0: [0, 1], 2: [1, 2]}, 10)],
             [*slide_depth()],
             [*slide_pruning()],
+            [*slide_layer_link()],
+            [*slide_subcircuit_mlp()],
+            [*slide_subcircuit_cnn()],
             [*slide_fingerprint_classes()],
             [*slide_fingerprint_separability()],
             [*slide_weight_term()],
@@ -747,4 +997,7 @@ if __name__ == '__main__':
             [*slide_backup_rank()],
             [*slide_backup_fp_baselines()],
             [*slide_backup_fp_geometry()],
-            [*slide_backup_ood_conditions()])
+            [*slide_backup_ood_conditions()],
+            [*slide_backup_prune_baselines()],
+            [*slide_backup_imagenet_heldout()],
+            [*slide_backup_tau()])
