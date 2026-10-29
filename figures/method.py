@@ -5,7 +5,7 @@ canvas, so the builds overlay. Each group of consecutive slides that show the sa
 as one (style.publish), so its shared content stays put and the full last build is centered.
 The network has the sizes of the paper's MLP (8 x 4 x 2 on digits 0, 4, 1, 3) but its activations
 and weights are a seeded toy, not the trained model; the factorizations are real NMF fits on the
-toy arbors.
+toy arbors. The two neuroscience slides (neuro_*) are stylized drawings, not data.
 
     PYTHONPATH=. .venv/bin/python figures/method.py
 """
@@ -15,11 +15,10 @@ from __future__ import annotations
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch, Rectangle
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch, Polygon, Rectangle
 
-from figures.style import COLOR, publish, slide
+from figures.style import COLOR, note, publish, slide
 
-AR = 0.5                                   # every slide, so the deck has one size
 DIGITS = [0, 4, 1, 3]                      # stimulus rows, even first
 CLASS = {0: 'even', 4: 'even', 1: 'odd', 3: 'odd'}
 DETECTS = [0, 0, 4, 4, 1, 1, 3, 3]         # the digit each hidden-1 neuron of the toy responds to
@@ -68,10 +67,32 @@ def toy() -> dict:
                 w2=w2, h2=h2)
 
 
+def population(t: dict, n: int = 200, seed: int = 1):
+    """n noisy stimuli of the four digits and their arbor matrix one layer down (n x 32)."""
+    rng = np.random.default_rng(seed)
+    lab = rng.integers(0, 4, n)                                # index into DIGITS
+    A1 = t['A1'][lab] * rng.uniform(0.6, 1.2, (n, 1)) + rng.uniform(0, 0.12, (n, 8))
+    return lab, (np.clip(t['W2'], 0, None)[None] * A1[:, None, :]).reshape(n, -1)
+
+
+def heldout_r2(J: np.ndarray, ks, frac: float = 0.7, seed: int = 0):
+    """Reconstruction R^2 on held-out stimuli: NMF on frac of the rows, the rest refit on its H."""
+    o = np.random.default_rng(seed).permutation(len(J))
+    tr, te = J[o[:int(frac * len(J))]], J[o[int(frac * len(J)):]]
+    r2 = []
+    for k in ks:
+        _, h, _ = nmf(tr, k)
+        w = np.full((len(te), k), 0.5)
+        for _ in range(2000):                                  # nonnegative loadings, H fixed
+            w *= (te @ h) / (w @ h.T @ h + 1e-12)
+        r2.append(1 - ((te - w @ h.T) ** 2).sum() / ((te - te.mean(0)) ** 2).sum())
+    return np.array(r2)
+
+
 # ---------------------------------------------------------------- drawing
 def canvas():
     """Full-bleed axes in inches, y pointing down; a fixed canvas so builds overlay."""
-    fig = slide(AR)
+    fig = slide()
     plt.rcParams['savefig.bbox'] = 'standard'
     W, H = fig.get_size_inches()
     ax = fig.add_axes([0, 0, 1, 1])
@@ -206,6 +227,100 @@ def slide_activations():
         txt(ax, 4.1, y, s, size=7)
         arrow(ax, (xv + cv + 0.08, yv + 1.5 * cv), (3.5, y), lw=0.8, ms=5)
     yield fig, 'activations'
+
+
+def soma(ax, p, s, fc=None, ec=None, lw=1.0):
+    """Pyramidal cell body of half-width s centred at p, apex up."""
+    x, y = p
+    ax.add_patch(Polygon([(x - s, y + 0.6 * s), (x + s, y + 0.6 * s), (x, y - 1.1 * s)],
+                         fc=fc or mix(COLOR['fg'], 0.72), ec=ec or COLOR['fg'], lw=lw, zorder=5))
+
+
+def dendrite(ax, p, angle, length, depth, rng, segs, lw=2.0):
+    """Recursive dendritic branch from p (angle in degrees, 90 = up); segments go to segs."""
+    a = np.radians(angle)
+    q = (p[0] + length * np.cos(a), p[1] - length * np.sin(a))
+    edge(ax, p, q, COLOR['muted'], lw, z=3)
+    segs.append((p, q, depth))
+    if depth > 1:
+        for side in (-1, 1):
+            dendrite(ax, q, angle + side * rng.uniform(22, 38), length * rng.uniform(0.62, 0.78),
+                     depth - 1, rng, segs, lw * 0.7)
+
+
+def slide_neuro_arbor():
+    """A neuron's dendritic arbor, its synapses colored by the input neuron they come from."""
+    fig, ax = canvas()
+    rng = np.random.default_rng(3)
+    p, segs = (2.47, 1.5), []
+    dendrite(ax, (p[0], p[1] - 0.12), 90, 0.42, 4, rng, segs)            # apical tree
+    for angle in (215, 250, 290, 325):                                   # basal dendrites
+        dendrite(ax, p, angle, 0.26, 2, rng, segs, lw=1.4)
+    edge(ax, (p[0], p[1] + 0.06), (p[0] + 0.04, 2.05), COLOR['faint'], 0.9, z=3)   # axon
+    soma(ax, p, 0.1)
+
+    # three input neurons, each contacting the branches nearest to it; synapse size is its strength
+    shades = (1.0, 0.7, 0.45)
+    inputs = [(1.15, 0.45), (1.2, 1.75), (3.85, 0.85)]
+    free = [s for s in segs if s[2] <= 2]
+    for (x, y), f in zip(inputs, shades):
+        col = mix(COLOR['green'], f, COLOR['bg'])
+        free.sort(key=lambda s: np.hypot((s[0][0] + s[1][0]) / 2 - x, (s[0][1] + s[1][1]) / 2 - y))
+        for a, b, _ in free[:3]:
+            u = rng.uniform(0.4, 0.8)
+            q = (a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1]))
+            ax.plot([x, q[0]], [y, q[1]], color=col, lw=0.7, zorder=2)
+            ax.add_patch(Circle(q, rng.uniform(0.025, 0.05), fc=col, lw=0, zorder=6))
+        del free[:3]
+        soma(ax, (x, y), 0.07, fc=col, ec=col)
+    txt(ax, p[0] + 0.16, p[1] + 0.02, 'soma', size=6.5, color=COLOR['muted'], ha='left')
+    txt(ax, 1.2, 1.95, 'input neurons', size=6.5, color=COLOR['muted'])
+    note(fig, 'after Ramón y Cajal; today mapped synapse by synapse by connectomics', y=0.02)
+    yield fig, 'neuro_arbor'
+
+
+def slide_neuro_simple_cell():
+    """Hubel & Wiesel. 1: a V1 simple cell fires for a bar at one orientation. 2: its LGN inputs,
+    lined up along that orientation, explain the tuning."""
+    green = COLOR['green']
+    angles, spikes, pref = (0, 45, 90, 135), (1, 9, 2, 0), 45
+
+    def bar(cx, cy, angle, half, lw, color):
+        a = np.radians(angle)
+        dx, dy = half * np.cos(a), -half * np.sin(a)
+        ax.plot([cx - dx, cx + dx], [cy - dy, cy + dy], color=color, lw=lw, zorder=6,
+                solid_capstyle='butt')
+
+    for step in (1, 2):
+        fig, ax = canvas()
+        rng = np.random.default_rng(0)
+        for k, (angle, n) in enumerate(zip(angles, spikes)):
+            x = 0.55 + 0.5 * k
+            ax.add_patch(Circle((x, 0.8), 0.19, fc=COLOR['bg'], ec=COLOR['edge'], lw=1.0, zorder=4))
+            bar(x, 0.8, angle, 0.15, 3.5, COLOR['fg'])
+            ax.plot([x - 0.2, x + 0.2], [1.38, 1.38], color=COLOR['edge'], lw=0.8, zorder=3)
+            for s in np.sort(rng.uniform(-0.18, 0.18, n)):     # spike train
+                ax.plot([x + s] * 2, [1.38, 1.22], color=COLOR['fg'], lw=1.0, zorder=4)
+        txt(ax, 1.3, 0.45, 'bar in the receptive field', size=7, color=COLOR['muted'])
+        txt(ax, 1.3, 1.55, 'spikes of a V1 simple cell', size=7, color=COLOR['muted'])
+
+        if step == 2:                                          # the arbor behind the tuning
+            c, cell = (3.35, 1.0), (4.45, 1.0)
+            ax.add_patch(Circle(c, 0.42, fc='none', ec=COLOR['edge'], lw=1.0, ls=(0, (3, 2)),
+                                zorder=3))
+            bar(*c, pref, 0.36, 9, mix(COLOR['fg'], 0.18, COLOR['bg']))
+            a = np.radians(pref)
+            for u in (-1.5, -0.5, 0.5, 1.5):
+                q = (c[0] + 0.17 * u * np.cos(a), c[1] - 0.17 * u * np.sin(a))
+                ax.plot([q[0], cell[0]], [q[1], cell[1]], color=green, lw=1.2, zorder=4)
+                ax.add_patch(Circle(q, 0.075, fc=mix(COLOR['fg'], 0.25, COLOR['bg']),
+                                    ec=COLOR['edge'], lw=0.6, zorder=5))
+                ax.add_patch(Circle(q, 0.033, fc=COLOR['fg'], lw=0, zorder=6))
+            soma(ax, cell, 0.11)
+            txt(ax, c[0], 1.6, 'LGN inputs (on-center)', size=7, color=COLOR['muted'])
+            txt(ax, cell[0], 1.3, 'simple cell', size=7, color=COLOR['muted'])
+        note(fig, 'Hubel & Wiesel 1962', y=0.02)
+        yield fig, f'neuro_simple_cell_{step}'
 
 
 def slide_arbor():
@@ -354,6 +469,77 @@ def slide_nmf(t: dict):
         txt(ax, xs - 0.13, yk + 2 * c, f'$f_{k}$', size=8, color=col)
     txt(ax, xh + 4 * c, 1.07, '+', size=14)
     yield fig, 'nmf'
+
+
+def slide_nmf_math(t: dict):
+    """The objective, the informativity lambda, and the separate inhibitory factorization, next to
+    the nmf slide's arbor matrix and its inhibitory counterpart."""
+    fig, ax = canvas()
+    c = 0.17
+    x0, y0, y1 = 0.5, 0.62, 1.5                                # J+ as on the nmf slide
+    Jm = (np.clip(-t['W3'], 0, None)[None] * t['A2'][:, None, :]).reshape(4, -1)
+    cells(ax, x0, y0, t['J3'], lambda i, j: COLOR[('even', 'odd')[j // 4]], c)
+    cells(ax, x0, y1, Jm, COLOR['inhibitory'], c, vmax=t['J3'].max())
+    for y, name, gloss in [(y0, '$J^+$', 'excitatory'), (y1, '$J^-$', 'inhibitory')]:
+        for s, d in enumerate(DIGITS):
+            tile(ax, x0 - 0.16, y + (s + 0.5) * c, 0.16, d)
+        txt(ax, x0 + 8 * c + 0.08, y + 2 * c - 0.09, name, size=9, ha='left')
+        txt(ax, x0 + 8 * c + 0.08, y + 2 * c + 0.11, gloss, size=6.5, color=COLOR['muted'],
+            ha='left')
+
+    xe = 2.55
+    for y, eq, gloss in [
+            (0.72, r'$\min_{W,\,H\,\geq\,0}\ \|J^+ - W H^\top\|_F^2$',
+             'nonnegative factors only add up: each is one part'),
+            (1.3, r'$J^+ \approx \sum_k \lambda_k\, w_k h_k^\top,\quad \|w_k\| = \|h_k\| = 1$',
+             r'$\lambda_k$: informativity, orders the factors'),
+            (1.88, r'$J^- \approx W^- (H^-)^\top$', 'fit separately: the inhibitory factors')]:
+        txt(ax, xe, y, eq, size=9, ha='left')
+        txt(ax, xe, y + 0.2, gloss, size=6.5, color=COLOR['muted'], ha='left')
+    yield fig, 'nmf_math'
+
+
+def slide_nmf_rank(t: dict):
+    """The rank is the start of the held-out reconstruction plateau: fewer factors merge digits,
+    more split one."""
+    lab, J = population(t)
+    ks = np.arange(1, 9)
+    r2 = heldout_r2(J, ks)
+    kstar = int(ks[np.argmax(r2 >= r2.max() - 0.01)])
+
+    fig, ax = canvas()
+    W, H = fig.get_size_inches()
+    pl = fig.add_axes([0.5 / W, 1 - 1.62 / H, 1.3 / W, 1.1 / H])
+    pl.plot(ks, r2, color=COLOR['fg'], lw=1.2, marker='o', ms=3.5, zorder=3)
+    pl.plot(kstar, r2[kstar - 1], 'o', ms=8, mfc='none', mec=COLOR['fg'], mew=1.2, zorder=4)
+    pl.annotate('start of\nthe plateau', (kstar, r2[kstar - 1]), (kstar + 0.9, 0.45),
+                color=COLOR['muted'], fontsize=6.5, ha='left', va='center',
+                arrowprops=dict(arrowstyle='-', color=COLOR['muted'], lw=0.7))
+    pl.set(xlim=(0.5, 8.5), ylim=(-0.1, 1.05), xticks=[1, 4, 8], yticks=[0, 0.5, 1],
+           xlabel='number of factors $K$', ylabel='held-out $R^2$')
+    pl.tick_params(labelsize=7)
+    for sp in ('top', 'right'):
+        pl.spines[sp].set_visible(False)
+
+    # what the stimulus factors look like below, at, and above the chosen rank
+    cw = 0.15
+    for i, (k, gloss) in enumerate([(kstar - 1, 'two digits merged'), (kstar, 'one per digit'),
+                                    (kstar + 1, 'one digit split')]):
+        w, _, _ = nmf(J, k)
+        M = np.array([w[lab == d].mean(0) for d in range(4)])
+        M = M[:, np.lexsort((-M.max(0), M.argmax(0)))]          # columns by the digit they load
+        xm = (2.35, 3.08, 3.97)[i]
+        cells(ax, xm, 0.75, M / M.max(0), lambda r, j: digit_color(DIGITS[r]), cw, vmax=1)
+        if i == 0:
+            for s, d in enumerate(DIGITS):
+                tile(ax, xm - 0.13, 0.75 + (s + 0.5) * cw, 0.15, d)
+        if k == kstar:
+            box(ax, xm, 0.75, xm + k * cw, 0.75 + 4 * cw, COLOR['fg'])
+        txt(ax, xm + k * cw / 2, 0.6, f'$K = {k}$', size=7.5)
+        txt(ax, xm + k * cw / 2, 0.75 + 4 * cw + 0.13, gloss, size=6.5, color=COLOR['muted'])
+    txt(ax, 3.45, 1.75, 'stimulus factors, mean per digit', size=6.5, color=COLOR['muted'])
+    note(fig, 'NMF fit on 70% of the stimuli, $R^2$ on the other 30%', y=0.02)
+    yield fig, 'nmf_rank'
 
 
 def slide_factor(t: dict):
@@ -566,10 +752,13 @@ def slide_simplification(t: dict):
 if __name__ == '__main__':
     t = toy()
     publish([*slide_activations()],
+            [*slide_neuro_arbor()],
+            [*slide_neuro_simple_cell()],
             [*slide_arbor()],
             [*slide_toy_task(), *slide_overview(t)],
             [*slide_arbor_matrix(t)],
-            [*slide_nmf(t), *slide_simplification(t)],
+            [*slide_nmf(t), *slide_nmf_math(t), *slide_simplification(t)],
+            [*slide_nmf_rank(t)],
             [*slide_factor(t)],
             [*slide_trace(t)],
             [*slide_tree(), *slide_fingerprint()])

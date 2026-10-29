@@ -44,6 +44,7 @@ THEMES = {
               'edge': '#AAAAAA', 'grid': '#DDDDDD', **_PAPER},
 }
 COLOR = dict(THEMES['dark'])
+SLIDE_AR = 818 / 1727                     # height / width of every slide (the Keynote frame)
 
 
 def _theme(name: str):
@@ -53,8 +54,11 @@ def _theme(name: str):
 
 
 # ---------------------------------------------------------------- slides
-def slide(ar: float):
+def slide(ar: float = SLIDE_AR):
     """A dark, engine-less slide figure of the given height / width.
+
+    The height stays half the beamer width, the height every slide layout is drawn for, and
+    the width follows from ar, so a wider ratio only adds room at the sides.
 
     Notes
     -----
@@ -71,8 +75,8 @@ def slide(ar: float):
         'savefig.edgecolor': bg, 'text.color': fg, 'axes.labelcolor': fg,
         'axes.edgecolor': fg, 'xtick.color': fg, 'ytick.color': fg, 'legend.labelcolor': fg,
         'grid.color': COLOR['grid'], 'patch.edgecolor': fg, 'figure.constrained_layout.use': False})
-    w = plt.rcParams['figure.figsize'][0]
-    fig = plt.figure(figsize=(w, w * ar))
+    h = plt.rcParams['figure.figsize'][0] / 2
+    fig = plt.figure(figsize=(h / ar, h))
     fig.set_layout_engine('none')
     return fig
 

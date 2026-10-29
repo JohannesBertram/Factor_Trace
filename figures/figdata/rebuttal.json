@@ -1,0 +1,51 @@
+{
+ "baselines.methods": [
+  "bft",
+  "magnitude",
+  "wxa",
+  "wxa_ctr",
+  "taylor",
+  "taylor_ctr",
+  "lrp",
+  "lrp_ctr",
+  "random"
+ ],
+ "imagenet.chance": 0.125,
+ "imagenet.pools": [
+  "traced",
+  "val_rest",
+  "val_new",
+  "train16"
+ ],
+ "link_cnn.class_names": [
+  "airplane",
+  "automobile",
+  "bird",
+  "cat",
+  "deer",
+  "dog",
+  "frog",
+  "horse",
+  "ship",
+  "truck"
+ ],
+ "link_cnn.frac": 0.005001491970486111,
+ "link_mlp.frac": 0.010044642857142858,
+ "link_mlp.labels": [
+  "odd",
+  "4",
+  "0"
+ ],
+ "sub_cnn.horse.a": 1,
+ "sub_cnn.horse.b": 2,
+ "sub_cnn.horse.node": 2,
+ "sub_cnn.ship.a": 1,
+ "sub_cnn.ship.b": 3,
+ "sub_cnn.ship.node": 10,
+ "tau.cnn_cifar.paper_tau": 0.0,
+ "tau.cnn_cifar.random": 0.13742000000000001,
+ "tau.mlp_digit.paper_tau": 0.7,
+ "tau.mlp_digit.random": 0.026370254253069835,
+ "tau.mlp_even_odd.paper_tau": 0.5,
+ "tau.mlp_even_odd.random": 0.0006316303472266749
+}

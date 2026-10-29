@@ -16,6 +16,7 @@ components:
   bft_bottom: cyan        # BFT least-important control — variant of ours
   magnitude: yellow       # weight-magnitude pruning baseline
   taylor: green           # Taylor / gradient x input baseline
+  lrp: '#EE7733'          # orange (Tol vibrant) — LRP edge-relevance pruning baseline
   random: grey            # random pruning baseline; also the random-rank
                           # reconstruction floor and the shuffled-label null
 
