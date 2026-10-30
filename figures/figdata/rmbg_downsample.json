@@ -1,0 +1,40 @@
+{
+ "base.comp_bg": 0.14709416780070628,
+ "base.comp_obj": 0.721531820201733,
+ "base.excess_mean": 0.26384033404558144,
+ "base.orig_mean": 0.8621218570805059,
+ "bg_factor_names": [
+  "grass",
+  "branches",
+  "sky"
+ ],
+ "categories": [
+  "airplane",
+  "bear",
+  "bicycle",
+  "bird",
+  "boat",
+  "car",
+  "dog",
+  "elephant"
+ ],
+ "n_bg_factors": 10,
+ "n_bubbles_total": 2120,
+ "n_edges_total": 2097152,
+ "n_factors": 16,
+ "n_op": 5243,
+ "n_pairs": 683,
+ "n_traced_pairs": 683,
+ "op_bft.comp_bg": 0.11322125869350162,
+ "op_bft.comp_obj": 0.7488275874815497,
+ "op_bft.excess_mean": 0.15072731792831506,
+ "op_bft.orig_mean": 0.8606474084606202,
+ "op_contrast.comp_bg": 0.1262647533913386,
+ "op_contrast.comp_obj": 0.738718234612983,
+ "op_contrast.excess_mean": 0.21508346116901664,
+ "op_contrast.orig_mean": 0.8561998765792795,
+ "op_random.comp_bg": 0.14295183099372252,
+ "op_random.comp_obj": 0.7255792335158177,
+ "op_random.excess_mean": 0.25689307277981593,
+ "op_random.orig_mean": 0.8620391422647438
+}

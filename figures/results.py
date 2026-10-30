@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle, FancyBboxPatch, Rectangle
 
-from figures.style import COLOR, publish, slide
+from figures.style import COLOR, note, publish, slide
 from src import figdata
 from src.paper_figures import (_VAL_MODELS, _OOD_MODELS, _cnn_fp_blocks, _faith_row, _sil_row,
                                cnn_depth_stats, cnn_layers, cosine_silhouette, fp_vs_act,
@@ -583,8 +583,193 @@ def slide_ood():
     yield fig, 'ood'
 
 
+# ---------------------------------------------------------------- background removal (ResNet-50)
+RMBG = 'rmbg_downsample'          # experiments/remove_background/code/48_export_slides.py
+
+
+def block(cv, x, y, w, h, s, color, lw=1.0, size=6.5):
+    """Rounded network block in canvas inches, label centered."""
+    cv.add_patch(FancyBboxPatch((x, y), w, h, boxstyle='round,pad=0,rounding_size=0.05', fc='none',
+                                ec=color, lw=lw, zorder=3))
+    txt(cv, x + w / 2, y + h / 2, s, size=size, color=color, linespacing=1.1)
+
+
+def cv_arrow(cv, a, b, color, lw=0.9):
+    cv.annotate('', xy=b, xytext=a, arrowprops=dict(arrowstyle='-|>', color=color, lw=lw,
+                                                    shrinkA=0, shrinkB=0, mutation_scale=7))
+
+
+def slide_bg_pipeline():
+    """Builds: 1 an original and its bubble both go through ResNet-50, 2 BFT at fc on both, the
+    background factors being those that load more on the bubbles than on their originals, 3 those
+    factors traced into the downsample path of layer4.0, 4 its top edges pruned."""
+    D = figdata.load(RMBG)
+    ours, fg, muted = COLOR['ours'], COLOR['fg'], COLOR['muted']
+    orig_c, bub_c = COLOR['id_data'], COLOR['near_ood']
+    dog = list(D['traced']).index(6)
+    pct = 100 * D['n_op'] / D['n_edges_total']
+    for step in (1, 2, 3, 4):
+        fig, cv = canvas()
+        for y, key, lab, col in [(0.22, 'ex_orig', 'original', orig_c),
+                                 (1.17, 'ex_bubble', 'bubble: object covered', bub_c)]:
+            image(fig, 0.15, y, 0.62, D[key][dog, 0], ec=col, lw=1.0)
+            txt(cv, 0.46, y + 0.72, lab, size=6.5, color=col)
+            cv_arrow(cv, (0.82, y + 0.31), (1.05, 1.06 + (0.06 if y > 1 else -0.06)), col)
+        block(cv, 1.05, 0.86, 0.5, 0.4, 'layers\n1-3', fg)
+        hl_ds = step >= 3
+        block(cv, 1.8, 0.45, 0.68, 0.36, 'block 4.0', fg)
+        block(cv, 1.8, 1.31, 0.68, 0.36, 'downsample\n(skip path)', ours if hl_ds else fg,
+              lw=1.6 if hl_ds else 1.0)
+        for ye in (0.63, 1.49):
+            cv.plot([1.55, 1.67, 1.67], [1.06, 1.06, ye], color=muted, lw=0.9)
+            cv_arrow(cv, (1.67, ye), (1.8, ye), muted)
+            cv.plot([2.48, 2.65, 2.65], [ye, ye, 1.06 + (0.07 if ye > 1 else -0.07)], color=muted, lw=0.9)
+        cv.add_patch(Circle((2.65, 1.06), 0.07, fc='none', ec=muted, lw=0.9, zorder=3))
+        txt(cv, 2.65, 1.06, '+', size=7, color=muted)
+        cv_arrow(cv, (2.72, 1.06), (2.88, 1.06), muted)
+        block(cv, 2.88, 0.86, 0.55, 0.4, 'blocks\n4.1-4.2', fg)
+        cv_arrow(cv, (3.43, 1.06), (3.6, 1.06), muted)
+        block(cv, 3.6, 0.86, 0.3, 0.4, 'fc', ours if step >= 2 else fg, lw=1.6 if step >= 2 else 1.0)
+        cv_arrow(cv, (3.9, 1.06), (4.04, 1.06), muted)
+        txt(cv, 4.08, 1.06, '8 superclass\nscores', size=6.5, color=muted, ha='left', linespacing=1.1)
+
+        if step >= 2:                       # loading of every fc factor on originals vs. bubbles
+            pill(cv, 3.0, 0.42, '1', ours)
+            txt(cv, 3.1, 0.42, 'BFT at fc on originals\nand bubbles', size=6.5, ha='left',
+                linespacing=1.1)
+            q = np.lexsort((-D['fac_bg_score'], -D['fac_is_bg']))      # significant ones first
+            lo, lb = D['fac_load_orig'][q], D['fac_load_bubble'][q]
+            m = np.maximum(lo, lb)
+            K, nb = len(lo), int(D['fac_is_bg'].sum())
+            ax = ax_at(fig, 3.3, 1.62, 1.35, 0.42, frame=False)
+            x = np.arange(K)
+            ax.bar(x - 0.2, lo / m, 0.4, color=orig_c)
+            ax.bar(x + 0.2, lb / m, 0.4, color=bub_c)
+            ax.set_xlim(-0.6, K - 0.4)
+            ax.set_ylim(0, 1.05)
+            for sp in ('left', 'bottom'):
+                ax.spines[sp].set_visible(False)
+            txt(cv, 3.3 + 1.35 / 2, 1.5, 'fc factors: loading on original / bubble', size=6.5,
+                color=muted)
+            w = 1.35 / (K + 0.2)
+            x0 = 3.3 + 0.4 * w
+            cv.plot([x0, x0 + (nb - 0.2) * w], [2.1, 2.1], color=ours, lw=1.2)
+            txt(cv, x0 + (nb - 0.2) * w / 2, 2.2, 'background factors', size=6.5, color=ours)
+            cv.plot([x0 + nb * w, x0 + (K - 0.2) * w], [2.1, 2.1], color=muted, lw=1.2)
+            txt(cv, x0 + (nb + K - 0.2) * w / 2, 2.2, 'other', size=6.5, color=muted)
+        if step >= 3:
+            pill(cv, 1.45, 1.95, '2', ours)
+            txt(cv, 1.55, 1.95, f'trace them into its {D["n_edges_total"] / 1e6:.1f}M edges',
+                size=6.5, ha='left')
+        if step >= 4:
+            pill(cv, 1.45, 2.2, '3', ours)
+            txt(cv, 1.55, 2.2, f'prune {pct:.2g}% of them ({D["n_op"]:,})', size=6.5,
+                ha='left')
+        yield fig, f'bg_pipeline_{step}'
+
+
+def slide_bg_examples():
+    """Typical traced pairs: for bird, boat and dog the pairs whose bubble score is the median."""
+    D = figdata.load(RMBG)
+    cats, muted = D['categories'], COLOR['muted']
+    s, gp, gr = 0.44, 0.03, 0.14
+    n = D['ex_orig'].shape[1]
+    x0 = (4.685 - n * (2 * s + gp) - (n - 1) * gr) / 2 + 0.2
+    fig, cv = canvas()
+    for r, c in enumerate(D['traced']):
+        y = 0.12 + r * (s + 0.24)
+        txt(cv, x0 - 0.1, y + s / 2, cats[c], size=7, ha='right')
+        for k in range(n):
+            x = x0 + k * (2 * s + gp + gr)
+            image(fig, x, y, s, D['ex_orig'][r, k])
+            image(fig, x + s + gp, y, s, D['ex_bubble'][r, k], ec=COLOR['near_ood'], lw=1.0)
+            txt(cv, x + s / 2, y + s + 0.08, f'{D["ex_score_orig"][r, k]:.2f}', size=6.5, color=muted)
+            txt(cv, x + 1.5 * s + gp, y + s + 0.08, f'{D["ex_score_bubble"][r, k]:.2f}', size=6.5,
+                color=COLOR['near_ood'])
+    note(fig, 'original and bubble (teal frame), with their true-superclass score', y=0.02)
+    yield fig, 'bg_examples'
+
+
+def slide_bg_factors():
+    """Top stimuli of the three strongest background factors at fc: scene types, not objects."""
+    D = figdata.load(RMBG)
+    s, g = 0.5, 0.05
+    n = D['top_u8'].shape[1]
+    x0 = (4.685 - n * (s + g) + g) / 2 + 0.2
+    fig, cv = canvas()
+    for r, name in enumerate(D['bg_factor_names']):
+        y = 0.2 + r * (s + 0.14)
+        txt(cv, x0 - 0.1, y + s / 2, name, size=7, color=COLOR['ours'], ha='right')
+        for k in range(n):
+            bub = bool(D['top_is_bubble'][r, k])
+            image(fig, x0 + k * (s + g), y, s, D['top_u8'][r, k],
+                  ec=COLOR['near_ood'] if bub else COLOR['edge'], lw=1.0 if bub else 0.6)
+    note(fig, f'top images of 3 of the {int(D["n_bg_factors"])} background factors '
+              '(teal frame: bubble)', y=0.02)
+    yield fig, 'bg_factors'
+
+
+def slide_bg_tradeoff():
+    """Background evidence on bubbles against object evidence on originals, as more downsample edges
+    are pruned: BFT against the paired edge contrast (no BFT)."""
+    D = figdata.load(RMBG)
+    ours, base = COLOR['ours'], COLOR['baseline']
+    fig, cv = canvas()
+    ax = ax_at(fig, 1.15, 0.2, 2.1, 1.6)
+    ax.axhline(0, color=COLOR['faint'], lw=0.7, ls=(0, (3, 2)))
+    for key, col, lab in [('curve_contrast', base, 'edge contrast (no BFT)'),
+                          ('curve_bft', ours, 'BFT')]:
+        C = np.vstack([[D['base']['orig_mean'], D['base']['excess_mean']], D[key]])
+        ax.plot(C[:, 0], C[:, 1], '-o', color=col, lw=1.4, ms=2.5, label=lab)
+    i = list(D['n_edges']).index(int(D['n_op']))
+    for key, col in [('curve_contrast', base), ('curve_bft', ours)]:
+        ax.scatter(*D[key][i], s=55, facecolor='none', edgecolor=col, lw=1.2, zorder=5)
+    ax.scatter(D['base']['orig_mean'], D['base']['excess_mean'], s=30, color=COLOR['fg'], zorder=6,
+               label='unpruned')
+    pct = 100 * D['n_op'] / D['n_edges_total']
+    ax.annotate(f'{pct:.2g}% of edges', D['curve_bft'][i], xytext=(9, -9),
+                textcoords='offset points', fontsize=6.5, color=ours, ha='left', va='center')
+    ax.set_xlim(0.825, 0.87)
+    ax.set_ylim(-0.02, 0.3)
+    ax.set_xticks([0.83, 0.85, 0.87])
+    ax.set_yticks([0, 0.1, 0.2, 0.3])
+    style_plot(ax, ylabel='background evidence on bubbles\n(score above prior)',
+               xlabel='object evidence on originals (score)')
+    ax.legend(fontsize=6.5, frameon=False, loc='upper left', bbox_to_anchor=(1.02, 1))
+    txt(ax, 1.06, 0.36, 'baseline: score every edge by its\ncontribution on bubbles minus on\ntheir '
+        'originals, prune the top ones;\nno factors, no tree', size=6.5, color=COLOR['baseline'],
+        ha='left', va='top', transform=ax.transAxes, linespacing=1.2)
+    note(fig, 'held-out half; circles: the budget chosen on the fit half', y=0.02)
+    yield fig, 'bg_tradeoff'
+
+
+def slide_bg_percat():
+    """Background evidence per superclass: unpruned, edge contrast and BFT, at the same budget."""
+    D = figdata.load(RMBG)
+    cats, muted = D['categories'], COLOR['muted']
+    fig, cv = canvas()
+    ax = ax_at(fig, 0.75, 0.3, 3.4, 1.45)
+    x = np.arange(len(cats))
+    conds = [('base', COLOR['random'], 'unpruned'), ('op_contrast', COLOR['baseline'], 'edge contrast (no BFT)'),
+             ('op_bft', COLOR['ours'], 'BFT')]
+    for i, (key, col, lab) in enumerate(conds):
+        ax.bar(x + (i - 1) * 0.26, D[key]['excess'], 0.26, color=col, label=lab)
+    ax.axhline(0, color=COLOR['fg'], lw=0.6)
+    ax.set_xticks(x)
+    ax.set_xticklabels(cats, fontsize=6.5)
+    for t, c in zip(ax.get_xticklabels(), x):
+        t.set_color(COLOR['fg'] if c in D['traced'] else muted)
+    ax.set_yticks([0, 0.2, 0.4])
+    style_plot(ax, ylabel='background evidence on bubbles\n(score above prior)')
+    ax.legend(fontsize=6.5, frameon=False, loc='lower center', bbox_to_anchor=(0.5, 1.0), ncol=3)
+    o = {k: D[k]['orig_mean'] for k, *_ in conds}
+    note(fig, f'{int(D["n_op"]):,} edges each; originals {o["base"]:.3f} unpruned, '
+              f'{o["op_contrast"]:.3f} contrast, {o["op_bft"]:.3f} BFT', y=0.02)
+    yield fig, 'bg_percat'
+
+
 # ---------------------------------------------------------------- backup slides
-MODELS = ['MLP\neven/odd', 'MLP\ndigit', 'CIFAR-10\nCNN', 'TinyViT', 'ImageNet']
+MODELS =['MLP\neven/odd', 'MLP\ndigit', 'CIFAR-10\nCNN', 'TinyViT', 'ImageNet']
 
 
 def arbor_rgb(A, color):
@@ -988,6 +1173,11 @@ if __name__ == '__main__':
             [*slide_fingerprint_separability()],
             [*slide_weight_term()],
             [*slide_ood()],
+            [*slide_bg_pipeline()],
+            [*slide_bg_examples()],
+            [*slide_bg_factors()],
+            [*slide_bg_tradeoff()],
+            [*slide_bg_percat()],
             [*slide_backup_digit_mlp()],
             [*slide_backup_vit()],
             [*slide_backup_gallery('nb03_circuits', 'backup_cnn_gallery', 10)],

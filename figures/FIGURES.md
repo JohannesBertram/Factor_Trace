@@ -41,6 +41,10 @@ Most interpretability work reads a layer's activations: we push images or text t
 
 A stylized pyramidal cell: its dendritic arbor (grey) and three input neurons, each contacting the branches nearest to it (one green shade per input, synapse size = strength). Note line: from Ramón y Cajal's drawings to today's synapse-level connectomics.
 
+**Notes:**
+
+In neuroscience, a neuron is read not only through its responses but through its dendritic arbor: which inputs converge on it, where, and how strongly. Here three input neurons, each in its own shade of green, contact the branches nearest to them, and the size of each synapse is its strength. Since Ramón y Cajal's drawings this was done by eye; today connectomics maps it synapse by synapse. BFT carries the same idea over to artificial networks: read a unit through the inputs that actually drive it.
+
 **Comments:**
 
 ### neuro_simple_cell: the arbor explains the tuning: a simple cell prefers one orientation because its inputs line up along it
@@ -49,6 +53,12 @@ A stylized pyramidal cell: its dendritic arbor (grey) and three input neurons, e
 ![](slides/preview/neuro_simple_cell_2.png)
 
 Hubel & Wiesel's (1962) feedforward model of a V1 simple cell. Build 1: bars at four orientations in the receptive field and the cell's spikes; it fires for the 45° bar. Build 2: the explanation from its arbor: on-center LGN inputs whose receptive fields lie along that 45° line (the preferred bar drawn faintly behind them), all wired onto the cell (green, the trace color of the method slides).
+
+**Notes:**
+
+Build 1: The classic example is the V1 simple cell of Hubel and Wiesel. We show bars at four orientations in its receptive field. The cell fires a little for the horizontal and the vertical bar, strongly for the 45 degree bar, and not at all for the other diagonal. From the responses we know what it prefers, but not why.
+
+Build 2: The explanation came from its arbor: the cell receives on-center LGN inputs whose receptive fields lie along a 45 degree line, so a bar at that angle excites all of them at once. The tuning follows from which inputs converge on the cell. That is the kind of explanation we want for units in a network, and the green is the color the traces have on the method slides.
 
 **Comments:**
 
@@ -111,6 +121,10 @@ Build 3: And we do it for every neuron in the layer, appending the odd neuron's 
 
 ![](slides/preview/nmf.png)
 
+**Notes:**
+
+We factorize the arbor matrix with non-negative matrix factorization. NMF writes it as a sum of a few rank-one parts, each a stimulus factor (which stimuli use this part) times a connection factor (which connections they use). Because everything is non-negative, the parts only add up and never cancel, which keeps each one readable. Here two factors suffice: f0 holds the 0s and 4s with the even connections, f1 the 1s and 3s with the odd ones. The negative terms, inhibition, are factorized separately in the same way.
+
 **Comments:**
 
 ### nmf_math: NMF finds nonnegative factors that add up to the arbor matrix, the excitatory and inhibitory parts separately
@@ -118,6 +132,10 @@ Build 3: And we do it for every neuron in the layer, appending the odd neuron's 
 ![](slides/preview/nmf_math.png)
 
 The nmf slide's $J^+$ at the same position, with $J^-$ (the products through negative weights, grey) below it. Right: the objective $\min_{W,H \geq 0} \|J^+ - WH^\top\|_F^2$; the unit-norm rewriting $J^+ \approx \sum_k \lambda_k w_k h_k^\top$, whose $\lambda_k$ (informativity) orders the factors; $J^-$ factorized on its own, giving the inhibitory factors. Toy $J^-$: the even neuron is inhibited by the odd stimuli and vice versa.
+
+**Notes:**
+
+Written out: the arbor matrix splits into an excitatory part, J plus, the products through positive weights, and an inhibitory part, J minus, the products through negative weights, shown in grey below. NMF finds non-negative W and H whose product approximates J plus in squared error. Since nothing can be subtracted, each factor is one additive part. We normalize every stimulus factor and connection factor to unit length, so each factor carries a scale lambda, its informativity, which orders the factors. J minus is factorized on its own in the same way and gives the inhibitory factors; in the toy, the even neuron is inhibited by the odd digits and the odd neuron by the even ones.
 
 **Comments:**
 
@@ -129,7 +147,7 @@ Toy: 200 noisy stimuli of the four digits, arbor matrix of the layer below the o
 
 **Notes:**
 
-We factorize the arbor matrix with non-negative matrix factorization. NMF writes it as a sum of a few rank-one parts, each a stimulus factor (which stimuli use this part) times a connection factor (which connections they use). Because everything is non-negative, the parts only add up and never cancel, which keeps each one readable. Here two factors suffice: f0 holds the 0s and 4s with the even connections, f1 the 1s and 3s with the odd ones. The negative terms, inhibition, are factorized separately in the same way.
+How many factors? We fit NMF on 70 percent of the stimuli and measure how well its factors reconstruct the other 30 percent. Held-out R-squared climbs with the number of factors and then plateaus; we take the smallest K within 0.01 of the best, the start of the plateau, here four. The right side shows why that is the right choice: with three factors the 0 and the 1 share a factor, with four there is one factor per digit, and a fifth factor only splits the 3 in two. In the paper this sweep sets an upper bound per layer, and each node then trims its factors further at a gap in its lambda spectrum.
 
 **Comments:**
 
@@ -186,6 +204,10 @@ Build 4: NMF of that reweighted matrix splits the even circuit into two sub-circ
 ![](slides/preview/tree.png)
 
 The tree as drawn on the fingerprint slides (now just before the fingerprint results), so the tree sits in the same place there.
+
+**Notes:**
+
+Repeating that step at every layer, for every factor, builds a tree. The root is the output layer, here split into even and odd. Each child is the factorization of the layer below under its parent's stimulus weights: even splits into 0 and 4, odd into 1 and 3, and so on down to the input. Each path through the tree is a circuit, a set of stimuli plus the connections they use at every layer. The number of factors per layer is chosen by held-out reconstruction, not by hand.
 
 **Comments:**
 
@@ -295,6 +317,10 @@ Are these circuits the ones the network actually uses? We prune a class circuit'
 
 Rebuttal §1. Rows: the child whose highest-ranked weights are pruned; columns: the drop of each parent factor's contribution; below, the same number of random weights. Left: 8x4x2 MLP, the three $L_2 \to L_1$ links (odd, 4, 0), top 1% of $W_1$, values in %. Right: CIFAR-10 CNN, the 13 classifier factors and their conv4 children, top 0.5% of conv4; the own parent is the most-hit factor in all 13 rows (own 54%, other parents 24%, random 1%). The wider 40x20x10 MLP shows the same direction but weakly (specificity 0.06-0.07); not on the slide.
 
+**Notes:**
+
+Is a link in the tree a real connection or only a correlation? We test it causally. For each parent factor we prune the top-ranked weights of its child, one layer down, and measure how much each parent factor's contribution drops. In the even/odd MLP, pruning the top 1 percent of first-layer weights mostly silences the child's own parent, the diagonal, and the same number of random weights does nothing. In the CIFAR-10 CNN, with the 13 classifier factors and their conv4 children, the own parent is the most-hit factor in every row: on average a 54 percent drop for the own parent, 24 percent for the other parents and 1 percent for random weights.
+
 **Comments:**
 
 ### subcircuit_mlp: pruning the 0 sub-circuit removes 0s and spares 4s and the odd digits
@@ -302,6 +328,10 @@ Rebuttal §1. Rows: the child whose highest-ranked weights are pruned; columns: 
 ![](slides/preview/subcircuit_mlp.png)
 
 Rebuttal sub-circuit pruning, even/odd MLP. 5% of the first-layer weights, ranked by the factors whose stimuli are mostly 0 (or mostly 4), pos + neg; accuracy drop per digit on the test set. Above each group the strongest $L_1$ factor of that sub-circuit as a pixel arbor. 0: 40 vs. 4 pp; 4: 35 vs. 19 pp; odd digits ≤ 1 pp; random weights 0. The odd side (note line) is partial for 1 and fails for 3, as does a digit-supervised attribution baseline.
+
+**Notes:**
+
+Pruning also works below the class level. In the even/odd MLP the even circuit splits into a 0 and a 4 sub-circuit, found without digit labels. Pruning 5 percent of the first-layer weights ranked by the 0 sub-circuit costs the 0s 40 points of accuracy and the 4s only 4; ranked by the 4 sub-circuit, the 4s lose 35 points and the 0s 19. The odd digits are untouched, and random weights do nothing. The odd side is less clean: pruning the 1 sub-circuit hits the 1s harder than the 3s, 61 versus 24 points, but the 3 sub-circuit cannot be separated from the 1.
 
 **Comments:**
 
@@ -312,6 +342,12 @@ Rebuttal sub-circuit pruning, even/odd MLP. 5% of the first-layer weights, ranke
 
 Rebuttal sub-circuit pruning, CIFAR-10 CNN. The horse circuit's conv4 node has a left-facing ($f_1$) and a right-facing ($f_2$) sub-factor, found label-free by a mirror test; the ship node ($f_1$, $f_3$) has two diagonal orientations. 2% of conv4 weights ranked by one sub-factor; drop on held-out test images of each orientation (each group is half originals, half mirrors of the other group, so only orientation differs) and on the other classes. Build 1: horse (36 vs. 23 pp, reversed 11 vs. 19 pp). Build 2: adds ship (20 vs. 3 pp; the reverse is barely selective, 23 vs. 28 pp).
 
+**Notes:**
+
+Build 1: The same works in the CIFAR-10 CNN, for sub-circuits that no label describes. The horse circuit's conv4 node splits into two sub-factors that a mirror test identifies as horses facing left and horses facing right. Each test group is half original images and half mirrored images of the other group, so only the facing direction differs. Pruning 2 percent of conv4 weights ranked by the left-facing sub-factor costs left-facing horses 36 points and right-facing ones 23; the right-facing sub-factor reverses this, 19 versus 11. Other classes and random weights barely move.
+
+Build 2: The ship node splits by the direction of the bow. Pruning the bow-left sub-factor costs bow-left ships 20 points and bow-right ships only 3. The reverse is barely selective, 28 versus 23 points, so not every sub-factor gives a clean cut.
+
 **Comments:**
 
 ### fingerprint: a stimulus's loadings across the tree are its fingerprint
@@ -320,6 +356,12 @@ Rebuttal sub-circuit pruning, CIFAR-10 CNN. The horse circuit's conv4 node has a
 ![](slides/preview/fingerprint_2.png)
 
 From `method.py`, moved here so the fingerprint method comes directly before the fingerprint results. Builds: the tree lit by one stimulus's loadings, then the fingerprints of all four stimuli. Toy loadings.
+
+**Notes:**
+
+Build 1: The tree also gives a code for each stimulus. Take a single 0: its loadings on the nodes of the tree's top two levels, even and odd and their sub-circuits, form a vector. That vector is the stimulus's fingerprint: it describes how this stimulus is routed through the network.
+
+Build 2: Stacking the fingerprints of all four stimuli gives this matrix: the even digits load on the even side and their own sub-circuit, the odd digits on the odd side. A new stimulus can be projected onto the fixed factors without refitting, which we use later for held-out and out-of-distribution inputs. These are toy loadings; the real ones follow.
 
 **Comments:**
 
@@ -368,6 +410,75 @@ Fig. fp_ood c, a. Left: held-out digits land where the network's own P(odd) puts
 **Notes:**
 
 Finally, out-of-distribution inputs. Left, the even/odd MLP on digits it never saw: their share on the odd circuit tracks the network's own probability of saying odd (r = 0.999), not their true parity. The fingerprint reflects what the network believes. Right, synthetic inputs (noise, gray images, checkerboards, inverted images) collapse onto almost the same fingerprint on every model, with cosine to their condition mean above 0.9, while real images stay spread out. That collapse flags inputs the network does not recognize. ImageNet has no held-out set, so that bar is missing.
+
+**Comments:**
+
+### bg_pipeline: to find background shortcuts, BFT compares each image with its bubble, and the factors that prefer bubbles are traced into the downsample path
+
+![](slides/preview/bg_pipeline_1.png)
+![](slides/preview/bg_pipeline_2.png)
+![](slides/preview/bg_pipeline_3.png)
+![](slides/preview/bg_pipeline_4.png)
+
+From `experiments/remove_background` (meeting 004; bundle `rmbg_downsample`, exported by `code/48_export_slides.py`). Pretrained ResNet-50, ImageNet validation images of 8 superclasses (airplane, bear, bicycle, bird, boat, car, dog, elephant). A bubble is the same image with the object covered by a gray ellipse. Builds: 1 an original and its bubble both go through the network; 2 BFT at fc on both together, with the mean loading of each of the 16 fc factors on the traced originals (grey) and on their bubbles (teal), each factor scaled to its larger value, sorted by background score; background factors = significantly more loading on the bubble than on its own original (paired test against a swap null); 3 the downsample conv of layer4.0 (1x1, stride 2, 1024 to 2048 channels), which reaches fc only through skip connections; 4 its top 0.25% edges pruned.
+
+**Notes:**
+
+Build 1: Now an application: can BFT find where a network classifies from the background instead of the object? We take a pretrained ResNet-50 and ImageNet images from eight superclasses, such as bird, boat and dog. For each image we also make a bubble: the same photo with the object covered by a gray ellipse, so only the background is left. Both go through the network.
+
+Build 2: We run one BFT on the originals and their bubbles together, so every factor has a loading on each original and on its bubble. Here are all 16 factors at the last layer, grey the mean loading on originals, teal on the bubbles. On the left are factors that load more on the bubble than on the same image with its object: they respond to what is left when the object is gone, so these are background factors. On the right are the other factors; most of them load mainly on originals and carry the object.
+
+Build 3: We trace the background factors one step further back, into the downsample path of the last block group. This is a skip path: it carries the layer-3 features into the residual stream without the block's convolutions. It has 2.1 million edges.
+
+Build 4: Then we prune the top 0.25 percent of these edges, 5,243, ranked by how specific they are to the background factors.
+
+**Comments:**
+
+### bg_examples: typical traced bubbles keep a clear superclass score with the object fully covered
+
+![](slides/preview/bg_examples.png)
+
+For bird, boat and dog, the four traced pairs whose bubble score is closest to that superclass's median. Numbers: true-superclass score of the original (grey) and the bubble (teal).
+
+**Notes:**
+
+We trace the bubbles that the network still assigns to the right superclass, with a score above what that superclass gets on other superclasses' bubbles: 683 of them, almost all dog, bird and boat. Here are typical examples, the median bubbles of each superclass. With the bird covered the network still says bird at 0.76: branches, ground and grass are enough. Boats are recognized from open water at 0.58, dogs from lawns and indoor floors at 0.6.
+
+**Comments:**
+
+### bg_factors: the background factors are scene types: grass, branches, sky
+
+![](slides/preview/bg_factors.png)
+
+Top-loading stimuli of the three strongest of the 10 significant background factors (of 16) at fc; background score = paired bubble-minus-original loading, tested against a bubble/original swap null. All top stimuli are bubbles.
+
+**Notes:**
+
+What do the background factors look like? These are the top images of the three strongest. They are scene types, not objects: grass, branches and sky. All their top images are bubbles. These are the factors whose edges we trace into the downsample path.
+
+**Comments:**
+
+### bg_tradeoff: pruning the BFT-ranked downsample edges removes background evidence at almost no cost to the object
+
+![](slides/preview/bg_tradeoff.png)
+
+Held-out half. x: mean true-superclass score on originals (object evidence). y: background excess, the bubble's true-superclass score minus that superclass's prior, averaged over all bubbles (0 = no background evidence). Budgets 262 to 26,214 edges (0.0125% to 1.25%). Baseline: the paired edge contrast, the edge's contribution on bubbles minus on originals over all 2048 output channels, no BFT (`code/47_contrast_curve_ds.py`). Circles: the budget chosen on the fit half (largest with at most 0.01 original-score loss), 5,243 edges.
+
+**Notes:**
+
+Does pruning work? Up is background evidence on bubbles, right is object evidence on originals; the ideal is straight down. Pruning the top 0.25 percent of BFT-ranked edges cuts the background evidence from 0.26 to 0.15, 43 percent, while the originals stay at 0.86. The baseline, in blue, uses the same images and the same layer but no factorization. Each edge of the downsample path gets one number: its contribution averaged over the bubbles minus its contribution averaged over their originals. We prune the edges with the largest difference. So it asks which edges are used more without the object, while BFT asks which edges belong to the background factors and not to the others. At the same budget the baseline only gets to 0.22 and costs more object evidence. BFT removes more background evidence than the baseline at every budget; only at the largest budget, 1.25 percent, does it also cost more object evidence.
+
+**Comments:**
+
+### bg_percat: the pruning removes background evidence from bird, boat and dog, and the baseline much less
+
+![](slides/preview/bg_percat.png)
+
+Held-out half, 5,243 edges each. Background excess per superclass; bird, boat and dog (white labels) are the superclasses with traced bubbles. Originals' mean true-superclass score in the note line.
+
+**Notes:**
+
+Per superclass: grey is the unpruned model, blue the contrast baseline, pink BFT, at the same number of edges. For the three traced superclasses BFT roughly halves the background evidence: bird from 0.36 to 0.17, dog from 0.25 to 0.14, boat from 0.43 to 0.30. The baseline removes much less. The originals keep their score: 0.862 before, 0.861 after.
 
 **Comments:**
 
